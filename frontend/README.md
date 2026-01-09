@@ -2,6 +2,32 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+## MVP Run Instructions
+
+### Backend (FastAPI)
+
+From the repo root:
+
+```bash
+cd backend
+PYTHONPATH=src uvicorn coocked_api.api.main:app --reload --port 8000
+```
+
+Backend runs on [http://localhost:8000](http://localhost:8000).
+
+### Frontend (Next.js)
+
+From the repo root:
+
+```bash
+cd frontend
+cp .env.local.example .env.local
+npm install
+npm run dev
+```
+
+Frontend runs on [http://localhost:3000](http://localhost:3000).
+
 First, run the development server:
 
 ```bash
