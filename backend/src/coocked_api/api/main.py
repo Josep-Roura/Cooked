@@ -5,10 +5,12 @@ from coocked_api.api.routes.nutrition import router as nutrition_router
 
 app = FastAPI(title="Cooked AI API", version="0.1.0")
 
-# Frontend runs on 5173
+# Frontend runs on 3000 (keep 5173 for local dev)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
