@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { getDeviceId } from "@/lib/device";
 import { generateNutritionPlan, healthCheck, PlanRow } from "@/lib/api";
 
 type BackendStatus = "Not checked" | "Checking..." | "Backend OK ✅";
+
+type SaveStatus = { planId: string | null; saved: boolean };
 
 export default function HomePage() {
   const [backendStatus, setBackendStatus] =
@@ -14,6 +19,15 @@ export default function HomePage() {
   const [weightKg, setWeightKg] = useState<string>("");
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deviceId, setDeviceId] = useState<string>("");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({
+    planId: null,
+    saved: false
+  });
+
+  useEffect(() => {
+    setDeviceId(getDeviceId());
+  }, []);
 
   const weightNumber = Number(weightKg);
   const canSubmit = Boolean(file) && weightNumber > 0 && !isSubmitting;
@@ -30,7 +44,7 @@ export default function HomePage() {
       "protein_g",
       "carbs_g",
       "fat_g",
-      "intra_cho_g_per_h",
+      "intra_cho_g_per_h"
     ].join(",");
     const lines = rows.map((row) =>
       [
@@ -40,7 +54,7 @@ export default function HomePage() {
         row.protein_g,
         row.carbs_g,
         row.fat_g,
-        row.intra_cho_g_per_h,
+        row.intra_cho_g_per_h
       ].join(",")
     );
     return [header, ...lines].join("\n");
@@ -50,7 +64,7 @@ export default function HomePage() {
     setError(null);
     setBackendStatus("Checking...");
     try {
-      await healthCheck();
+      await healthCheck(deviceId);
       setBackendStatus("Backend OK ✅");
     } catch (err) {
       setBackendStatus("Not checked");
@@ -66,14 +80,20 @@ export default function HomePage() {
     if (!file || !canSubmit) {
       return;
     }
+    if (!deviceId) {
+      setError("Device ID not ready yet. Please try again.");
+      return;
+    }
     setError(null);
     setIsSubmitting(true);
     try {
       const response = await generateNutritionPlan({
         file,
         weightKg: weightNumber,
+        deviceId
       });
       setRows(response.rows);
+      setSaveStatus({ planId: response.plan_id, saved: response.saved });
     } catch (err) {
       setError(
         err instanceof Error
@@ -107,17 +127,16 @@ export default function HomePage() {
             Upload workouts_mvp.csv, enter your weight, and generate a nutrition
             plan.
           </p>
+          <p className="text-xs text-slate-500">
+            Device ID: {deviceId || "Loading..."}
+          </p>
         </header>
 
         <section className="rounded-xl border border-white/10 bg-slate-900/60 p-6 shadow-sm">
           <div className="flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400"
-              onClick={handleCheckBackend}
-            >
+            <Button type="button" onClick={handleCheckBackend}>
               Check backend
-            </button>
+            </Button>
             <span className="text-sm text-slate-200">{backendStatus}</span>
           </div>
         </section>
@@ -133,6 +152,7 @@ export default function HomePage() {
               className="w-full rounded-md border border-white/20 bg-slate-950 px-3 py-2 text-sm text-slate-200"
               onChange={(event) => {
                 setRows([]);
+                setSaveStatus({ planId: null, saved: false });
                 setFile(event.target.files?.[0] ?? null);
               }}
             />
@@ -156,24 +176,41 @@ export default function HomePage() {
           </div>
 
           <div className="flex flex-wrap gap-3 md:col-span-3">
-            <button
+            <Button
               type="button"
-              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={handleGeneratePlan}
               disabled={!canSubmit}
+              isLoading={isSubmitting}
             >
-              {isSubmitting ? "Generating..." : "Generate plan"}
-            </button>
-            <button
+              Generate plan
+            </Button>
+            <Button
               type="button"
-              className="rounded-md border border-white/30 px-4 py-2 text-sm font-semibold text-white hover:border-white/60 disabled:cursor-not-allowed disabled:opacity-40"
+              variant="ghost"
               onClick={handleDownload}
               disabled={!canDownload}
             >
               Download CSV
-            </button>
+            </Button>
+            <Link
+              href="/history"
+              className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-white/30"
+            >
+              View history
+            </Link>
           </div>
         </section>
+
+        {rows.length > 0 && (
+          <section className="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-200">
+            <p>
+              {saveStatus.saved ? "Saved ✅" : "Not saved"} — Plan ID:{" "}
+              <span className="break-all text-slate-100">
+                {saveStatus.planId ?? "—"}
+              </span>
+            </p>
+          </section>
+        )}
 
         {error && (
           <section className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100">
