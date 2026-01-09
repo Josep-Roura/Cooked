@@ -1,17 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
-
+import { useEffect, useMemo, useState } from "react";
 import { generateNutritionPlan, healthCheck, PlanRow } from "@/lib/api";
 
-type BackendStatus = "Not checked" | "Checking..." | "Backend OK ✅";
+type BackendStatus = "Not checked" | "Checking..." | "Backend OK ✅" | "Backend error ❌";
 
 export default function HomePage() {
-  const [backendStatus, setBackendStatus] =
-    useState<BackendStatus>("Not checked");
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("Not checked");
   const [error, setError] = useState<string | null>(null);
+
   const [file, setFile] = useState<File | null>(null);
-  const [weightKg, setWeightKg] = useState<string>("");
+  const [weightKg, setWeightKg] = useState<string>("72");
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,28 +19,10 @@ export default function HomePage() {
   const canDownload = rows.length > 0;
 
   const csvContent = useMemo(() => {
-    if (!rows.length) {
-      return "";
-    }
-    const header = [
-      "date",
-      "day_type",
-      "kcal",
-      "protein_g",
-      "carbs_g",
-      "fat_g",
-      "intra_cho_g_per_h",
-    ].join(",");
-    const lines = rows.map((row) =>
-      [
-        row.date,
-        row.day_type,
-        row.kcal,
-        row.protein_g,
-        row.carbs_g,
-        row.fat_g,
-        row.intra_cho_g_per_h,
-      ].join(",")
+    if (!rows.length) return "";
+    const header = ["date","day_type","kcal","protein_g","carbs_g","fat_g","intra_cho_g_per_h"].join(",");
+    const lines = rows.map((r) =>
+      [r.date, r.day_type, r.kcal, r.protein_g, r.carbs_g, r.fat_g, r.intra_cho_g_per_h].join(",")
     );
     return [header, ...lines].join("\n");
   }, [rows]);
@@ -50,45 +31,30 @@ export default function HomePage() {
     setError(null);
     setBackendStatus("Checking...");
     try {
-      await healthCheck();
-      setBackendStatus("Backend OK ✅");
+      const data = await healthCheck();
+      setBackendStatus(data?.ok ? "Backend OK ✅" : "Backend error ❌");
     } catch (err) {
-      setBackendStatus("Not checked");
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to reach backend. Is it running?"
-      );
+      setBackendStatus("Backend error ❌");
+      setError(err instanceof Error ? err.message : "Failed to reach backend. Is it running?");
     }
   };
 
   const handleGeneratePlan = async () => {
-    if (!file || !canSubmit) {
-      return;
-    }
+    if (!file || !canSubmit) return;
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await generateNutritionPlan({
-        file,
-        weightKg: weightNumber,
-      });
+      const response = await generateNutritionPlan({ file, weightKg: weightNumber });
       setRows(response.rows);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate nutrition plan."
-      );
+      setError(err instanceof Error ? err.message : "Failed to generate nutrition plan.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDownload = () => {
-    if (!csvContent) {
-      return;
-    }
+    if (!csvContent) return;
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -99,127 +65,118 @@ export default function HomePage() {
   };
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12 text-slate-100">
-      <div className="space-y-6">
-        <header className="space-y-2">
-          <h1 className="text-3xl font-semibold">Cooked AI — MVP</h1>
-          <p className="text-slate-300">
-            Upload workouts_mvp.csv, enter your weight, and generate a nutrition
-            plan.
-          </p>
-        </header>
+    <main className="mx-auto max-w-5xl px-6 py-12">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-semibold">Cooked AI — MVP</h1>
+        <p className="text-sm opacity-80">
+          Upload <b>workouts_mvp.csv</b>, enter your weight, and generate a nutrition plan.
+        </p>
+      </header>
 
-        <section className="rounded-xl border border-white/10 bg-slate-900/60 p-6 shadow-sm">
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400"
-              onClick={handleCheckBackend}
-            >
-              Check backend
-            </button>
-            <span className="text-sm text-slate-200">{backendStatus}</span>
-          </div>
+      <section className="mt-6 rounded-xl border border-white/10 p-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            onClick={handleCheckBackend}
+          >
+            Check backend
+          </button>
+          <span className="text-sm">Status: <b>{backendStatus}</b></span>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-6 rounded-xl border border-white/10 p-6 md:grid-cols-3">
+        <div className="space-y-2 md:col-span-2">
+          <label className="block text-sm font-semibold">Upload workouts_mvp.csv</label>
+          <input
+            type="file"
+            accept=".csv"
+            className="w-full rounded-md border border-white/20 bg-transparent px-3 py-2 text-sm"
+            onChange={(e) => {
+              setRows([]);
+              setFile(e.target.files?.[0] ?? null);
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold">Weight (kg)</label>
+          <input
+            type="number"
+            min="1"
+            step="0.1"
+            value={weightKg}
+            className="w-full rounded-md border border-white/20 bg-transparent px-3 py-2 text-sm"
+            onChange={(e) => setWeightKg(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-3 md:col-span-3">
+          <button
+            type="button"
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            onClick={handleGeneratePlan}
+            disabled={!canSubmit}
+          >
+            {isSubmitting ? "Generating..." : "Generate plan"}
+          </button>
+
+          <button
+            type="button"
+            className="rounded-md border border-white/30 px-4 py-2 text-sm font-semibold text-white hover:border-white/60 disabled:opacity-40"
+            onClick={handleDownload}
+            disabled={!canDownload}
+          >
+            Download CSV
+          </button>
+        </div>
+      </section>
+
+      {error && (
+        <section className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100">
+          {error}
         </section>
+      )}
 
-        <section className="grid gap-6 rounded-xl border border-white/10 bg-slate-900/60 p-6 shadow-sm md:grid-cols-3">
-          <div className="space-y-2 md:col-span-2">
-            <label className="block text-sm font-semibold text-slate-200">
-              Upload workouts_mvp.csv
-            </label>
-            <input
-              type="file"
-              accept=".csv"
-              className="w-full rounded-md border border-white/20 bg-slate-950 px-3 py-2 text-sm text-slate-200"
-              onChange={(event) => {
-                setRows([]);
-                setFile(event.target.files?.[0] ?? null);
-              }}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-slate-200">
-              Weight (kg)
-            </label>
-            <input
-              type="number"
-              min="1"
-              step="0.1"
-              value={weightKg}
-              className="w-full rounded-md border border-white/20 bg-slate-950 px-3 py-2 text-sm text-slate-200"
-              onChange={(event) => {
-                setWeightKg(event.target.value);
-              }}
-              placeholder="70"
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-3 md:col-span-3">
-            <button
-              type="button"
-              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={handleGeneratePlan}
-              disabled={!canSubmit}
-            >
-              {isSubmitting ? "Generating..." : "Generate plan"}
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-white/30 px-4 py-2 text-sm font-semibold text-white hover:border-white/60 disabled:cursor-not-allowed disabled:opacity-40"
-              onClick={handleDownload}
-              disabled={!canDownload}
-            >
-              Download CSV
-            </button>
-          </div>
-        </section>
-
-        {error && (
-          <section className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100">
-            {error}
-          </section>
-        )}
-
-        <section className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/60 shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-800 text-left text-xs uppercase tracking-wide text-slate-300">
+      <section className="mt-6 overflow-hidden rounded-xl border border-white/10">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-black/20 text-left text-xs uppercase tracking-wide opacity-80">
+              <tr>
+                <th className="px-4 py-3">date</th>
+                <th className="px-4 py-3">day_type</th>
+                <th className="px-4 py-3">kcal</th>
+                <th className="px-4 py-3">protein_g</th>
+                <th className="px-4 py-3">carbs_g</th>
+                <th className="px-4 py-3">fat_g</th>
+                <th className="px-4 py-3">intra_cho_g_per_h</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {rows.length === 0 ? (
                 <tr>
-                  <th className="px-4 py-3">date</th>
-                  <th className="px-4 py-3">day_type</th>
-                  <th className="px-4 py-3">kcal</th>
-                  <th className="px-4 py-3">protein_g</th>
-                  <th className="px-4 py-3">carbs_g</th>
-                  <th className="px-4 py-3">fat_g</th>
-                  <th className="px-4 py-3">intra_cho_g_per_h</th>
+                  <td className="px-4 py-4 opacity-70" colSpan={7}>
+                    Upload a CSV and generate a plan to see results here.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10 text-slate-200">
-                {rows.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-4 text-slate-400" colSpan={7}>
-                      Upload a CSV and generate a plan to see results here.
-                    </td>
+              ) : (
+                rows.map((r, idx) => (
+                  <tr key={`${r.date}-${idx}`}>
+                    <td className="px-4 py-3">{r.date}</td>
+                    <td className="px-4 py-3">{r.day_type}</td>
+                    <td className="px-4 py-3">{r.kcal}</td>
+                    <td className="px-4 py-3">{r.protein_g}</td>
+                    <td className="px-4 py-3">{r.carbs_g}</td>
+                    <td className="px-4 py-3">{r.fat_g}</td>
+                    <td className="px-4 py-3">{r.intra_cho_g_per_h}</td>
                   </tr>
-                ) : (
-                  rows.map((row, index) => (
-                    <tr key={`${row.date}-${index}`}>
-                      <td className="px-4 py-3">{row.date}</td>
-                      <td className="px-4 py-3">{row.day_type}</td>
-                      <td className="px-4 py-3">{row.kcal}</td>
-                      <td className="px-4 py-3">{row.protein_g}</td>
-                      <td className="px-4 py-3">{row.carbs_g}</td>
-                      <td className="px-4 py-3">{row.fat_g}</td>
-                      <td className="px-4 py-3">{row.intra_cho_g_per_h}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
   );
 }
