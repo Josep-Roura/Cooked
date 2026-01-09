@@ -20,11 +20,7 @@ from coocked_api.utils.tp_parsing import (
 def main() -> None:
     parser = argparse.ArgumentParser(description="Parse TrainingPeaks CSV and generate MVP outputs.")
     parser.add_argument("--input", required=True, help="Path to TrainingPeaks CSV export.")
-    parser.add_argument(
-        "--outdir",
-        default="out",
-        help="Output directory (default: backend/out).",
-    )
+    parser.add_argument("--outdir", default="out", help="Output directory (default: backend/out).")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -36,13 +32,16 @@ def main() -> None:
 
     print("Parsing raw data...")
     raw_parsed = parse_tp_df(df)
-    raw_path = outdir / "workouts_raw_parsed.csv"
-    raw_parsed.to_csv(raw_path, index=False)
+    raw_parsed.to_csv(outdir / "workouts_raw_parsed.csv", index=False)
 
     print("Building MVP dataset...")
-    mvp = build_mvp_dataset(df)
-    mvp_path = outdir / "workouts_mvp.csv"
-    mvp.to_csv(mvp_path, index=False)
+    mvp = build_mvp_dataset(raw_parsed)
+    mvp.to_csv(outdir / "workouts_mvp.csv", index=False)
+
+    if mvp["planned_hours"].notna().sum() == 0:
+        raise RuntimeError(
+            "planned_hours is ALL NaN. Your CSV likely has PlannedDuration but it wasn't mapped."
+        )
 
     print("Aggregating summaries...")
     daily = aggregate_daily(mvp)
@@ -51,10 +50,10 @@ def main() -> None:
     weekly.to_csv(outdir / "summary_by_week.csv", index=False)
 
     print("Generating plots...")
-    plot_weekly_hours(mvp, outdir / "plot_weekly_hours.png")
-    plot_weekly_distance(mvp, outdir / "plot_weekly_distance.png")
-    plot_workouts_by_type(mvp, outdir / "plot_workouts_by_type.png")
-    plot_calendar_heatmap(mvp, outdir / "plot_calendar_heatmap.png")
+    plot_weekly_hours(weekly, str(outdir / "plot_weekly_hours.png"))
+    plot_weekly_distance(weekly, str(outdir / "plot_weekly_distance.png"))
+    plot_workouts_by_type(mvp, str(outdir / "plot_workouts_by_type.png"))
+    plot_calendar_heatmap(daily, str(outdir / "plot_calendar_heatmap.png"))
 
     print(f"Done. Outputs saved to {outdir}")
 
