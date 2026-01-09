@@ -1,14 +1,6 @@
-# Cooked AI
+# Cooked AI Backend
 
-Cooked AI is a nutrition assistant for endurance athletes. The MVP parses TrainingPeaks CSV exports, generates summaries and plots, and uploads workouts to Supabase.
-
-## Repo Structure
-
-```
-backend/   # Python scripts + future API
-frontend/  # Web app
-supabase/  # Migrations
-```
+Backend utilities for parsing TrainingPeaks exports, generating MVP datasets, and loading workouts into Supabase.
 
 ## Quickstart
 
@@ -28,26 +20,29 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-### 2) Install backend dependencies
+### 2) Install dependencies
 
 ```bash
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 3) Configure environment variables
 
+Copy the example env file from the repo root:
+
 ```bash
-cp .env.example .env
+cp ../.env.example ../.env
 ```
 
 Fill in `SUPABASE_URL` and either `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_ANON_KEY`.
 
 ### 4) Run scripts
 
+From `backend/`:
+
 macOS/Linux:
 
 ```bash
-cd backend
 PYTHONPATH=src python scripts/tp_extract_and_viz.py --input "../data/tp.csv" --outdir "out"
 PYTHONPATH=src python scripts/tp_to_supabase.py --input "../data/tp.csv" --athlete_id "josep"
 ```
@@ -55,7 +50,6 @@ PYTHONPATH=src python scripts/tp_to_supabase.py --input "../data/tp.csv" --athle
 Windows PowerShell:
 
 ```powershell
-cd backend
 $env:PYTHONPATH="src"
 python scripts\tp_extract_and_viz.py --input "..\data\tp.csv" --outdir "out"
 python scripts\tp_to_supabase.py --input "..\data\tp.csv" --athlete_id "josep"

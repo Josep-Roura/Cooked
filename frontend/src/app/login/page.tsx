@@ -1,0 +1,119 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSession } from "@/lib/auth/session";
+import { Button } from "@/components/ui/button";
+import { MotionWrapper } from "@/components/motion-wrapper";
+import { useRouter, useSearchParams } from "next/navigation";
+
+// Wrapper page: mete Suspense alrededor del contenido que usa useSearchParams
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center items-center py-20 text-[var(--text-secondary)] text-sm">
+          Cargando login…
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+// Todo el comportamiento real vive aquí
+function LoginContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const { login, isAuthenticated, ready } = useSession();
+
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Redirige si ya estás autenticado
+  useEffect(() => {
+    if (!ready) return;
+    if (!isAuthenticated) return;
+
+    const redirectTo = searchParams.get("redirectTo") || "/app";
+    router.replace(redirectTo);
+  }, [ready, isAuthenticated, router, searchParams]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+
+    login(email);
+  }
+
+  return (
+    <MotionWrapper keyId="login-card">
+      <div className="max-w-sm mx-auto mt-16 rounded-lg border border-border bg-[var(--surface)] shadow-md p-6 space-y-6">
+        <header className="space-y-2 text-center">
+          <h1 className="text-lg font-semibold text-[var(--text-primary)] leading-tight">
+            Accede a tu panel
+          </h1>
+          <p className="text-[var(--text-secondary)] text-sm leading-relaxed">
+            Genera tu plan diario, registra adherencia y activa recordatorios
+            post-entreno.
+          </p>
+        </header>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <label
+              htmlFor="email"
+              className="text-[var(--text-primary)] text-sm font-medium"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--text-primary)]/20"
+              placeholder="tu@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label
+              htmlFor="pwd"
+              className="text-[var(--text-primary)] text-sm font-medium"
+            >
+              Contraseña
+            </label>
+            <input
+              id="pwd"
+              type="password"
+              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--text-primary)]/20"
+              placeholder="••••••••"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          <Button
+            className="w-full"
+            isLoading={loading}
+            disabled={loading}
+            type="submit"
+          >
+            Entrar
+          </Button>
+        </form>
+
+        <div className="text-[var(--text-secondary)] text-[11px] leading-relaxed text-center">
+          Acceso demo. Pronto podrás iniciar sesión con tu cuenta real o
+          conectar TrainingPeaks.
+        </div>
+      </div>
+    </MotionWrapper>
+  );
+}
