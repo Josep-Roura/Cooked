@@ -1,7 +1,5 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
-
 ## MVP Run Instructions
 
 ### Backend (FastAPI)
@@ -10,10 +8,15 @@ From the repo root:
 
 ```bash
 cd backend
+cp .env.example .env
 PYTHONPATH=src uvicorn coocked_api.api.main:app --reload --port 8000
 ```
 
 Backend runs on [http://localhost:8000](http://localhost:8000).
+
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `backend/.env` to enable plan persistence.
+
+Apply `supabase/migrations/002_create_nutrition_plans.sql` in Supabase to create the nutrition plan tables.
 
 ### Frontend (Next.js)
 
@@ -28,35 +31,25 @@ npm run dev
 
 Frontend runs on [http://localhost:3000](http://localhost:3000).
 
-First, run the development server:
+The UI generates a device ID in localStorage and sends it to the backend as `x-device-id`.
+
+## API examples
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# health check
+curl http://localhost:8000/health
+
+# generate + save plan
+curl -X POST http://localhost:8000/api/v1/plan/nutrition \
+  -H "x-device-id: demo-device" \
+  -F "weight_kg=72" \
+  -F "file=@workouts_mvp.csv"
+
+# list plans
+curl "http://localhost:8000/api/v1/plans?limit=20&offset=0" \
+  -H "x-device-id: demo-device"
+
+# get plan by id
+curl http://localhost:8000/api/v1/plans/<plan_id> \
+  -H "x-device-id: demo-device"
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

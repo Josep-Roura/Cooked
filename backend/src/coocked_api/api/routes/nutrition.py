@@ -1,9 +1,15 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-import pandas as pd
-from io import StringIO
+from __future__ import annotations
 
+import io
+import os
+
+import pandas as pd
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+
+from coocked_api.repositories.nutrition_repo import create_plan, get_plan, list_plans
 from coocked_api.services.day_classifier import classify_day
 from coocked_api.services.nutrition_engine import nutrition_targets
+from coocked_api.services.tp_normalize import normalize_and_aggregate_tp_df
 
 router = APIRouter()
 
@@ -50,13 +56,29 @@ def normalize_tp_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _require_device_id(device_id: str | None) -> str:
+    if not device_id:
+        raise HTTPException(status_code=400, detail="Missing x-device-id")
+    return device_id
+
+
+def _supabase_enabled() -> bool:
+    return bool(os.getenv("SUPABASE_URL")) and bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+
+
 @router.post("/plan/nutrition")
 async def plan_nutrition(
     file: UploadFile = File(...),
-    weight_kg: float = Form(...)
+
+    weight_kg: float = Form(...),
+    device_id: str | None = Header(default=None, alias="x-device-id"),
 ):
-    if weight_kg <= 0:
-        raise HTTPException(status_code=400, detail="weight_kg must be > 0")
+    _require_device_id(device_id)
+
+    if weight_kg <= 0 or weight_kg > 250:
+        raise HTTPException(
+            status_code=400, detail="weight_kg must be a realistic positive number"
+        )
 
     contents = await file.read()
 
@@ -65,46 +87,83 @@ async def plan_nutrition(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid CSV file: {e}")
 
-    # 🔑 Normalize raw or MVP CSV
-    df = normalize_tp_columns(df)
+    daily_df = normalize_and_aggregate_tp_df(df)
 
-    # Validate required columns
-    required = {"workout_day", "planned_hours"}
-    missing = required - set(df.columns)
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"CSV missing required columns: {sorted(list(missing))}. "
-                f"Got columns: {list(df.columns)}"
-            ),
-        )
+    out_rows = []
+    for _, row in daily_df.iterrows():
+        planned_hours = row.get("planned_hours", 0.0)
+        try:
+            planned_hours = float(planned_hours) if pd.notna(planned_hours) else 0.0
+        except Exception:
+            planned_hours = 0.0
+        if planned_hours <= 0:
+            planned_hours = 0.0
 
-    rows = []
-
-    for _, row in df.iterrows():
-        planned_hours = float(row.get("planned_hours", 0.0))
         day_type = classify_day(planned_hours)
-
         targets = nutrition_targets(
-            weight_kg=weight_kg,
-            day_type=day_type,
-            planned_hours=planned_hours,
+            weight_kg=weight_kg, day_type=day_type, planned_hours=planned_hours
         )
 
-        rows.append(
-            {
-                "date": row["workout_day"],
-                "day_type": day_type,
-                "kcal": targets["kcal"],
-                "protein_g": targets["protein_g"],
-                "carbs_g": targets["carbs_g"],
-                "fat_g": targets["fat_g"],
-                "intra_cho_g_per_h": targets["intra_cho_g_per_h"],
-            }
-        )
+        date_value = row.get("date")
+        date_str = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
 
-    return {
-        "weight_kg": weight_kg,
-        "rows": rows,
-    }
+        out_rows.append({
+            "date": date_str,
+            "day_type": day_type,
+            **targets,
+        })
+
+    response = {"plan_id": None, "saved": False, "weight_kg": weight_kg, "rows": out_rows}
+
+    if _supabase_enabled() and out_rows:
+        try:
+            plan_id = create_plan(
+                user_key=device_id,
+                source_filename=file.filename,
+                weight_kg=weight_kg,
+                rows=out_rows,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save plan: {e}")
+        response["plan_id"] = plan_id
+        response["saved"] = True
+
+    return response
+
+
+@router.get("/plans")
+async def list_saved_plans(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    device_id: str | None = Header(default=None, alias="x-device-id"),
+):
+    user_key = _require_device_id(device_id)
+    if not _supabase_enabled():
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    try:
+        plans = list_plans(user_key=user_key, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list plans: {e}")
+
+    return {"plans": plans, "limit": limit, "offset": offset}
+
+
+@router.get("/plans/{plan_id}")
+async def get_saved_plan(
+    plan_id: str,
+    device_id: str | None = Header(default=None, alias="x-device-id"),
+):
+    user_key = _require_device_id(device_id)
+    if not _supabase_enabled():
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    try:
+        plan = get_plan(plan_id=plan_id, user_key=user_key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch plan: {e}")
+
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    return plan
