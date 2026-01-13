@@ -10,6 +10,7 @@ from coocked_api.repositories.nutrition_repo import create_plan, get_plan, list_
 from coocked_api.services.day_classifier import classify_day
 from coocked_api.services.nutrition_engine import nutrition_targets
 from coocked_api.services.tp_normalize import normalize_and_aggregate_tp_df
+from coocked_api.services.auth import get_user_id_from_authorization
 
 router = APIRouter()
 
@@ -71,9 +72,10 @@ async def plan_nutrition(
     file: UploadFile = File(...),
 
     weight_kg: float = Form(...),
-    device_id: str | None = Header(default=None, alias="x-device-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ):
-    _require_device_id(device_id)
+    # Extract user id from Authorization header
+    user_id = get_user_id_from_authorization(authorization)
 
     if weight_kg <= 0 or weight_kg > 250:
         raise HTTPException(
@@ -83,7 +85,8 @@ async def plan_nutrition(
     contents = await file.read()
 
     try:
-        df = pd.read_csv(StringIO(contents.decode("utf-8-sig")))
+        # handle BOM and in-memory bytes
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8-sig")))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid CSV file: {e}")
 
@@ -118,7 +121,7 @@ async def plan_nutrition(
     if _supabase_enabled() and out_rows:
         try:
             plan_id = create_plan(
-                user_key=device_id,
+                user_id=user_id,
                 source_filename=file.filename,
                 weight_kg=weight_kg,
                 rows=out_rows,
@@ -135,14 +138,14 @@ async def plan_nutrition(
 async def list_saved_plans(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    device_id: str | None = Header(default=None, alias="x-device-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ):
-    user_key = _require_device_id(device_id)
+    user_id = get_user_id_from_authorization(authorization)
     if not _supabase_enabled():
         raise HTTPException(status_code=503, detail="Supabase not configured")
 
     try:
-        plans = list_plans(user_key=user_key, limit=limit, offset=offset)
+        plans = list_plans(user_id=user_id, limit=limit, offset=offset)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list plans: {e}")
 
@@ -152,14 +155,14 @@ async def list_saved_plans(
 @router.get("/plans/{plan_id}")
 async def get_saved_plan(
     plan_id: str,
-    device_id: str | None = Header(default=None, alias="x-device-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ):
-    user_key = _require_device_id(device_id)
+    user_id = get_user_id_from_authorization(authorization)
     if not _supabase_enabled():
         raise HTTPException(status_code=503, detail="Supabase not configured")
 
     try:
-        plan = get_plan(plan_id=plan_id, user_key=user_key)
+        plan = get_plan(plan_id=plan_id, user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch plan: {e}")
 
