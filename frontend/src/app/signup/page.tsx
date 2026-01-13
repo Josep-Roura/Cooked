@@ -19,10 +19,33 @@ export default function SignupPage() {
     setError(null);
     setLoading(true);
     try {
-      const { error: authError } = await signUp(email, password);
-      if (authError) throw authError;
-      // After sign up, Supabase may send confirmation; redirect to /app
-      router.replace("/app");
+      // Basic client validation
+      if (!email || !password) {
+        setError("Please provide email and password");
+        return;
+      }
+
+      const res: any = await signUp(email, password);
+      if (!res) {
+        setError("Unexpected response from auth");
+        return;
+      }
+
+      if (res.error) {
+        // Known error shape from supabase or our wrapper
+        const message = res.error.message || String(res.error);
+        setError(message);
+        return;
+      }
+
+      // If signup returns a session, redirect; otherwise prompt to check email
+      const data = res.data ?? res;
+      const session = data?.session ?? null;
+      if (session) {
+        router.replace("/app");
+      } else {
+        router.replace("/login?checkEmail=1");
+      }
     } catch (err: any) {
       setError(err.message || String(err));
     } finally {

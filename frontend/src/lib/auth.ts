@@ -2,25 +2,45 @@
 
 import { supabase } from "./supabaseClient";
 
+// Wrapper helpers that always return a predictable shape and catch runtime errors
 export async function signUp(email: string, password: string) {
-  if (!supabase) return { error: new Error("Supabase not configured") } as any;
-  return supabase.auth.signUp({ email, password });
+  try {
+    if (!supabase) return { data: null, error: new Error("Supabase not configured") } as any;
+    const res = await supabase.auth.signUp({ email, password });
+    return res as any;
+  } catch (err) {
+    return { data: null, error: err as any } as any;
+  }
 }
 
 export async function signIn(email: string, password: string) {
-  if (!supabase) return { error: new Error("Supabase not configured") } as any;
-  return supabase.auth.signInWithPassword({ email, password });
+  try {
+    if (!supabase) return { data: null, error: new Error("Supabase not configured") } as any;
+    const res = await supabase.auth.signInWithPassword({ email, password });
+    return res as any;
+  } catch (err) {
+    return { data: null, error: err as any } as any;
+  }
 }
 
 export async function signOut() {
-  if (!supabase) return { error: new Error("Supabase not configured") } as any;
-  return supabase.auth.signOut();
+  try {
+    if (!supabase) return { data: null, error: new Error("Supabase not configured") } as any;
+    const res = await supabase.auth.signOut();
+    return res as any;
+  } catch (err) {
+    return { data: null, error: err as any } as any;
+  }
 }
 
 export async function getSession() {
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session;
+  try {
+    if (!supabase) return null;
+    const { data } = await supabase.auth.getSession();
+    return data.session;
+  } catch {
+    return null;
+  }
 }
 
 export function onAuthStateChange(callback: (event: any, session: any) => void) {
