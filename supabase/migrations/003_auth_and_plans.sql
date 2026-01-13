@@ -1,12 +1,19 @@
 -- 003_auth_and_plans.sql
 
--- Create extensions required by migrations (id generation)
+-- Migration to create nutrition plans tables owned by `auth.users` + RLS
+-- Safe for fresh installs and compatible with the prior patch migration that
+-- adds `user_id` to existing tables when needed.
+
+-- Ensure pgcrypto for gen_random_uuid
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 1) Create nutrition_plans if it does not exist (fresh deployments)
+-- Create nutrition_plans table (fresh install)
 CREATE TABLE IF NOT EXISTS public.nutrition_plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- For fresh installs we require user_id NOT NULL; for existing installs the
+  -- patch migration will add a nullable column if needed. We attempt to set
+  -- NOT NULL later only when it's safe.
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   source_filename text,
   weight_kg numeric NOT NULL,
@@ -15,10 +22,9 @@ CREATE TABLE IF NOT EXISTS public.nutrition_plans (
   goal text
 );
 
--- make index available for both fresh and existing tables
 CREATE INDEX IF NOT EXISTS idx_nutrition_plans_user_created_at ON public.nutrition_plans (user_id, created_at DESC);
 
--- 2) Create nutrition_plan_rows if it does not exist
+-- Create nutrition_plan_rows table
 CREATE TABLE IF NOT EXISTS public.nutrition_plan_rows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id uuid NOT NULL REFERENCES public.nutrition_plans(id) ON DELETE CASCADE,
@@ -34,56 +40,95 @@ CREATE TABLE IF NOT EXISTS public.nutrition_plan_rows (
 
 CREATE INDEX IF NOT EXISTS idx_nutrition_plan_rows_plan_date ON public.nutrition_plan_rows (plan_id, date);
 
--- 3) Enable Row Level Security and create one-action-per-policy policies
--- Note: if `user_id` is nullable (legacy rows), RLS will prevent legacy rows from being read
--- until they are backfilled. This is intentional for safety.
+-- Enable Row Level Security (idempotent)
+ALTER TABLE public.nutrition_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nutrition_plan_rows ENABLE ROW LEVEL SECURITY;
 
--- Enable RLS on nutrition_plans
-ALTER TABLE IF EXISTS public.nutrition_plans ENABLE ROW LEVEL SECURITY;
-
--- Create policies only if they don't already exist
+-- Policies for `nutrition_plans` (one action per policy)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_select_own') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_select_own'
+  ) THEN
     CREATE POLICY plans_select_own ON public.nutrition_plans FOR SELECT USING (user_id = auth.uid());
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_insert_own') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_insert_own'
+  ) THEN
     CREATE POLICY plans_insert_own ON public.nutrition_plans FOR INSERT WITH CHECK (user_id = auth.uid());
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_update_own') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_update_own'
+  ) THEN
     CREATE POLICY plans_update_own ON public.nutrition_plans FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_delete_own') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plans' AND policyname='plans_delete_own'
+  ) THEN
     CREATE POLICY plans_delete_own ON public.nutrition_plans FOR DELETE USING (user_id = auth.uid());
   END IF;
 END
 $$;
 
--- Enable RLS on nutrition_plan_rows
-ALTER TABLE IF EXISTS public.nutrition_plan_rows ENABLE ROW LEVEL SECURITY;
-
--- Helper expression for plan ownership: EXISTS parent plan with user_id = auth.uid()
--- Create individual policies for each action
+-- Policies for `nutrition_plan_rows` (parent ownership checks)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_select_owner') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_select_owner'
+  ) THEN
     CREATE POLICY plan_rows_select_owner ON public.nutrition_plan_rows FOR SELECT USING (
       EXISTS (SELECT 1 FROM public.nutrition_plans p WHERE p.id = plan_id AND p.user_id = auth.uid())
     );
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_insert_owner') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_insert_owner'
+  ) THEN
     CREATE POLICY plan_rows_insert_owner ON public.nutrition_plan_rows FOR INSERT WITH CHECK (
       EXISTS (SELECT 1 FROM public.nutrition_plans p WHERE p.id = plan_id AND p.user_id = auth.uid())
     );
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_update_owner') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_update_owner'
+  ) THEN
     CREATE POLICY plan_rows_update_owner ON public.nutrition_plan_rows FOR UPDATE USING (
       EXISTS (SELECT 1 FROM public.nutrition_plans p WHERE p.id = plan_id AND p.user_id = auth.uid())
     ) WITH CHECK (
       EXISTS (SELECT 1 FROM public.nutrition_plans p WHERE p.id = plan_id AND p.user_id = auth.uid())
     );
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_delete_owner') THEN
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='nutrition_plan_rows' AND policyname='plan_rows_delete_owner'
+  ) THEN
     CREATE POLICY plan_rows_delete_owner ON public.nutrition_plan_rows FOR DELETE USING (
       EXISTS (SELECT 1 FROM public.nutrition_plans p WHERE p.id = plan_id AND p.user_id = auth.uid())
     );
@@ -91,23 +136,32 @@ BEGIN
 END
 $$;
 
--- 4) Safety: For fresh installs the schema above will create NOT NULL user_id on creation;
--- for existing installs the 002_patch_existing_tables.sql ensures `user_id` exists and FK/indexes are present,
--- while keeping `user_id` nullable to avoid forcing backfill in this automated migration.
+-- If the table previously had nullable user_id rows, only set NOT NULL when safe
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relname='nutrition_plans') THEN
+    PERFORM 1;
+    IF (SELECT count(*) FROM public.nutrition_plans WHERE user_id IS NULL) = 0 THEN
+      -- safe to enforce NOT NULL
+      ALTER TABLE public.nutrition_plans ALTER COLUMN user_id SET NOT NULL;
+    END IF;
+  END IF;
+END
+$$;
 
--- 5) Verification queries (run in Supabase SQL editor as an authenticated developer):
--- Check columns exist:
--- SELECT column_name, is_nullable, data_type FROM information_schema.columns
---   WHERE table_schema='public' AND table_name='nutrition_plans';
+-- Verification queries (run manually in SQL editor)
+-- 1) Check columns exist:
+-- SELECT column_name, is_nullable, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='nutrition_plans';
+-- SELECT column_name, is_nullable, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='nutrition_plan_rows';
 
--- RLS enabled checks:
--- SELECT relname, relrowsecurity FROM pg_class WHERE relname IN ('nutrition_plans', 'nutrition_plan_rows');
+-- 2) Check RLS enabled:
+-- SELECT relrowsecurity FROM pg_class WHERE relname='nutrition_plans';
+-- SELECT relrowsecurity FROM pg_class WHERE relname='nutrition_plan_rows';
 
--- List policies:
--- SELECT * FROM pg_policies WHERE schemaname='public' AND tablename IN ('nutrition_plans','nutrition_plan_rows');
+-- 3) Check policies:
+-- SELECT * FROM pg_policies WHERE tablename IN ('nutrition_plans','nutrition_plan_rows');
 
--- Quick test (requires an authenticated user session / Supabase client):
--- 1) INSERT into nutrition_plans with user_id = auth.uid() via Supabase client (authenticated) will work.
--- 2) Attempting to SELECT rows of another user will return no rows due to RLS.
+-- 4) Quick manual insert (requires authenticated session with Supabase JWT):
+-- INSERT INTO public.nutrition_plans (user_id, weight_kg, start_date, end_date) VALUES ('<auth.user.id>', 80, now()::date, (now()+integer '7')::date);
 
 *** End Patch
