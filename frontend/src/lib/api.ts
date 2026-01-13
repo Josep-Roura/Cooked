@@ -30,14 +30,17 @@ export type PlanSummary = {
 
 export type PlanDetail = PlanSummary & { rows: PlanRow[] };
 
-const buildHeaders = (deviceId: string) => ({
-  "x-device-id": deviceId
-});
+const buildHeaders = (opts?: { deviceId?: string; token?: string }) => {
+  const headers: Record<string, string> = {};
+  if (opts?.deviceId) headers["x-device-id"] = opts.deviceId;
+  if (opts?.token) headers["Authorization"] = `Bearer ${opts.token}`;
+  return headers;
+};
 
 export async function healthCheck(deviceId: string) {
   const res = await fetch(`${API_BASE}/health`, {
     cache: "no-store",
-    headers: buildHeaders(deviceId)
+    headers: buildHeaders({ deviceId })
   });
   if (!res.ok) {
     throw new Error(`Health check failed (${res.status})`);
@@ -48,11 +51,13 @@ export async function healthCheck(deviceId: string) {
 export async function generateNutritionPlan({
   file,
   weightKg,
-  deviceId
+  deviceId,
+  token
 }: {
   file: File;
   weightKg: number;
-  deviceId: string;
+  deviceId?: string;
+  token?: string;
 }): Promise<PlanResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -61,7 +66,7 @@ export async function generateNutritionPlan({
   const res = await fetch(`${API_BASE}/api/v1/plan/nutrition`, {
     method: "POST",
     body: formData,
-    headers: buildHeaders(deviceId)
+    headers: buildHeaders({ deviceId, token })
   });
 
   if (!res.ok) {
@@ -74,10 +79,12 @@ export async function generateNutritionPlan({
 
 export async function listPlans({
   deviceId,
+  token,
   limit = 20,
   offset = 0
 }: {
-  deviceId: string;
+  deviceId?: string;
+  token?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ plans: PlanSummary[]; limit: number; offset: number }> {
@@ -87,7 +94,7 @@ export async function listPlans({
   });
 
   const res = await fetch(`${API_BASE}/api/v1/plans?${params.toString()}`, {
-    headers: buildHeaders(deviceId),
+    headers: buildHeaders({ deviceId, token }),
     cache: "no-store"
   });
 
@@ -101,13 +108,15 @@ export async function listPlans({
 
 export async function getPlan({
   deviceId,
+  token,
   planId
 }: {
-  deviceId: string;
+  deviceId?: string;
+  token?: string;
   planId: string;
 }): Promise<PlanDetail> {
   const res = await fetch(`${API_BASE}/api/v1/plans/${planId}`, {
-    headers: buildHeaders(deviceId),
+    headers: buildHeaders({ deviceId, token }),
     cache: "no-store"
   });
 

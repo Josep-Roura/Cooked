@@ -10,7 +10,7 @@ PlanRowPayload = dict[str, Any]
 
 
 def create_plan(
-    user_key: str,
+    user_id: str,
     source_filename: str | None,
     weight_kg: float,
     rows: list[PlanRowPayload],
@@ -24,7 +24,7 @@ def create_plan(
 
     supabase = get_supabase()
     plan_payload = {
-        "user_key": user_key,
+        "user_id": user_id,
         "source_filename": source_filename,
         "weight_kg": weight_kg,
         "start_date": start_date,
@@ -53,7 +53,7 @@ def create_plan(
 
 
 def list_plans(
-    user_key: str,
+    user_id: str,
     limit: int = 20,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -61,7 +61,7 @@ def list_plans(
     plan_result = (
         supabase.table("nutrition_plans")
         .select("id, created_at, start_date, end_date, weight_kg, source_filename")
-        .eq("user_key", user_key)
+        .eq("user_id", user_id)
         .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
@@ -87,13 +87,13 @@ def list_plans(
     return plans
 
 
-def get_plan(plan_id: str, user_key: str) -> dict[str, Any] | None:
+def get_plan(plan_id: str, user_id: str) -> dict[str, Any] | None:
     supabase = get_supabase()
     plan_result = (
         supabase.table("nutrition_plans")
         .select("id, created_at, start_date, end_date, weight_kg, source_filename")
         .eq("id", plan_id)
-        .eq("user_key", user_key)
+        .eq("user_id", user_id)
         .execute()
     )
     if not plan_result.data:

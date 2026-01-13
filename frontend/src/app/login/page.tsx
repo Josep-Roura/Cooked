@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { MotionWrapper } from "@/components/motion-wrapper";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// Wrapper page: mete Suspense alrededor del contenido que usa useSearchParams
+// Wrapper page: Suspense around the content that uses `useSearchParams`
 export default function LoginPage() {
   return (
     <Suspense
@@ -21,23 +21,21 @@ export default function LoginPage() {
   );
 }
 
-// Todo el comportamiento real vive aquí
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const { login, isAuthenticated, ready } = useSession();
 
-  const [email, setEmail] = useState("");
-  const [pwd, setPwd] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState<string>("");
+  const [pwd, setPwd] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
 
-  // Redirige si ya estás autenticado
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated) return;
 
-    const redirectTo = searchParams.get("redirectTo") || "/app";
+    const redirectTo = searchParams?.get("redirectTo") || "/app";
     router.replace(redirectTo);
   }, [ready, isAuthenticated, router, searchParams]);
 
@@ -45,6 +43,7 @@ function LoginContent() {
     e.preventDefault();
     setLoading(true);
 
+    // demo login uses `useSession().login`
     login(email);
   }
 
@@ -63,10 +62,7 @@ function LoginContent() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <label
-              htmlFor="email"
-              className="text-[var(--text-primary)] text-sm font-medium"
-            >
+            <label htmlFor="email" className="text-[var(--text-primary)] text-sm font-medium">
               Email
             </label>
             <input
@@ -81,10 +77,7 @@ function LoginContent() {
           </div>
 
           <div className="space-y-1">
-            <label
-              htmlFor="pwd"
-              className="text-[var(--text-primary)] text-sm font-medium"
-            >
+            <label htmlFor="pwd" className="text-[var(--text-primary)] text-sm font-medium">
               Contraseña
             </label>
             <input
@@ -99,12 +92,7 @@ function LoginContent() {
             />
           </div>
 
-          <Button
-            className="w-full"
-            isLoading={loading}
-            disabled={loading}
-            type="submit"
-          >
+          <Button className="w-full" isLoading={loading} disabled={loading} type="submit">
             Entrar
           </Button>
         </form>
