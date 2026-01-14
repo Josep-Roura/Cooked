@@ -4,6 +4,7 @@ import logging
 import os
 
 from coocked_api.api.routes.nutrition import router as nutrition_router
+from coocked_api.api.routes.profile import router as profile_router
 
 app = FastAPI(title="Cooked AI API", version="0.1.0")
 
@@ -43,3 +44,4 @@ def health():
     return {"ok": True}
 
 app.include_router(nutrition_router, prefix="/api/v1")
+app.include_router(profile_router, prefix="/api/v1")
