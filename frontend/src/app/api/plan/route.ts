@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow();
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
@@ -101,7 +101,7 @@ export async function GET() {
   try {
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow();
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }

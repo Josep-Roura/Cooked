@@ -4,10 +4,10 @@ import { getUserIdFromRequestOrThrow } from "@/lib/auth/getUserIdFromRequest";
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const planId = params?.id;
+    const { id: planId } = await params;
     if (!planId) {
       return NextResponse.json(
         { error: "PlanId requerido" },
@@ -17,7 +17,7 @@ export async function GET(
 
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow();
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
