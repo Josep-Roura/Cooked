@@ -61,11 +61,8 @@ export async function getUserProfile() {
   // ✅ No existe perfil → onboarding debe mostrarse
   if (res.status === 404) return null
 
-  // ✅ No autenticado → forzamos login
-  if (res.status === 401) {
-    const payload = await res.json().catch(() => ({}))
-    throw new Error(payload?.error ?? "Not authenticated")
-  }
+  // ✅ No autenticado → devolver null para que el caller maneje el flujo
+  if (res.status === 401) return null
 
   // ✅ Cualquier otro error → lanzar para mostrar mensaje
   if (!res.ok) {

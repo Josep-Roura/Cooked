@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { getUserIdFromRequestOrThrow } from "@/lib/auth/getUserIdFromRequest"
 
 type Ctx = { params: Promise<{ id: string }> }
 
-export async function GET(req: Request, ctx: Ctx) {
+export async function GET(req: NextRequest, ctx: Ctx) {
   try {
     const { id: planId } = await ctx.params
 

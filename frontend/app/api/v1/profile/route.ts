@@ -30,6 +30,7 @@ export async function POST(req: Request) {
 
     // ====== MAPEOS DEL FORMULARIO (onboarding.tsx) -> columnas reales en public.profiles ======
     const full_name = (body as any).full_name ?? null
+    const name = (body as any).name ?? full_name ?? null
     const email = (body as any).email ?? null
 
     const height_cm = toNumberOrNull((body as any).height_cm)
@@ -100,6 +101,7 @@ export async function POST(req: Request) {
 
     const payload = {
       id: user.id,
+      name,
       email,
       full_name,
       height_cm,
