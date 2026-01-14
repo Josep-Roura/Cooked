@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { signUp } from "@/lib/auth";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 
 export default function SignupPage() {
@@ -43,6 +44,16 @@ export default function SignupPage() {
       const data = res.data ?? res;
       const user = data?.user ?? null;
       if (user) {
+        // Best-effort: create or update a profile row for the new user so
+        // frontends can read `full_name`, `email`, etc. Ignore failures.
+        try {
+          if (supabase) {
+            await supabase.from("profiles").upsert({ id: user.id, email }, { returning: "minimal" });
+          }
+        } catch (err) {
+          // ignore profile write errors — registration succeeded regardless
+        }
+
         router.replace("/app");
         return;
       }
