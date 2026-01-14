@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -29,10 +29,14 @@ export default function AppDashboard() {
   });
   const [email, setEmail] = useState<string | null>(null);
 
+  const didRedirect = useRef(false);
+
   useEffect(() => {
     setDeviceId(getDeviceId());
     getSession().then((s) => {
       if (!s) {
+        if (didRedirect.current) return;
+        didRedirect.current = true;
         try {
           if (typeof window !== "undefined" && window.location.pathname !== "/login") {
             router.replace("/login");

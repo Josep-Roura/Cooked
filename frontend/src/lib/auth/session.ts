@@ -32,13 +32,6 @@ export function useSession() {
         getCurrentUserIdClient();
       }
       setIsAuthenticated(true);
-      try {
-        if (typeof window !== "undefined" && window.location.pathname !== "/app") {
-          router.replace("/app");
-        }
-      } catch {
-        router.replace("/app");
-      }
     },
     [router]
   );
@@ -50,13 +43,7 @@ export function useSession() {
       document.cookie = "cookedai_user_id=; path=/; max-age=0";
     }
     setIsAuthenticated(false);
-    try {
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        router.replace("/login");
-      }
-    } catch {
-      router.replace("/login");
-    }
+    // Redirect handled by calling component/page to avoid multiple competing redirects
   }, [router]);
 
   return {
