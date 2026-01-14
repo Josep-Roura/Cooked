@@ -18,12 +18,12 @@ const DEFAULT_SETTINGS: ReminderSettings = {
 };
 
 export async function GET() {
-  let userId: string;
-  try {
-    userId = getUserIdFromRequestOrThrow();
-  } catch {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  }
+    let userId: string;
+    try {
+      userId = await getUserIdFromRequestOrThrow();
+    } catch {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
 
   const { data, error } = await supabase
     .from("reminders")
@@ -57,12 +57,12 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let userId: string;
-  try {
-    userId = getUserIdFromRequestOrThrow();
-  } catch {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  }
+    let userId: string;
+    try {
+      userId = await getUserIdFromRequestOrThrow();
+    } catch {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
 
   const body = await req.json();
   const enabled = Boolean(body?.enabled);

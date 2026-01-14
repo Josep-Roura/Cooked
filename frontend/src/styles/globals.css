@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Variables CSS basadas en tu tema Tailwind.
    En light usamos :root, en dark usamos la clase .dark en <html>.
