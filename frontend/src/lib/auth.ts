@@ -1,11 +1,25 @@
 "use client";
 
 import { supabase } from "./supabaseClient";
+import { createDemoLogin } from "./auth/userSession";
 
 // Wrapper helpers that always return a predictable shape and catch runtime errors
 export async function signUp(email: string, password: string) {
   try {
-    if (!supabase) return { data: null, error: new Error("Supabase not configured") } as any;
+    if (!supabase) {
+      // Local dev fallback: create a demo login using localStorage so signup
+      // still works during development when Supabase env vars are not set.
+      if (typeof window !== "undefined") {
+        try {
+          const { userId } = createDemoLogin(email);
+          return { data: { user: { id: userId, email } }, error: null } as any;
+        } catch (err) {
+          return { data: null, error: new Error("Local demo signup failed") } as any;
+        }
+      }
+      return { data: null, error: new Error("Supabase not configured") } as any;
+    }
+
     const res = await supabase.auth.signUp({ email, password });
     return res as any;
   } catch (err) {
