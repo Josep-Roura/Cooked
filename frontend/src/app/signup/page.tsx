@@ -27,25 +27,28 @@ export default function SignupPage() {
 
       const res: any = await signUp(email, password);
       if (!res) {
-        setError("Unexpected response from auth");
+        setError("Auth not available — check Supabase configuration");
         return;
       }
 
       if (res.error) {
-        // Known error shape from supabase or our wrapper
         const message = res.error.message || String(res.error);
         setError(message);
         return;
       }
 
-      // If signup returns a session, redirect; otherwise prompt to check email
+      // On successful sign-up (user created) redirect to dashboard.
+      // Supabase may not return a session if email confirmation is required;
+      // still treat a successful response as registration complete for UX.
       const data = res.data ?? res;
-      const session = data?.session ?? null;
-      if (session) {
+      const user = data?.user ?? null;
+      if (user) {
         router.replace("/app");
-      } else {
-        router.replace("/login?checkEmail=1");
+        return;
       }
+
+      // Fallback: if no explicit user object but no error, go to login check
+      router.replace("/login?checkEmail=1");
     } catch (err: any) {
       setError(err.message || String(err));
     } finally {

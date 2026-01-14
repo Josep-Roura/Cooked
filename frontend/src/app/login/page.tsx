@@ -34,17 +34,24 @@ function LoginContent() {
   const [loading, setLoading] = useState<boolean>(false);
 
   const redirectTo = searchParams?.get("redirectTo") || "/app";
-  const currentSearch = searchParams?.toString() ?? "";
-  const currentPath = currentSearch ? `${pathname}?${currentSearch}` : pathname;
 
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated) return;
     if (didRedirect.current) return;
+
+    // compute current path inside the effect to avoid unstable searchParams
+    const currentSearch = searchParams?.toString() ?? "";
+    const currentPath = currentSearch ? `${pathname}?${currentSearch}` : pathname;
     if (currentPath === redirectTo) return;
+
     didRedirect.current = true;
-    router.replace(redirectTo);
-  }, [ready, isAuthenticated, router, redirectTo, currentPath]);
+    try {
+      router.replace(redirectTo);
+    } catch {
+      // best-effort replace; ignore errors
+    }
+  }, [ready, isAuthenticated, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
