@@ -2,9 +2,10 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const isSupabaseConfigured = Boolean(url && anonKey);
 
 let _supabase: SupabaseClient | null = null;
-if (url && anonKey) {
+if (isSupabaseConfigured) {
   _supabase = createClient(url, anonKey);
 } else {
   // Running without Supabase configured (dev). Avoid throwing so pages can render.
@@ -13,3 +14,4 @@ if (url && anonKey) {
 }
 
 export const supabase = _supabase;
+export { isSupabaseConfigured };

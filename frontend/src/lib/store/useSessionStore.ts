@@ -14,10 +14,7 @@ type SessionState = {
 };
 
 export const useSessionStore = create<SessionState>((set) => ({
-  user: {
-    name: "Demo User",
-    email: "demo@cooked.ai"
-  },
+  user: null,
   login: (user) => set({ user }),
   logout: () => set({ user: null })
 }));

@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { useSession } from "@/lib/auth/session";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/AppLayout";
 
@@ -10,16 +10,17 @@ export default function InternalLayout({
 }: {
   children: ReactNode;
 }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, ready } = useSession();
   const router = useRouter();
 
   useEffect(() => {
+    if (!ready) return;
     if (!isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, ready, router]);
 
-  if (!isAuthenticated) {
+  if (!ready || !isAuthenticated) {
     return null;
   }
 

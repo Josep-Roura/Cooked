@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSessionStore } from "@/lib/store/useSessionStore";
 import {
   createDemoLogin,
   getCurrentUserIdClient,
@@ -15,13 +16,26 @@ import {
  */
 export function useSession() {
   const router = useRouter();
+  const user = useSessionStore((s) => s.user);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setIsAuthenticated(isAuthenticatedClient());
+    if (user) {
+      setIsAuthenticated(true);
+      setReady(true);
+      return;
+    }
+    const authed = isAuthenticatedClient();
+    if (authed && !user) {
+      useSessionStore.getState().login({
+        name: "Demo User",
+        email: "demo@cooked.ai"
+      });
+    }
+    setIsAuthenticated(authed);
     setReady(true);
-  }, []);
+  }, [user]);
 
   const login = useCallback(
     (email: string) => {
@@ -32,9 +46,15 @@ export function useSession() {
         getCurrentUserIdClient();
       }
       setIsAuthenticated(true);
+      if (!user) {
+        useSessionStore.getState().login({
+          name: email.split("@")[0] || "Demo User",
+          email
+        });
+      }
       router.replace("/app");
     },
-    [router]
+    [router, user]
   );
 
   const logout = useCallback(() => {
@@ -44,6 +64,7 @@ export function useSession() {
       document.cookie = "cookedai_user_id=; path=/; max-age=0";
     }
     setIsAuthenticated(false);
+    useSessionStore.getState().logout();
     router.replace("/login");
   }, [router]);
 

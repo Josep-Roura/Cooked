@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { getDeviceId } from "@/lib/device";
 import { generateNutritionPlan, healthCheck, PlanRow } from "@/lib/api";
 import { getSession, signOut } from "@/lib/auth";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { useSession } from "@/lib/auth/session";
+import { useSessionStore } from "@/lib/store/useSessionStore";
 
 type BackendStatus = "Not checked" | "Checking..." | "Backend OK ✅";
 
@@ -15,6 +18,8 @@ type SaveStatus = { planId: string | null; saved: boolean };
 
 export default function AppDashboard() {
   const router = useRouter();
+  const { ready, isAuthenticated } = useSession();
+  const user = useSessionStore((s) => s.user);
   const [backendStatus, setBackendStatus] =
     useState<BackendStatus>("Not checked");
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +36,15 @@ export default function AppDashboard() {
 
   useEffect(() => {
     setDeviceId(getDeviceId());
+    if (!isSupabaseConfigured) {
+      if (!ready) return;
+      if (!isAuthenticated) {
+        router.replace("/login");
+        return;
+      }
+      setEmail(user?.email ?? "demo@cooked.ai");
+      return;
+    }
     getSession().then((s) => {
       if (!s) {
         router.replace("/login");
@@ -38,7 +52,7 @@ export default function AppDashboard() {
         setEmail(s.user?.email ?? null);
       }
     });
-  }, [router]);
+  }, [isAuthenticated, ready, router, user]);
 
   const weightNumber = Number(weightKg);
   const canSubmit = Boolean(file) && weightNumber > 0 && !isSubmitting;
@@ -185,4 +199,3 @@ export default function AppDashboard() {
     </main>
   );
 }
-
