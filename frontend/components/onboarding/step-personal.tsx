@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { FieldError } from "@/components/onboarding/field-error"
 import type { UseFormRegister, UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form"
 import type { OnboardingFormData } from "@/app/onboarding/page"
 
@@ -17,6 +18,9 @@ interface StepPersonalProps {
 
 export function StepPersonal({ register, setValue, watch, errors, userEmail }: StepPersonalProps) {
   const units = watch("units")
+  const gender = watch("gender")
+  const birthdate = watch("birthdate")
+  const formattedBirthdate = formatDateValue(birthdate)
 
   return (
     <div className="space-y-6">
@@ -30,7 +34,7 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
           placeholder="John Doe"
           className="bg-[#0a1628] border-white/20 text-white placeholder:text-gray-500 focus:border-green-500"
         />
-        {errors.full_name && <p className="text-red-400 text-xs">{errors.full_name.message}</p>}
+        <FieldError message={errors.full_name?.message} />
       </div>
 
       <div className="space-y-2">
@@ -50,7 +54,7 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
           <Label htmlFor="gender" className="text-gray-300 text-sm">
             Gender
           </Label>
-          <Select onValueChange={(value) => setValue("gender", value)}>
+          <Select value={gender ?? ""} onValueChange={(value) => setValue("gender", value, { shouldValidate: true })}>
             <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
               <SelectValue placeholder="Select" />
             </SelectTrigger>
@@ -70,7 +74,15 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
           <Input
             id="birthdate"
             type="date"
-            {...register("birthdate")}
+            name="birthdate"
+            value={formattedBirthdate}
+            onChange={(event) =>
+              setValue(
+                "birthdate",
+                event.target.value ? new Date(event.target.value).toISOString() : "",
+                { shouldValidate: true },
+              )
+            }
             className="bg-[#0a1628] border-white/20 text-white [&::-webkit-calendar-picker-indicator]:invert"
           />
         </div>
@@ -82,7 +94,7 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
           <span className={`text-sm ${units === "metric" ? "text-green-500" : "text-gray-400"}`}>Metric</span>
           <Switch
             checked={units === "imperial"}
-            onCheckedChange={(checked) => setValue("units", checked ? "imperial" : "metric")}
+            onCheckedChange={(checked) => setValue("units", checked ? "imperial" : "metric", { shouldValidate: true })}
           />
           <span className={`text-sm ${units === "imperial" ? "text-green-500" : "text-gray-400"}`}>Imperial</span>
         </div>
@@ -113,7 +125,7 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
             placeholder={units === "metric" ? "70" : "154"}
             className="bg-[#0a1628] border-white/20 text-white placeholder:text-gray-500"
           />
-          {errors.weight_kg && <p className="text-red-400 text-xs">{errors.weight_kg.message}</p>}
+          <FieldError message={errors.weight_kg?.message} />
         </div>
       </div>
 
@@ -144,4 +156,15 @@ export function StepPersonal({ register, setValue, watch, errors, userEmail }: S
       </div>
     </div>
   )
+}
+
+function formatDateValue(value?: string) {
+  if (!value) {
+    return ""
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ""
+  }
+  return parsed.toISOString().split("T")[0]
 }

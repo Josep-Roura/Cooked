@@ -3,6 +3,9 @@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { CardRadioGroup } from "@/components/onboarding/card-radio-group"
+import { FieldError } from "@/components/onboarding/field-error"
+import { SelectableChips } from "@/components/onboarding/selectable-chips"
 import type { UseFormRegister, UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form"
 import type { OnboardingFormData } from "@/app/onboarding/page"
 
@@ -25,28 +28,9 @@ const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 export function StepTraining({ register, setValue, watch, errors }: StepTrainingProps) {
   const sports = watch("sports") || []
   const daysOff = watch("days_off_preference") || []
-
-  const toggleSport = (sport: string) => {
-    if (sports.includes(sport)) {
-      setValue(
-        "sports",
-        sports.filter((s) => s !== sport),
-      )
-    } else {
-      setValue("sports", [...sports, sport])
-    }
-  }
-
-  const toggleDayOff = (day: string) => {
-    if (daysOff.includes(day)) {
-      setValue(
-        "days_off_preference",
-        daysOff.filter((d) => d !== day),
-      )
-    } else {
-      setValue("days_off_preference", [...daysOff, day])
-    }
-  }
+  const intensityPreference = watch("intensity_preference")
+  const longSessionDay = watch("long_session_day")
+  const typicalWorkoutTime = watch("typical_workout_time")
 
   return (
     <div className="space-y-6">
@@ -54,23 +38,13 @@ export function StepTraining({ register, setValue, watch, errors }: StepTraining
         <Label className="text-gray-300 text-sm">
           Sports <span className="text-red-400">*</span>
         </Label>
-        <div className="grid grid-cols-2 gap-3">
-          {sportsOptions.map((sport) => (
-            <button
-              key={sport.id}
-              type="button"
-              onClick={() => toggleSport(sport.id)}
-              className={`p-4 rounded-lg border transition-all text-left ${
-                sports.includes(sport.id)
-                  ? "bg-green-500/20 border-green-500 text-white"
-                  : "bg-white/5 border-white/10 text-gray-400 hover:border-white/20"
-              }`}
-            >
-              {sport.label}
-            </button>
-          ))}
-        </div>
-        {errors.sports && <p className="text-red-400 text-xs">{errors.sports.message}</p>}
+        <CardRadioGroup
+          options={sportsOptions.map((sport) => ({ value: sport.id, label: sport.label }))}
+          value={sports}
+          multiple
+          onChange={(value) => setValue("sports", value as string[], { shouldValidate: true })}
+        />
+        <FieldError message={errors.sports?.message} />
       </div>
 
       {sports.length > 0 && (
@@ -124,7 +98,10 @@ export function StepTraining({ register, setValue, watch, errors }: StepTraining
 
       <div className="space-y-2">
         <Label className="text-gray-300 text-sm">Intensity Preference</Label>
-        <Select onValueChange={(value) => setValue("intensity_preference", value)}>
+        <Select
+          value={intensityPreference ?? ""}
+          onValueChange={(value) => setValue("intensity_preference", value, { shouldValidate: true })}
+        >
           <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
             <SelectValue placeholder="Select preference" />
           </SelectTrigger>
@@ -139,7 +116,10 @@ export function StepTraining({ register, setValue, watch, errors }: StepTraining
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-gray-300 text-sm">Long Session Day</Label>
-          <Select onValueChange={(value) => setValue("long_session_day", value)}>
+          <Select
+            value={longSessionDay ?? ""}
+            onValueChange={(value) => setValue("long_session_day", value, { shouldValidate: true })}
+          >
             <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
               <SelectValue placeholder="Select day" />
             </SelectTrigger>
@@ -157,7 +137,10 @@ export function StepTraining({ register, setValue, watch, errors }: StepTraining
           <Label className="text-gray-300 text-sm">
             Typical Workout Time <span className="text-red-400">*</span>
           </Label>
-          <Select onValueChange={(value) => setValue("typical_workout_time", value)}>
+          <Select
+            value={typicalWorkoutTime ?? ""}
+            onValueChange={(value) => setValue("typical_workout_time", value, { shouldValidate: true })}
+          >
             <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
               <SelectValue placeholder="Select time" />
             </SelectTrigger>
@@ -167,28 +150,18 @@ export function StepTraining({ register, setValue, watch, errors }: StepTraining
               <SelectItem value="evening">Evening</SelectItem>
             </SelectContent>
           </Select>
-          {errors.typical_workout_time && <p className="text-red-400 text-xs">{errors.typical_workout_time.message}</p>}
+          <FieldError message={errors.typical_workout_time?.message} />
         </div>
       </div>
 
       <div className="space-y-3">
         <Label className="text-gray-300 text-sm">Preferred Rest Days</Label>
-        <div className="flex flex-wrap gap-2">
-          {weekdays.map((day) => (
-            <button
-              key={day}
-              type="button"
-              onClick={() => toggleDayOff(day.toLowerCase())}
-              className={`px-3 py-1.5 rounded-full text-sm transition-all ${
-                daysOff.includes(day.toLowerCase())
-                  ? "bg-green-500 text-white"
-                  : "bg-white/5 text-gray-400 hover:bg-white/10"
-              }`}
-            >
-              {day.slice(0, 3)}
-            </button>
-          ))}
-        </div>
+        <SelectableChips
+          options={weekdays.map((day) => ({ value: day.toLowerCase(), label: day.slice(0, 3) }))}
+          value={daysOff}
+          multiple
+          onChange={(value) => setValue("days_off_preference", value as string[], { shouldValidate: true })}
+        />
       </div>
     </div>
   )

@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { X } from "lucide-react"
+import { FieldError } from "@/components/onboarding/field-error"
+import { SelectableChips } from "@/components/onboarding/selectable-chips"
 import type { UseFormRegister, UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form"
 import type { OnboardingFormData } from "@/app/onboarding/page"
 
@@ -23,21 +25,25 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
   const allergies = watch("allergies") || []
   const hydrationFocus = watch("hydration_focus")
   const [customAllergy, setCustomAllergy] = useState("")
+  const dietType = watch("diet_type")
+  const mealsPerDay = watch("meals_per_day")
+  const caffeine = watch("caffeine")
 
   const toggleAllergy = (allergy: string) => {
     if (allergies.includes(allergy)) {
       setValue(
         "allergies",
         allergies.filter((a) => a !== allergy),
+        { shouldValidate: true },
       )
     } else {
-      setValue("allergies", [...allergies, allergy])
+      setValue("allergies", [...allergies, allergy], { shouldValidate: true })
     }
   }
 
   const addCustomAllergy = () => {
     if (customAllergy.trim() && !allergies.includes(customAllergy.toLowerCase())) {
-      setValue("allergies", [...allergies, customAllergy.toLowerCase()])
+      setValue("allergies", [...allergies, customAllergy.toLowerCase()], { shouldValidate: true })
       setCustomAllergy("")
     }
   }
@@ -48,7 +54,7 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
         <Label className="text-gray-300 text-sm">
           Diet Type <span className="text-red-400">*</span>
         </Label>
-        <Select onValueChange={(value) => setValue("diet_type", value)}>
+        <Select value={dietType ?? ""} onValueChange={(value) => setValue("diet_type", value, { shouldValidate: true })}>
           <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
             <SelectValue placeholder="Select diet type" />
           </SelectTrigger>
@@ -59,27 +65,20 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
             <SelectItem value="pescatarian">Pescatarian</SelectItem>
           </SelectContent>
         </Select>
-        {errors.diet_type && <p className="text-red-400 text-xs">{errors.diet_type.message}</p>}
+        <FieldError message={errors.diet_type?.message} />
       </div>
 
       <div className="space-y-3">
         <Label className="text-gray-300 text-sm">Allergies & Intolerances</Label>
-        <div className="flex flex-wrap gap-2">
-          {commonAllergies.map((allergy) => (
-            <button
-              key={allergy}
-              type="button"
-              onClick={() => toggleAllergy(allergy)}
-              className={`px-3 py-1.5 rounded-full text-sm capitalize transition-all ${
-                allergies.includes(allergy)
-                  ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                  : "bg-white/5 text-gray-400 hover:bg-white/10 border border-transparent"
-              }`}
-            >
-              {allergy}
-            </button>
-          ))}
-        </div>
+        <SelectableChips
+          options={commonAllergies.map((allergy) => ({ value: allergy, label: allergy }))}
+          value={allergies}
+          multiple
+          onChange={(value) => setValue("allergies", value as string[], { shouldValidate: true })}
+          chipClassName="capitalize"
+          selectedClassName="bg-red-500/20 text-red-400 border border-red-500/50"
+          unselectedClassName="border border-transparent"
+        />
         {allergies.filter((a) => !commonAllergies.includes(a)).length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
             {allergies
@@ -132,7 +131,10 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
           <Label className="text-gray-300 text-sm">
             Meals Per Day <span className="text-red-400">*</span>
           </Label>
-          <Select onValueChange={(value) => setValue("meals_per_day", Number.parseInt(value))}>
+          <Select
+            value={mealsPerDay ? mealsPerDay.toString() : ""}
+            onValueChange={(value) => setValue("meals_per_day", Number.parseInt(value, 10), { shouldValidate: true })}
+          >
             <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
               <SelectValue placeholder="Select" />
             </SelectTrigger>
@@ -144,14 +146,14 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
               ))}
             </SelectContent>
           </Select>
-          {errors.meals_per_day && <p className="text-red-400 text-xs">{errors.meals_per_day.message}</p>}
+          <FieldError message={errors.meals_per_day?.message} />
         </div>
 
         <div className="space-y-2">
           <Label className="text-gray-300 text-sm">
             Caffeine Intake <span className="text-red-400">*</span>
           </Label>
-          <Select onValueChange={(value) => setValue("caffeine", value)}>
+          <Select value={caffeine ?? ""} onValueChange={(value) => setValue("caffeine", value, { shouldValidate: true })}>
             <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
               <SelectValue placeholder="Select" />
             </SelectTrigger>
@@ -162,7 +164,7 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
               <SelectItem value="high">High</SelectItem>
             </SelectContent>
           </Select>
-          {errors.caffeine && <p className="text-red-400 text-xs">{errors.caffeine.message}</p>}
+          <FieldError message={errors.caffeine?.message} />
         </div>
       </div>
 
@@ -171,7 +173,10 @@ export function StepNutrition({ register, setValue, watch, errors }: StepNutriti
           <p className="text-gray-300 text-sm">Hydration Focus</p>
           <p className="text-gray-500 text-xs">Get reminders and tips for hydration</p>
         </div>
-        <Switch checked={hydrationFocus} onCheckedChange={(checked) => setValue("hydration_focus", checked)} />
+        <Switch
+          checked={hydrationFocus}
+          onCheckedChange={(checked) => setValue("hydration_focus", checked, { shouldValidate: true })}
+        />
       </div>
     </div>
   )

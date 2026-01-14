@@ -1,14 +1,15 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ProgressIndicator } from "@/components/onboarding/progress-indicator"
+import { AnimatedStepWrapper } from "@/components/onboarding/animated-step-wrapper"
 import { StepPersonal } from "@/components/onboarding/step-personal"
 import { StepGoals } from "@/components/onboarding/step-goals"
 import { StepTraining } from "@/components/onboarding/step-training"
@@ -75,6 +76,31 @@ export type OnboardingFormData = z.infer<typeof onboardingSchema>
 const STEPS = ["Personal", "Goals", "Training", "Nutrition", "Constraints", "Review"]
 const TOTAL_STEPS = STEPS.length
 const STORAGE_KEY = "cooked_onboarding_draft"
+const STEP_FIELDS: Record<number, (keyof OnboardingFormData)[]> = {
+  1: ["full_name", "weight_kg", "units"],
+  2: ["primary_goal", "experience_level"],
+  3: ["sports", "typical_workout_time"],
+  4: ["diet_type", "meals_per_day", "caffeine"],
+  5: [
+    "cooking_time_per_day",
+    "budget_level",
+    "kitchen_access",
+    "travel_frequency",
+    "accept_terms",
+    "data_processing_consent",
+  ],
+}
+
+const DEFAULT_VALUES: Partial<OnboardingFormData> = {
+  units: "metric",
+  sports: [],
+  allergies: [],
+  days_off_preference: [],
+  hydration_focus: false,
+  connect_trainingpeaks: false,
+  accept_terms: false,
+  data_processing_consent: false,
+}
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -82,28 +108,25 @@ export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
   const [checkingProfile, setCheckingProfile] = useState(true)
+  const [draftLoaded, setDraftLoaded] = useState(false)
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    control,
+    reset,
     formState: { errors },
     trigger,
     getValues,
   } = useForm<OnboardingFormData>({
     resolver: zodResolver(onboardingSchema),
-    defaultValues: {
-      units: "metric",
-      sports: [],
-      allergies: [],
-      days_off_preference: [],
-      hydration_focus: false,
-      connect_trainingpeaks: false,
-      accept_terms: false,
-      data_processing_consent: false,
-    },
+    defaultValues: DEFAULT_VALUES,
+    mode: "onChange",
+    reValidateMode: "onChange",
   })
 
   // Load draft from localStorage
@@ -112,23 +135,25 @@ export default function OnboardingPage() {
     if (saved) {
       try {
         const draft = JSON.parse(saved)
-        Object.entries(draft).forEach(([key, value]) => {
-          setValue(key as keyof OnboardingFormData, value as OnboardingFormData[keyof OnboardingFormData])
-        })
+        reset({ ...DEFAULT_VALUES, ...draft })
       } catch {
         // Invalid draft, ignore
       }
     }
-  }, [setValue])
+    setDraftLoaded(true)
+  }, [reset])
 
   // Save draft to localStorage on changes
   const formValues = watch()
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
+    if (!draftLoaded) {
+      return undefined
+    }
+    const timeoutId = window.setTimeout(() => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(formValues))
-    }, 500)
-    return () => clearTimeout(timeoutId)
-  }, [formValues])
+    }, 400)
+    return () => window.clearTimeout(timeoutId)
+  }, [draftLoaded, formValues])
 
   // Check if profile exists
   const checkProfile = useCallback(async () => {
@@ -160,28 +185,54 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-      setValue("timezone", tz)
+      if (!getValues("timezone")) {
+        setValue("timezone", tz, { shouldValidate: false })
+      }
     }
-  }, [setValue])
+  }, [getValues, setValue])
+
+  useEffect(() => {
+    if (user?.email) {
+      setValue("email", user.email, { shouldValidate: false })
+    }
+  }, [setValue, user?.email])
+
+  const currentStepFields = STEP_FIELDS[currentStep] ?? []
+  const currentStepValues = useWatch({
+    control,
+    name: currentStepFields,
+  })
+  const stepSchema = useMemo(() => {
+    if (currentStepFields.length === 0) {
+      return null
+    }
+    const shape = currentStepFields.reduce(
+      (acc, field) => ({ ...acc, [field]: true }),
+      {} as Record<keyof OnboardingFormData, true>,
+    )
+    return onboardingSchema.pick(shape)
+  }, [currentStepFields])
+  const isStepValid = useMemo(() => {
+    if (!stepSchema || currentStepFields.length === 0) {
+      return true
+    }
+    const stepData = currentStepFields.reduce((acc, field, index) => {
+      acc[field] = currentStepValues?.[index]
+      return acc
+    }, {} as Partial<OnboardingFormData>)
+
+    return stepSchema.safeParse(stepData).success
+  }, [currentStepFields, currentStepValues, stepSchema])
+
+  const stepErrorMessages = useMemo(() => {
+    return currentStepFields
+      .map((field) => errors[field]?.message)
+      .filter((message): message is string => Boolean(message))
+  }, [currentStepFields, errors])
 
   const validateCurrentStep = async () => {
-    const stepFields: Record<number, (keyof OnboardingFormData)[]> = {
-      1: ["full_name", "weight_kg", "units"],
-      2: ["primary_goal", "experience_level"],
-      3: ["sports", "typical_workout_time"],
-      4: ["diet_type", "meals_per_day", "caffeine"],
-      5: [
-        "cooking_time_per_day",
-        "budget_level",
-        "kitchen_access",
-        "travel_frequency",
-        "accept_terms",
-        "data_processing_consent",
-      ],
-    }
-
     if (currentStep <= 5) {
-      return await trigger(stepFields[currentStep])
+      return await trigger(currentStepFields)
     }
     return true
   }
@@ -202,6 +253,7 @@ export default function OnboardingPage() {
   const onSubmit = async (data: OnboardingFormData) => {
     setLoading(true)
     setError(null)
+    setSuccess(false)
 
     try {
       await saveUserProfile({
@@ -209,7 +261,10 @@ export default function OnboardingPage() {
         email: user?.email || "",
       })
       localStorage.removeItem(STORAGE_KEY)
-      router.push("/dashboard")
+      setSuccess(true)
+      setTimeout(() => {
+        router.push("/dashboard")
+      }, 400)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save profile")
     } finally {
@@ -249,33 +304,60 @@ export default function OnboardingPage() {
                 <AlertDescription className="text-red-400">{error}</AlertDescription>
               </Alert>
             )}
+            {success && (
+              <Alert className="bg-green-500/10 border-green-500/20 mb-6">
+                <AlertDescription className="text-green-400">Profile saved! Redirecting...</AlertDescription>
+              </Alert>
+            )}
 
-            <form onSubmit={handleSubmit(onSubmit)}>
-              {currentStep === 1 && (
-                <StepPersonal
-                  register={register}
-                  setValue={setValue}
-                  watch={watch}
-                  errors={errors}
-                  userEmail={user?.email}
-                />
+            <form
+              onSubmit={handleSubmit(onSubmit)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || currentStep >= TOTAL_STEPS) {
+                  return
+                }
+                const target = event.target as HTMLElement
+                if (target.tagName === "TEXTAREA") {
+                  return
+                }
+                event.preventDefault()
+                handleNext()
+              }}
+            >
+              {stepErrorMessages.length > 0 && (
+                <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+                  {stepErrorMessages.map((message) => (
+                    <div key={message}>• {message}</div>
+                  ))}
+                </div>
               )}
-              {currentStep === 2 && <StepGoals register={register} setValue={setValue} errors={errors} />}
-              {currentStep === 3 && (
-                <StepTraining register={register} setValue={setValue} watch={watch} errors={errors} />
-              )}
-              {currentStep === 4 && (
-                <StepNutrition register={register} setValue={setValue} watch={watch} errors={errors} />
-              )}
-              {currentStep === 5 && <StepConstraints setValue={setValue} watch={watch} errors={errors} />}
-              {currentStep === 6 && <ReviewSummary data={getValues()} onEdit={setCurrentStep} />}
+              <AnimatedStepWrapper stepKey={currentStep}>
+                {currentStep === 1 && (
+                  <StepPersonal
+                    register={register}
+                    setValue={setValue}
+                    watch={watch}
+                    errors={errors}
+                    userEmail={user?.email}
+                  />
+                )}
+                {currentStep === 2 && <StepGoals register={register} setValue={setValue} watch={watch} errors={errors} />}
+                {currentStep === 3 && (
+                  <StepTraining register={register} setValue={setValue} watch={watch} errors={errors} />
+                )}
+                {currentStep === 4 && (
+                  <StepNutrition register={register} setValue={setValue} watch={watch} errors={errors} />
+                )}
+                {currentStep === 5 && <StepConstraints setValue={setValue} watch={watch} errors={errors} />}
+                {currentStep === 6 && <ReviewSummary data={getValues()} onEdit={setCurrentStep} />}
+              </AnimatedStepWrapper>
 
               <div className="flex items-center justify-between mt-8 pt-6 border-t border-white/10">
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={handleBack}
-                  disabled={currentStep === 1}
+                  disabled={currentStep === 1 || loading}
                   className="text-gray-400 hover:text-white hover:bg-white/5"
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
@@ -286,6 +368,7 @@ export default function OnboardingPage() {
                   <Button
                     type="button"
                     onClick={handleNext}
+                    disabled={!isStepValid || loading}
                     className="bg-green-500 hover:bg-green-600 text-white rounded-full px-6"
                   >
                     Continue

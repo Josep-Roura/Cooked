@@ -3,23 +3,33 @@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { UseFormRegister, UseFormSetValue, FieldErrors } from "react-hook-form"
+import { FieldError } from "@/components/onboarding/field-error"
+import type { UseFormRegister, UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form"
 import type { OnboardingFormData } from "@/app/onboarding/page"
 
 interface StepGoalsProps {
   register: UseFormRegister<OnboardingFormData>
   setValue: UseFormSetValue<OnboardingFormData>
+  watch: UseFormWatch<OnboardingFormData>
   errors: FieldErrors<OnboardingFormData>
 }
 
-export function StepGoals({ register, setValue, errors }: StepGoalsProps) {
+export function StepGoals({ register, setValue, watch, errors }: StepGoalsProps) {
+  const primaryGoal = watch("primary_goal")
+  const experienceLevel = watch("experience_level")
+  const eventDate = watch("event_date")
+  const formattedEventDate = formatDateValue(eventDate)
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
         <Label className="text-gray-300 text-sm">
           Primary Goal <span className="text-red-400">*</span>
         </Label>
-        <Select onValueChange={(value) => setValue("primary_goal", value)}>
+        <Select
+          value={primaryGoal ?? ""}
+          onValueChange={(value) => setValue("primary_goal", value, { shouldValidate: true })}
+        >
           <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
             <SelectValue placeholder="Select your primary goal" />
           </SelectTrigger>
@@ -31,14 +41,17 @@ export function StepGoals({ register, setValue, errors }: StepGoalsProps) {
             <SelectItem value="health">General Health</SelectItem>
           </SelectContent>
         </Select>
-        {errors.primary_goal && <p className="text-red-400 text-xs">{errors.primary_goal.message}</p>}
+        <FieldError message={errors.primary_goal?.message} />
       </div>
 
       <div className="space-y-2">
         <Label className="text-gray-300 text-sm">
           Experience Level <span className="text-red-400">*</span>
         </Label>
-        <Select onValueChange={(value) => setValue("experience_level", value)}>
+        <Select
+          value={experienceLevel ?? ""}
+          onValueChange={(value) => setValue("experience_level", value, { shouldValidate: true })}
+        >
           <SelectTrigger className="bg-[#0a1628] border-white/20 text-white">
             <SelectValue placeholder="Select your experience level" />
           </SelectTrigger>
@@ -48,7 +61,7 @@ export function StepGoals({ register, setValue, errors }: StepGoalsProps) {
             <SelectItem value="advanced">Advanced</SelectItem>
           </SelectContent>
         </Select>
-        {errors.experience_level && <p className="text-red-400 text-xs">{errors.experience_level.message}</p>}
+        <FieldError message={errors.experience_level?.message} />
       </div>
 
       <div className="space-y-2">
@@ -85,7 +98,15 @@ export function StepGoals({ register, setValue, errors }: StepGoalsProps) {
             <Input
               id="event_date"
               type="date"
-              {...register("event_date")}
+              name="event_date"
+              value={formattedEventDate}
+              onChange={(event) =>
+                setValue(
+                  "event_date",
+                  event.target.value ? new Date(event.target.value).toISOString() : "",
+                  { shouldValidate: true },
+                )
+              }
               className="bg-[#0a1628] border-white/20 text-white [&::-webkit-calendar-picker-indicator]:invert"
             />
           </div>
@@ -106,4 +127,15 @@ export function StepGoals({ register, setValue, errors }: StepGoalsProps) {
       </div>
     </div>
   )
+}
+
+function formatDateValue(value?: string) {
+  if (!value) {
+    return ""
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ""
+  }
+  return parsed.toISOString().split("T")[0]
 }
