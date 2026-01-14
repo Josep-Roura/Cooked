@@ -51,44 +51,43 @@ export interface UserProfile {
   data_processing_consent: boolean
 }
 
-export async function saveUserProfile(profile: UserProfile): Promise<{ success: boolean }> {
-  const response = await fetch(`${API_BASE}/api/v1/profile`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(profile),
-    credentials: "include",
+export async function getUserProfile() {
+  const res = await fetch("/api/v1/profile/me", {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
   })
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Failed to save profile" }))
-    throw new Error(error.message)
+  // ✅ No existe perfil → onboarding debe mostrarse
+  if (res.status === 404) return null
+
+  // ✅ No autenticado → forzamos login
+  if (res.status === 401) {
+    const payload = await res.json().catch(() => ({}))
+    throw new Error(payload?.error ?? "Not authenticated")
   }
 
-  return response.json()
+  // ✅ Cualquier otro error → lanzar para mostrar mensaje
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}))
+    throw new Error(payload?.error ?? `Failed to load profile (${res.status})`)
+  }
+
+  // ✅ Perfil correcto
+  return await res.json()
 }
 
-export async function getUserProfile(): Promise<UserProfile | null> {
-  try {
-    const response = await fetch(`${API_BASE}/api/v1/profile/me`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    })
+export async function saveUserProfile(data: Record<string, any>) {
+  const res = await fetch("/api/v1/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
 
-    if (response.status === 404) {
-      return null
-    }
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch profile")
-    }
-
-    return response.json()
-  } catch {
-    return null
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}))
+    throw new Error(payload?.details ?? payload?.error ?? `Failed to save profile (${res.status})`)
   }
+
+  return await res.json()
 }
