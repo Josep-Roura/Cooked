@@ -31,10 +31,11 @@ function LoginContent() {
   const [pwd, setPwd] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
+  const redirectTo = searchParams?.get("redirectTo") || "/app";
+
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated) return;
-    const redirectTo = searchParams?.get("redirectTo") || "/app";
     try {
       if (typeof window !== "undefined" && window.location.pathname !== redirectTo) {
         router.replace(redirectTo);
@@ -42,7 +43,7 @@ function LoginContent() {
     } catch {
       router.replace(redirectTo);
     }
-  }, [ready, isAuthenticated, router, searchParams]);
+  }, [ready, isAuthenticated, router, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
