@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useSessionStore } from "@/lib/store/useSessionStore";
 
 const AUTH_KEY = "cookedai_auth";
 const USER_ID_KEY = "cookedai_user_id";
@@ -89,6 +90,13 @@ export function isAuthenticatedClient(): boolean {
 export function createDemoLogin(_email: string): { userId: string } {
   const userId = getCurrentUserIdClient();
   safeSetItem(AUTH_KEY, "1");
+  // Update session store so client components reflect demo login immediately
+  try {
+    const login = useSessionStore.getState().login;
+    login({ name: "Demo User", email: _email });
+  } catch {
+    // ignore if store not available
+  }
   return { userId };
 }
 
