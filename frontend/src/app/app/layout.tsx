@@ -15,7 +15,13 @@ export default function InternalLayout({
 
   useEffect(() => {
     if (!isAuthenticated) {
-      router.replace("/login");
+      try {
+        if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+          router.replace("/login");
+        }
+      } catch {
+        router.replace("/login");
+      }
     }
   }, [isAuthenticated, router]);
 

@@ -34,9 +34,14 @@ function LoginContent() {
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated) return;
-
     const redirectTo = searchParams?.get("redirectTo") || "/app";
-    router.replace(redirectTo);
+    try {
+      if (typeof window !== "undefined" && window.location.pathname !== redirectTo) {
+        router.replace(redirectTo);
+      }
+    } catch {
+      router.replace(redirectTo);
+    }
   }, [ready, isAuthenticated, router, searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {

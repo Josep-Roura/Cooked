@@ -33,7 +33,13 @@ export default function AppDashboard() {
     setDeviceId(getDeviceId());
     getSession().then((s) => {
       if (!s) {
-        router.replace("/login");
+        try {
+          if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+            router.replace("/login");
+          }
+        } catch {
+          router.replace("/login");
+        }
       } else {
         setEmail(s.user?.email ?? null);
       }

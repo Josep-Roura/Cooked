@@ -13,7 +13,13 @@ export default function LandingPage() {
     getSession().then((s) => {
       if (!mounted) return;
       if (s) {
-        router.replace("/app");
+        try {
+          if (typeof window !== "undefined" && window.location.pathname !== "/app") {
+            router.replace("/app");
+          }
+        } catch {
+          router.replace("/app");
+        }
       }
     });
     return () => {
