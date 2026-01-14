@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/server/supabase";
+import { createServerClient } from "@/lib/supabase/server";
 import { getUserIdFromRequestOrThrow } from "@/lib/auth/getUserIdFromRequest";
 
 export async function POST(req: Request) {
@@ -16,10 +16,12 @@ export async function POST(req: Request) {
 
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow(req);
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
+
+    const supabase = await createServerClient();
 
     const { error: insertError } = await supabase
       .from("adherence_logs")
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const summary = await fetchSummary(userId);
+    const summary = await fetchSummary(supabase, userId);
 
     return NextResponse.json(
       {
@@ -65,11 +67,12 @@ export async function GET() {
   try {
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow();
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
-    const summary = await fetchSummary(userId);
+    const supabase = await createServerClient();
+    const summary = await fetchSummary(supabase, userId);
     return NextResponse.json({ ok: true, summary });
   } catch (err) {
     console.error("GET /api/adherence error", err);
@@ -80,7 +83,10 @@ export async function GET() {
   }
 }
 
-async function fetchSummary(userId: string) {
+async function fetchSummary(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string
+) {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await supabase
