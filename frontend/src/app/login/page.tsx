@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 import { MotionWrapper } from "@/components/motion-wrapper";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // Wrapper page: Suspense around the content that uses `useSearchParams`
 export default function LoginPage() {
@@ -24,6 +24,8 @@ export default function LoginPage() {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const didRedirect = useRef(false);
 
   const { login, isAuthenticated, ready } = useSession();
 
@@ -32,18 +34,17 @@ function LoginContent() {
   const [loading, setLoading] = useState<boolean>(false);
 
   const redirectTo = searchParams?.get("redirectTo") || "/app";
+  const currentSearch = searchParams?.toString() ?? "";
+  const currentPath = currentSearch ? `${pathname}?${currentSearch}` : pathname;
 
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated) return;
-    try {
-      if (typeof window !== "undefined" && window.location.pathname !== redirectTo) {
-        router.replace(redirectTo);
-      }
-    } catch {
-      router.replace(redirectTo);
-    }
-  }, [ready, isAuthenticated, router, redirectTo]);
+    if (didRedirect.current) return;
+    if (currentPath === redirectTo) return;
+    didRedirect.current = true;
+    router.replace(redirectTo);
+  }, [ready, isAuthenticated, router, redirectTo, currentPath]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
