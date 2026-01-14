@@ -32,8 +32,11 @@ export async function GET() {
       )
     }
 
-    // ✅ Si aún no hay perfil, devolvemos 200 y profile:null (evita 404 en frontend)
-    return NextResponse.json({ profile: data ?? null }, { status: 200 })
+    if (!data) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 })
+    }
+
+    return NextResponse.json(data, { status: 200 })
   } catch (e: any) {
     console.error("GET /api/v1/profile/me error:", e)
     return NextResponse.json(
