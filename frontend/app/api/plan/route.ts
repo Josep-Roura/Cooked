@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/server/supabase";
+import { createServerClient } from "@/lib/supabase/server";
 import { generatePlanWithAI } from "@/lib/ai/generatePlan";
 import { getUserIdFromRequestOrThrow } from "@/lib/auth/getUserIdFromRequest";
 
@@ -25,10 +25,12 @@ export async function POST(req: Request) {
 
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow(req);
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
+
+    const supabase = await createServerClient();
 
     const planFromAI = await generatePlanWithAI({
       workoutType,
@@ -101,10 +103,12 @@ export async function GET() {
   try {
     let userId: string;
     try {
-      userId = getUserIdFromRequestOrThrow();
+      userId = await getUserIdFromRequestOrThrow();
     } catch {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
+
+    const supabase = await createServerClient();
 
     const { data, error } = await supabase
       .from("plans")
