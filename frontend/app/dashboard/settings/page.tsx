@@ -1,7 +1,8 @@
 "use client"
 
-import { Settings, Sparkles } from "lucide-react"
+import { Settings } from "lucide-react"
 import { ProfilePreferences } from "@/components/dashboard/profile/profile-preferences"
+import { TrainingPeaksCsvImport } from "@/components/dashboard/settings/trainingpeaks-csv-import"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useProfile } from "@/lib/db/hooks"
@@ -44,16 +45,7 @@ export default function SettingsPage() {
             </div>
           )}
           {preferences && <ProfilePreferences preferences={preferences} />}
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-2">Integrations</h3>
-            <p className="text-sm text-muted-foreground">
-              Connect devices and services to sync training load automatically.
-            </p>
-            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-              <Sparkles className="h-4 w-4 text-primary" />
-              Coming soon
-            </div>
-          </div>
+          <TrainingPeaksCsvImport />
         </div>
       </div>
     </main>

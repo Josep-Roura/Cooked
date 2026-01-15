@@ -5,7 +5,6 @@ import type {
   NutritionPlanRow,
   OnboardingProfileInput,
   ProfileRow,
-  TpWorkout,
 } from "@/lib/db/types"
 
 function toNumberOrNull(value: unknown): number | null {
@@ -158,26 +157,6 @@ export async function fetchNutritionPlanRowsByDateRange(
     .gte("date", startDate)
     .lte("date", endDate)
     .order("date", { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return data ?? []
-}
-
-export async function fetchWorkoutsByDateRange(
-  athleteId: string,
-  startDate: string,
-  endDate: string,
-): Promise<TpWorkout[]> {
-  const { data, error } = await supabase
-    .from("tp_workouts")
-    .select("*")
-    .eq("athlete_id", athleteId)
-    .gte("workout_day", startDate)
-    .lte("workout_day", endDate)
-    .order("workout_day", { ascending: true })
 
   if (error) {
     throw new Error(error.message)
