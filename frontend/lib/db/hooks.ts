@@ -1,6 +1,5 @@
 "use client"
 
-import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { format } from "date-fns"
 import type {
@@ -8,9 +7,13 @@ import type {
   DashboardOverviewData,
   DateRangeOption,
   MacroSummary,
+  Meal,
   NutritionDaySummary,
+  NutritionDayType,
+  NutritionMacros,
   NutritionPlan,
   NutritionPlanRow,
+  NutritionDayPlan,
   NutritionSummary,
   OnboardingProfileInput,
   PlanPreview,
@@ -25,6 +28,7 @@ import type {
 import {
   fetchActivePlanByDate,
   fetchNutritionPlanRowsByPlanId,
+  fetchNutritionPlanRowsByDateRange,
   fetchNutritionPlans,
   fetchProfile,
   getDateRange,
@@ -169,6 +173,97 @@ function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
       description: workout.description ?? workout.coach_comments ?? null,
     }
   })
+}
+
+type NutritionMetaEntry = {
+  meals?: Meal[]
+  macros?: NutritionMacros
+  day_type?: NutritionDayType
+  meals_per_day?: number
+}
+
+function parseNutritionMeta(meta: Record<string, unknown> | null | undefined): Record<string, NutritionMetaEntry> {
+  if (!meta || typeof meta !== "object") {
+    return {}
+  }
+  const raw = (meta as Record<string, unknown>)["nutrition_by_date"]
+  if (!raw || typeof raw !== "object") {
+    return {}
+  }
+  return raw as Record<string, NutritionMetaEntry>
+}
+
+function normalizeMealTime(value: string | undefined | null): string | null {
+  if (!value) return null
+  const match = value.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+  return `${match[1].padStart(2, "0")}:${match[2]}`
+}
+
+function buildNutritionEvents(
+  rows: NutritionPlanRow[],
+  profile: ProfileRow | null | undefined,
+  range: DateRangeOption,
+  now: Date,
+): CalendarEvent[] {
+  const { start, end } = getDateRange(range, now)
+  const startKey = format(start, "yyyy-MM-dd")
+  const endKey = format(end, "yyyy-MM-dd")
+  const nutritionMeta = parseNutritionMeta(profile?.meta)
+  const events: CalendarEvent[] = []
+  const coveredDates = new Set<string>()
+  const defaultMealsPerDay = profile?.meals_per_day ?? 3
+
+  Object.entries(nutritionMeta).forEach(([date, entry]) => {
+    if (date < startKey || date > endKey) return
+    const meals = Array.isArray(entry.meals) ? entry.meals : []
+    const dayMeals = meals.filter((meal) => Boolean(meal))
+    if (dayMeals.length > 0) {
+      dayMeals.forEach((meal) => {
+        const startTime = normalizeMealTime(meal.time) ?? "12:00"
+        events.push({
+          id: `nutrition-${date}-${meal.slot}`,
+          title: `Nutrition: ${meal.name}`,
+          type: "nutrition",
+          startTime,
+          endTime: calculateEndTime(startTime, 0.75),
+          date,
+          color: "bg-green-500",
+          description: `${meal.kcal} kcal`,
+        })
+      })
+    } else {
+      const mealsPerDay = entry.meals_per_day ?? defaultMealsPerDay
+      events.push({
+        id: `nutrition-${date}`,
+        title: `Meal plan (${mealsPerDay} meals)`,
+        type: "nutrition",
+        startTime: "12:00",
+        endTime: calculateEndTime("12:00", 0.5),
+        date,
+        color: "bg-green-500",
+      })
+    }
+    coveredDates.add(date)
+  })
+
+  rows.forEach((row) => {
+    if (row.date < startKey || row.date > endKey) return
+    if (coveredDates.has(row.date)) return
+    const mealsPerDay = defaultMealsPerDay
+    events.push({
+      id: `nutrition-${row.date}`,
+      title: `Meal plan (${mealsPerDay} meals)`,
+      type: "nutrition",
+      startTime: "12:00",
+      endTime: calculateEndTime("12:00", 0.5),
+      date: row.date,
+      color: "bg-green-500",
+      description: `${row.kcal} kcal`,
+    })
+  })
+
+  return events
 }
 
 function buildNutritionDailySummary(
@@ -431,15 +526,64 @@ export function useNutritionSummary(
   })
 }
 
+export function useNutritionDayPlan(
+  userId: string | null | undefined,
+  date: string,
+) {
+  return useQuery({
+    queryKey: ["db", "nutrition-day", userId, date],
+    queryFn: async () => {
+      const response = await fetch(`/api/v1/nutrition/day?date=${date}`)
+      if (response.status === 404) {
+        return { exists: false, plan: null }
+      }
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to load nutrition day")
+      }
+      const data = (await response.json()) as NutritionDayPlan
+      return { exists: true, plan: data }
+    },
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 30,
+  })
+}
+
 export function useCalendarEvents(
   userId: string | null | undefined,
   profile: ProfileRow | null | undefined,
   range: DateRangeOption,
 ) {
-  const summary = useTrainingSummary(userId, profile, range)
+  const profileUpdatedAt = profile?.updated_at ?? null
 
-  return useMemo(() => ({
-    ...summary,
-    events: summary.data?.calendar ?? [],
-  }), [summary])
+  return useQuery({
+    queryKey: ["db", "calendar-events", userId, range, profileUpdatedAt],
+    queryFn: async () => {
+      const now = new Date()
+      const { start, end } = getDateRange(range, now)
+      const [workouts, nutritionRows] = await Promise.all([
+        fetchWorkoutsByDateRange(
+          userId as string,
+          format(start, "yyyy-MM-dd"),
+          format(end, "yyyy-MM-dd"),
+        ),
+        fetchNutritionPlanRowsByDateRange(
+          userId as string,
+          format(start, "yyyy-MM-dd"),
+          format(end, "yyyy-MM-dd"),
+        ),
+      ])
+
+      const trainingCalendar = buildCalendarEvents(workouts)
+      const nutritionCalendar = buildNutritionEvents(nutritionRows, profile, range, now)
+
+      return {
+        sessions: buildTrainingSessions(workouts),
+        summary: buildTrainingSummary(workouts),
+        calendar: [...trainingCalendar, ...nutritionCalendar],
+      }
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
 }
