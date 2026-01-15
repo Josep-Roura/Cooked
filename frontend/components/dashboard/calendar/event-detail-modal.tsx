@@ -1,8 +1,9 @@
 "use client"
 
-import { X, Clock, Calendar, Tag } from "lucide-react"
+import { X, Calendar, Clock, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { CalendarEvent } from "@/lib/mock-data"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
+import type { CalendarEvent } from "@/lib/db/types"
 
 interface EventDetailModalProps {
   event: CalendarEvent | null
@@ -10,58 +11,42 @@ interface EventDetailModalProps {
 }
 
 export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
-  if (!event) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-card rounded-2xl shadow-xl w-full max-w-md p-6 m-4">
-        <Button variant="ghost" size="icon" className="absolute top-4 right-4" onClick={onClose}>
-          <X className="h-5 w-5" />
-        </Button>
+    <Dialog open={!!event} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        {event && (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">{event.title}</h3>
+                <p className="text-sm text-muted-foreground capitalize">{event.type} session</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
 
-        <div className={`w-12 h-12 rounded-xl ${event.color} flex items-center justify-center mb-4`}>
-          <Calendar className="h-6 w-6 text-white" />
-        </div>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Calendar className="h-4 w-4" />
+                {event.date}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                {event.startTime} - {event.endTime}
+              </div>
+              {event.description && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <MapPin className="h-4 w-4" />
+                  {event.description}
+                </div>
+              )}
+            </div>
 
-        <h2 className="text-xl font-bold text-foreground mb-2">{event.title}</h2>
-
-        <div className="space-y-3 mb-6">
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span>
-              {event.startTime} - {event.endTime}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <Calendar className="h-4 w-4" />
-            <span>
-              {new Date(event.date).toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <Tag className="h-4 w-4" />
-            <span className="capitalize">{event.type}</span>
-          </div>
-        </div>
-
-        {event.description && (
-          <div className="p-4 bg-muted rounded-xl mb-6">
-            <p className="text-sm text-foreground">{event.description}</p>
+            <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">View details</Button>
           </div>
         )}
-
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>
-            Close
-          </Button>
-          <Button className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground">Edit Event</Button>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -16,7 +16,8 @@ import { StepNutrition } from "@/components/onboarding/step-nutrition"
 import { StepConstraints } from "@/components/onboarding/step-constraints"
 import { ReviewSummary } from "@/components/onboarding/review-summary"
 import { useSession } from "@/hooks/use-session"
-import { saveUserProfile, getUserProfile } from "@/lib/api"
+import { useOnboardingProfileSave, useProfile } from "@/lib/db/hooks"
+import type { OnboardingProfileInput } from "@/lib/db/types"
 import { Loader2, ArrowLeft, ArrowRight, Check } from "lucide-react"
 
 const onboardingSchema = z.object({
@@ -84,6 +85,9 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const [checkingProfile, setCheckingProfile] = useState(true)
 
+  const profileQuery = useProfile(user?.id)
+  const { save } = useOnboardingProfileSave()
+
   const {
     register,
     handleSubmit,
@@ -132,19 +136,22 @@ export default function OnboardingPage() {
 
   // Check if profile exists
   const checkProfile = useCallback(async () => {
-    if (session) {
-      try {
-        const profile = await getUserProfile()
-        if (profile) {
-          router.replace("/dashboard")
-          return
-        }
-      } catch {
-        // No profile, continue with onboarding
-      }
+    if (!session) {
+      setCheckingProfile(false)
+      return
     }
+
+    if (!profileQuery.isFetched) {
+      return
+    }
+
+    if (profileQuery.data) {
+      router.replace("/dashboard")
+      return
+    }
+
     setCheckingProfile(false)
-  }, [session, router])
+  }, [session, router, profileQuery.data, profileQuery.isFetched])
 
   useEffect(() => {
     if (!sessionLoading) {
@@ -204,10 +211,12 @@ export default function OnboardingPage() {
     setError(null)
 
     try {
-      await saveUserProfile({
+      const payload: OnboardingProfileInput = {
         ...data,
-        email: user?.email || "",
-      })
+        trainingpeaks_connected: data.connect_trainingpeaks,
+      }
+
+      await save(user?.id ?? "", payload, user?.email ?? null)
       localStorage.removeItem(STORAGE_KEY)
       router.push("/dashboard")
     } catch (err) {
@@ -217,7 +226,7 @@ export default function OnboardingPage() {
     }
   }
 
-  if (sessionLoading || checkingProfile) {
+  if (sessionLoading || checkingProfile || profileQuery.isLoading) {
     return (
       <div className="min-h-screen bg-[#0a1628] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-green-500" />
@@ -239,68 +248,57 @@ export default function OnboardingPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex items-start justify-center px-4 py-8">
-        <div className="w-full max-w-2xl">
-          <div className="bg-[#111d32] border border-white/10 rounded-2xl p-8 shadow-xl">
-            <ProgressIndicator currentStep={currentStep} totalSteps={TOTAL_STEPS} steps={STEPS} />
+      <main className="flex-1 px-4 md:px-8 pb-8">
+        <div className="max-w-3xl mx-auto">
+          <ProgressIndicator steps={STEPS} currentStep={currentStep} />
 
-            {error && (
-              <Alert variant="destructive" className="bg-red-500/10 border-red-500/20 mb-6">
-                <AlertDescription className="text-red-400">{error}</AlertDescription>
-              </Alert>
-            )}
-
+          <div className="bg-[#111d32] rounded-2xl p-6 md:p-8 mt-8">
             <form onSubmit={handleSubmit(onSubmit)}>
-              {currentStep === 1 && (
-                <StepPersonal
-                  register={register}
-                  setValue={setValue}
-                  watch={watch}
-                  errors={errors}
-                  userEmail={user?.email}
-                />
+              {error && (
+                <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/20">
+                  <AlertDescription className="text-red-400">{error}</AlertDescription>
+                </Alert>
               )}
-              {currentStep === 2 && <StepGoals register={register} setValue={setValue} errors={errors} />}
-              {currentStep === 3 && (
-                <StepTraining register={register} setValue={setValue} watch={watch} errors={errors} />
-              )}
-              {currentStep === 4 && (
-                <StepNutrition register={register} setValue={setValue} watch={watch} errors={errors} />
-              )}
-              {currentStep === 5 && <StepConstraints setValue={setValue} watch={watch} errors={errors} />}
-              {currentStep === 6 && <ReviewSummary data={getValues()} onEdit={setCurrentStep} />}
 
+              {currentStep === 1 && (
+                <StepPersonal register={register} errors={errors} setValue={setValue} watch={watch} />
+              )}
+              {currentStep === 2 && <StepGoals setValue={setValue} watch={watch} errors={errors} />}
+              {currentStep === 3 && <StepTraining setValue={setValue} watch={watch} errors={errors} />}
+              {currentStep === 4 && <StepNutrition setValue={setValue} watch={watch} errors={errors} />}
+              {currentStep === 5 && <StepConstraints setValue={setValue} watch={watch} errors={errors} />}
+              {currentStep === 6 && <ReviewSummary data={getValues()} />}
+
+              {/* Navigation */}
               <div className="flex items-center justify-between mt-8 pt-6 border-t border-white/10">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   onClick={handleBack}
                   disabled={currentStep === 1}
-                  className="text-gray-400 hover:text-white hover:bg-white/5"
+                  className="border-white/20 text-white hover:bg-white/5"
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
 
-                {currentStep < TOTAL_STEPS ? (
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    className="bg-green-500 hover:bg-green-600 text-white rounded-full px-6"
-                  >
-                    Continue
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-green-500 hover:bg-green-600 text-white rounded-full px-6"
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
-                    Complete Setup
-                  </Button>
-                )}
+                <div className="flex gap-3">
+                  {currentStep < TOTAL_STEPS ? (
+                    <Button type="button" onClick={handleNext} className="bg-green-500 hover:bg-green-600 text-white">
+                      Next
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  ) : (
+                    <Button type="submit" disabled={loading} className="bg-green-500 hover:bg-green-600 text-white">
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Check className="w-4 h-4 mr-2" />
+                      )}
+                      Complete Setup
+                    </Button>
+                  )}
+                </div>
               </div>
             </form>
           </div>

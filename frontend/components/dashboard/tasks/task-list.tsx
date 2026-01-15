@@ -3,15 +3,24 @@
 import { Search, Plus, Check, X, Clock, MoreHorizontal, ListTodo } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import type { Task } from "@/lib/mock-data"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
+interface TaskItem {
+  id: string
+  title: string
+  category: "training" | "nutrition" | "recovery"
+  priority: "low" | "medium" | "high"
+  status: "pending" | "completed" | "skipped"
+  dueDate: string
+  description?: string
+}
+
 interface TaskListProps {
-  tasks: Task[]
+  tasks: TaskItem[]
   filter: "all" | "training" | "nutrition" | "recovery"
   onFilterChange: (filter: "all" | "training" | "nutrition" | "recovery") => void
-  onStatusChange: (taskId: string, status: Task["status"]) => void
+  onStatusChange: (taskId: string, status: TaskItem["status"]) => void
 }
 
 const priorityColors = {
