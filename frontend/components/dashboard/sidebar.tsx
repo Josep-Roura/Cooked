@@ -2,19 +2,23 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Calendar, ListTodo, Plus, MoreHorizontal, Utensils, Dumbbell, User, Settings } from "lucide-react"
+import { Home, Calendar, ListTodo, Plus, MoreHorizontal, Utensils, Dumbbell, User, Settings, Notebook } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useSession } from "@/hooks/use-session"
+import { useProfile } from "@/lib/db/hooks"
 
 const navItems = [
   { icon: Home, label: "Home", href: "/dashboard" },
+  { icon: Dumbbell, label: "Training", href: "/dashboard/training" },
+  { icon: Utensils, label: "Nutrition", href: "/dashboard/nutrition" },
+  { icon: Notebook, label: "Plans", href: "/dashboard/plans" },
+  { icon: Settings, label: "Settings", href: "/dashboard/settings" },
   { icon: Calendar, label: "Calendar", href: "/dashboard/calendar" },
   { icon: ListTodo, label: "Tasks", href: "/dashboard/tasks", badge: 2 },
-  { icon: Utensils, label: "Nutrition", href: "/dashboard/nutrition" },
-  { icon: Dumbbell, label: "Training", href: "/dashboard/training" },
   { icon: User, label: "Profile", href: "/dashboard/profile" },
-  { icon: Settings, label: "Settings", href: "/dashboard/settings" },
 ]
 
 const categoryItems = [
@@ -24,8 +28,17 @@ const categoryItems = [
   { label: "Time-off", color: "bg-blue-400" },
 ]
 
-export function DashboardSidebar() {
+interface DashboardSidebarProps {
+  onNavigate?: () => void
+}
+
+export function DashboardSidebar({ onNavigate }: DashboardSidebarProps) {
   const pathname = usePathname()
+  const { user } = useSession()
+  const profileQuery = useProfile(user?.id)
+
+  const profileName = profileQuery.data?.full_name || profileQuery.data?.name || "Athlete"
+  const profileRole = profileQuery.data?.experience_level || "Training"
 
   return (
     <TooltipProvider>
@@ -33,12 +46,18 @@ export function DashboardSidebar() {
         {/* User Profile */}
         <div className="flex items-center gap-3 mb-8">
           <Avatar className="h-12 w-12">
-            <AvatarImage src="/man-with-sunglasses-professional-headshot.jpg" />
-            <AvatarFallback>MT</AvatarFallback>
+            <AvatarImage src={profileQuery.data?.avatar_url ?? undefined} />
+            <AvatarFallback>
+              {profileName
+                .split(" ")
+                .map((letter) => letter[0])
+                .slice(0, 2)
+                .join("")}
+            </AvatarFallback>
           </Avatar>
           <div>
-            <h3 className="font-semibold text-foreground">Mike T.</h3>
-            <p className="text-sm text-muted-foreground">Art Director</p>
+            <h3 className="font-semibold text-foreground">{profileName}</h3>
+            <p className="text-sm text-muted-foreground">{profileRole}</p>
           </div>
         </div>
 
@@ -56,6 +75,7 @@ export function DashboardSidebar() {
                         ? "text-foreground font-medium bg-muted"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted"
                     }`}
+                    onClick={onNavigate}
                   >
                     <item.icon className="h-5 w-5" />
                     <span>{item.label}</span>
@@ -86,18 +106,24 @@ export function DashboardSidebar() {
         </div>
 
         {/* Categories */}
-        <div className="space-y-3">
-          {categoryItems.map((item) => (
-            <a
-              key={item.label}
-              href="#"
-              className="flex items-center gap-3 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <span className={`h-2 w-2 rounded-full ${item.color}`} />
-              <span>{item.label}</span>
-            </a>
-          ))}
-        </div>
+        <Collapsible defaultOpen>
+          <div className="flex items-center justify-between px-3">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Categories</span>
+            <CollapsibleTrigger className="text-xs text-muted-foreground">Toggle</CollapsibleTrigger>
+          </div>
+          <CollapsibleContent className="space-y-3 mt-3">
+            {categoryItems.map((item) => (
+              <a
+                key={item.label}
+                href="#"
+                className="flex items-center gap-3 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className={`h-2 w-2 rounded-full ${item.color}`} />
+                <span>{item.label}</span>
+              </a>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
 
         {/* Add Button & Footer */}
         <div className="mt-auto">

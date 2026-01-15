@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { signUp } from "@/lib/auth"
 import { useSession } from "@/hooks/use-session"
+import { useProfile } from "@/lib/db/hooks"
 import { z } from "zod"
 import { Loader2, CheckCircle } from "lucide-react"
 
@@ -30,7 +31,8 @@ const signupSchema = z
 
 export default function SignupPage() {
   const router = useRouter()
-  const { session, loading: sessionLoading } = useSession()
+  const { session, user, loading: sessionLoading } = useSession()
+  const profileQuery = useProfile(user?.id)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -40,10 +42,14 @@ export default function SignupPage() {
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({})
 
   useEffect(() => {
-    if (!sessionLoading && session) {
-      router.replace("/onboarding")
+    if (!sessionLoading && session && profileQuery.isFetched) {
+      if (profileQuery.data) {
+        router.replace("/dashboard")
+      } else {
+        router.replace("/onboarding")
+      }
     }
-  }, [session, sessionLoading, router])
+  }, [session, sessionLoading, router, profileQuery.isFetched, profileQuery.data])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

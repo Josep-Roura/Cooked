@@ -3,29 +3,33 @@
 import { Mail, Scale, Target, Edit2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import type { UserProfile } from "@/lib/mock-data"
+import type { ProfileRow } from "@/lib/db/types"
 
 interface ProfileInfoProps {
-  profile: UserProfile
+  profile: ProfileRow
 }
 
 export function ProfileInfo({ profile }: ProfileInfoProps) {
+  const displayName = profile.full_name ?? profile.name ?? "Athlete"
+  const goal = profile.primary_goal ?? "—"
+  const weightUnit = profile.units === "imperial" ? "lbs" : "kg"
+
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <div className="flex items-start justify-between mb-6">
         <div className="flex items-center gap-4">
           <Avatar className="h-20 w-20">
-            <AvatarImage src={profile.avatar || "/placeholder.svg"} />
+            <AvatarImage src={profile.avatar_url || "/placeholder.svg"} />
             <AvatarFallback>
-              {profile.name
+              {displayName
                 .split(" ")
                 .map((n) => n[0])
                 .join("")}
             </AvatarFallback>
           </Avatar>
           <div>
-            <h2 className="text-xl font-bold text-foreground">{profile.name}</h2>
-            <p className="text-muted-foreground">{profile.role}</p>
+            <h2 className="text-xl font-bold text-foreground">{displayName}</h2>
+            <p className="text-muted-foreground">{profile.experience_level ?? ""}</p>
           </div>
         </div>
         <Button variant="outline" size="sm" className="gap-2 bg-transparent">
@@ -39,7 +43,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
           <Mail className="h-5 w-5 text-muted-foreground" />
           <div>
             <p className="text-xs text-muted-foreground">Email</p>
-            <p className="text-sm font-medium text-foreground">{profile.email}</p>
+            <p className="text-sm font-medium text-foreground">{profile.email ?? ""}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
@@ -47,7 +51,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
           <div>
             <p className="text-xs text-muted-foreground">Weight</p>
             <p className="text-sm font-medium text-foreground">
-              {profile.weight} {profile.weightUnit}
+              {profile.weight_kg ?? "—"} {weightUnit}
             </p>
           </div>
         </div>
@@ -55,7 +59,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
           <Target className="h-5 w-5 text-muted-foreground" />
           <div>
             <p className="text-xs text-muted-foreground">Goal</p>
-            <p className="text-sm font-medium text-foreground">{profile.goal}</p>
+            <p className="text-sm font-medium text-foreground">{goal}</p>
           </div>
         </div>
       </div>
