@@ -2,10 +2,10 @@
 
 import { Clock, Flame, Activity, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { TrainingSession } from "@/lib/mock-data"
+import type { TrainingSessionSummary } from "@/lib/db/types"
 
 interface TodayTrainingProps {
-  session: TrainingSession
+  session: TrainingSessionSummary
 }
 
 const typeIcons = {
@@ -14,6 +14,7 @@ const typeIcons = {
   run: "🏃",
   strength: "💪",
   rest: "🧘",
+  other: "🏋️",
 }
 
 const intensityColors = {
@@ -47,7 +48,7 @@ export function TodayTraining({ session }: TodayTrainingProps) {
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-muted rounded-xl p-4 text-center">
           <Clock className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-          <p className="text-lg font-semibold text-foreground">{session.duration}</p>
+          <p className="text-lg font-semibold text-foreground">{session.durationMinutes}</p>
           <p className="text-xs text-muted-foreground">minutes</p>
         </div>
         <div className="bg-muted rounded-xl p-4 text-center">
