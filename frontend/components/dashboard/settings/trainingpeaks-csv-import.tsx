@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { format } from "date-fns"
 import { AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -9,12 +10,14 @@ import { Progress } from "@/components/ui/progress"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
 import { useSession } from "@/hooks/use-session"
+import { getDateRange } from "@/lib/db/queries"
 import { importWorkouts } from "@/lib/db/tpWorkouts"
 import {
   parseTrainingPeaksCsv,
   runTrainingPeaksCsvDiagnostics,
   type TrainingPeaksCsvParseResult,
 } from "@/lib/integrations/trainingpeaks/csv"
+import { ensureNutritionPlanRange, writeEnsuredRange } from "@/lib/nutrition/ensure"
 
 const PREVIEW_LIMIT = 10
 
@@ -75,6 +78,23 @@ export function TrainingPeaksCsvImport() {
     setProgress(0)
     try {
       await importWorkouts(user.id, parseResult.rows, setProgress)
+      const now = new Date()
+      const { start, end } = getDateRange("month", now)
+      try {
+        await ensureNutritionPlanRange({
+          start: format(start, "yyyy-MM-dd"),
+          end: format(end, "yyyy-MM-dd"),
+          force: true,
+        })
+        writeEnsuredRange(user.id, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
+      } catch (error) {
+        console.error("Failed to ensure nutrition plan after import", error)
+        toast({
+          title: "Nutrition update failed",
+          description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
+          variant: "destructive",
+        })
+      }
       toast({ title: "Import complete", description: "Your TrainingPeaks workouts are now available." })
       await queryClient.invalidateQueries({ queryKey: ["db"] })
     } catch (error) {

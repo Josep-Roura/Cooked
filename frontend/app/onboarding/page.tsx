@@ -6,8 +6,10 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
+import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useToast } from "@/components/ui/use-toast"
 import { ProgressIndicator } from "@/components/onboarding/progress-indicator"
 import { StepPersonal } from "@/components/onboarding/step-personal"
 import { StepGoals } from "@/components/onboarding/step-goals"
@@ -18,6 +20,8 @@ import { ReviewSummary } from "@/components/onboarding/review-summary"
 import { useSession } from "@/hooks/use-session"
 import { useOnboardingProfileSave, useProfile } from "@/lib/db/hooks"
 import type { OnboardingProfileInput } from "@/lib/db/types"
+import { getDateRange } from "@/lib/db/queries"
+import { ensureNutritionPlanRange, writeEnsuredRange } from "@/lib/nutrition/ensure"
 import { Loader2, ArrowLeft, ArrowRight, Check } from "lucide-react"
 
 const onboardingSchema = z.object({
@@ -80,6 +84,7 @@ const STORAGE_KEY = "cooked_onboarding_draft"
 export default function OnboardingPage() {
   const router = useRouter()
   const { session, user, loading: sessionLoading } = useSession()
+  const { toast } = useToast()
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -217,6 +222,25 @@ export default function OnboardingPage() {
       }
 
       await save(user?.id ?? "", payload, user?.email ?? null)
+      if (user?.id) {
+        const now = new Date()
+        const { start, end } = getDateRange("week", now)
+        try {
+          await ensureNutritionPlanRange({
+            start: format(start, "yyyy-MM-dd"),
+            end: format(end, "yyyy-MM-dd"),
+            force: true,
+          })
+          writeEnsuredRange(user.id, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
+        } catch (error) {
+          console.error("Failed to ensure nutrition plan after onboarding", error)
+          toast({
+            title: "Nutrition update failed",
+            description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
+            variant: "destructive",
+          })
+        }
+      }
       localStorage.removeItem(STORAGE_KEY)
       router.push("/dashboard")
     } catch (err) {
