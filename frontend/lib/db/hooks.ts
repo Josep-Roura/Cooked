@@ -27,25 +27,16 @@ import {
   fetchNutritionPlanRowsByPlanId,
   fetchNutritionPlans,
   fetchProfile,
-  fetchWorkoutsByDateRange,
   getDateRange,
   upsertProfileFromOnboarding,
 } from "@/lib/db/queries"
+import { fetchWorkoutsByDateRange } from "@/lib/db/tpWorkouts"
 
 const intensityThresholds = {
   low: 4,
   high: 7,
 }
-
-function getAthleteId(profile: ProfileRow | null | undefined, fallbackId: string) {
-  const meta = profile?.meta ?? {}
-  const athleteId =
-    (typeof meta === "object" && meta !== null &&
-      (meta["athlete_id"] ?? meta["trainingpeaks_athlete_id"] ?? meta["tp_athlete_id"])) ||
-    null
-
-  return typeof athleteId === "string" && athleteId.trim() ? athleteId : fallbackId
-}
+const DEFAULT_START_TIME = "07:00"
 
 function mapWorkoutType(value: string | null): TrainingType {
   if (!value) return "other"
@@ -76,11 +67,27 @@ function mapIntensity(workout: TpWorkout): TrainingIntensity {
   return "moderate"
 }
 
-function formatTime(profile: ProfileRow | null | undefined) {
-  return profile?.workout_time ?? "06:00"
+function normalizeStartTime(value: string | null | undefined) {
+  if (!value) {
+    return DEFAULT_START_TIME
+  }
+  const match = value.match(/^(\d{1,2}):(\d{2})/)
+  if (!match) {
+    return DEFAULT_START_TIME
+  }
+  return `${match[1].padStart(2, "0")}:${match[2]}`
 }
 
-function buildTrainingSessions(workouts: TpWorkout[], profile: ProfileRow | null | undefined): TrainingSessionSummary[] {
+function calculateEndTime(startTime: string, durationHours: number) {
+  const [hours, minutes] = startTime.split(":").map((part) => Number(part))
+  const durationMinutes = durationHours > 0 ? Math.round(durationHours * 60) : 60
+  const totalMinutes = hours * 60 + minutes + durationMinutes
+  const endHours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const endMinutes = totalMinutes % 60
+  return `${String(endHours).padStart(2, "0")}:${String(endMinutes).padStart(2, "0")}`
+}
+
+function buildTrainingSessions(workouts: TpWorkout[]): TrainingSessionSummary[] {
   return workouts.map((workout) => {
     const durationHours = workout.actual_hours ?? workout.planned_hours ?? 0
     const durationMinutes = Math.round(durationHours * 60)
@@ -94,7 +101,7 @@ function buildTrainingSessions(workouts: TpWorkout[], profile: ProfileRow | null
       intensity: mapIntensity(workout),
       calories,
       completed: Boolean(workout.has_actual ?? workout.actual_hours),
-      time: formatTime(profile),
+      time: normalizeStartTime(workout.start_time),
       date: workout.workout_day,
       description: workout.description ?? workout.coach_comments ?? null,
     }
@@ -139,8 +146,8 @@ function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
   return workouts.map((workout) => {
     const type = mapWorkoutType(workout.workout_type)
     const durationHours = workout.actual_hours ?? workout.planned_hours ?? 1
-    const startTime = "06:00"
-    const endTime = durationHours ? format(new Date(0, 0, 0, 6 + durationHours), "HH:mm") : "07:00"
+    const startTime = normalizeStartTime(workout.start_time)
+    const endTime = calculateEndTime(startTime, durationHours)
 
     const colorMap: Record<TrainingType, string> = {
       swim: "bg-cyan-400",
@@ -332,15 +339,13 @@ export function useNutritionPlanRows(planId: string | null | undefined) {
 
 export function useTrainingWorkouts(
   userId: string | null | undefined,
-  profile: ProfileRow | null | undefined,
   range: DateRangeOption,
 ) {
   return useQuery({
     queryKey: ["db", "training-workouts", userId, range],
     queryFn: async () => {
       const { start, end } = getDateRange(range, new Date())
-      const athleteId = getAthleteId(profile, userId as string)
-      return fetchWorkoutsByDateRange(athleteId, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
+      return fetchWorkoutsByDateRange(userId as string, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
     },
     enabled: Boolean(userId),
     staleTime: 1000 * 30,
@@ -357,9 +362,8 @@ export function useDashboardOverview(
     queryFn: async (): Promise<DashboardOverviewData> => {
       const now = new Date()
       const { start, end } = getDateRange(range, now)
-      const athleteId = getAthleteId(profile, userId as string)
       const workouts = await fetchWorkoutsByDateRange(
-        athleteId,
+        userId as string,
         format(start, "yyyy-MM-dd"),
         format(end, "yyyy-MM-dd"),
       )
@@ -369,7 +373,7 @@ export function useDashboardOverview(
 
       return {
         macros: buildMacroSummary(planRows, range, now),
-        trainingSessions: buildTrainingSessions(workouts, profile),
+        trainingSessions: buildTrainingSessions(workouts),
         upcomingEvent: buildUpcomingEvent(profile),
         planPreview: activePlan ? buildPlanPreview(activePlan) : null,
       }
@@ -388,15 +392,14 @@ export function useTrainingSummary(
     queryKey: ["db", "training-summary", userId, range],
     queryFn: async (): Promise<{ sessions: TrainingSessionSummary[]; summary: TrainingSummary; calendar: CalendarEvent[] }> => {
       const { start, end } = getDateRange(range, new Date())
-      const athleteId = getAthleteId(profile, userId as string)
       const workouts = await fetchWorkoutsByDateRange(
-        athleteId,
+        userId as string,
         format(start, "yyyy-MM-dd"),
         format(end, "yyyy-MM-dd"),
       )
 
       return {
-        sessions: buildTrainingSessions(workouts, profile),
+        sessions: buildTrainingSessions(workouts),
         summary: buildTrainingSummary(workouts),
         calendar: buildCalendarEvents(workouts),
       }
