@@ -1,0 +1,4 @@
+Date,Workout Type,Title,Description,Planned Time,Actual Time,Planned Distance,Actual Distance,IF,TSS,Avg Power,Avg HR,RPE,Feeling,Coach Comments,Athlete Comments,Week,DOW,Start Time
+2024-05-01,Run,Easy Run,Steady aerobic run,1:00:00,0:55:00,10,9,0.72,45,210,145,5,7,Keep it easy,Felt good,18,Wed,07:00
+2024-05-02,Bike,Tempo Ride,Tempo intervals,1:30:00,1:25:00,40,38,0.85,95,240,150,7,8,Hold tempo,Strong,18,Thu,06:30
+2024-05-03,Swim,Drills,Technique session,0:45:00,,2,,0.6,25,,128,4,6,Focus on form,,18,Fri,07:15
