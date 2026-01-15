@@ -94,37 +94,6 @@ export function DashboardSidebar({ onNavigate }: DashboardSidebarProps) {
           })}
         </nav>
 
-        {/* Secondary User */}
-        <div className="flex items-center gap-3 mb-6 mt-4">
-          <Avatar className="h-10 w-10 bg-orange-100">
-            <AvatarFallback className="bg-orange-400 text-white font-semibold">BA</AvatarFallback>
-          </Avatar>
-          <span className="font-medium text-foreground">Ben</span>
-          <Button variant="ghost" size="icon" className="ml-auto h-8 w-8">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* Categories */}
-        <Collapsible defaultOpen>
-          <div className="flex items-center justify-between px-3">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Categories</span>
-            <CollapsibleTrigger className="text-xs text-muted-foreground">Toggle</CollapsibleTrigger>
-          </div>
-          <CollapsibleContent className="space-y-3 mt-3">
-            {categoryItems.map((item) => (
-              <a
-                key={item.label}
-                href="#"
-                className="flex items-center gap-3 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <span className={`h-2 w-2 rounded-full ${item.color}`} />
-                <span>{item.label}</span>
-              </a>
-            ))}
-          </CollapsibleContent>
-        </Collapsible>
-
         {/* Add Button & Footer */}
         <div className="mt-auto">
           <Tooltip>
