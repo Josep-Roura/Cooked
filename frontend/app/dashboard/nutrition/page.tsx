@@ -9,12 +9,15 @@ import { MacroChart } from "@/components/dashboard/nutrition/macro-chart"
 import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
+import { useToast } from "@/components/ui/use-toast"
 import { useNutritionDayPlan, useNutritionSummary, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
+import { ensureNutritionPlanRange, useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export default function NutritionPage() {
   const { user } = useSession()
+  const { toast } = useToast()
   const profileQuery = useProfile(user?.id)
   const [range, setRange] = useState<DateRangeOption>("week")
   const [search, setSearch] = useState("")
@@ -24,6 +27,8 @@ export default function NutritionPage() {
 
   const nutritionQuery = useNutritionSummary(user?.id, range)
   const nutritionDayQuery = useNutritionDayPlan(user?.id, selectedDate)
+
+  useEnsureNutritionPlan({ userId: user?.id, range })
 
   if (nutritionQuery.isError) {
     return <ErrorState onRetry={() => nutritionQuery.refetch()} />
@@ -53,15 +58,7 @@ export default function NutritionPage() {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
-      const response = await fetch("/api/v1/nutrition/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selectedDate, regenerate }),
-      })
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to generate nutrition plan")
-      }
+      await ensureNutritionPlanRange({ start: selectedDate, end: selectedDate, force: regenerate })
 
       await Promise.all([
         nutritionQuery.refetch(),
@@ -71,6 +68,11 @@ export default function NutritionPage() {
       ])
     } catch (error) {
       console.error("Failed to generate nutrition plan", error)
+      toast({
+        title: "Nutrition update failed",
+        description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
+        variant: "destructive",
+      })
     } finally {
       setIsGenerating(false)
     }

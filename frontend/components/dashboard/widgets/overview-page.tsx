@@ -16,6 +16,7 @@ import { PlanCard } from "@/components/dashboard/widgets/plan-card"
 import { useDashboardOverview, useEvents, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
+import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
@@ -27,6 +28,8 @@ export function OverviewPage() {
   const [eventsOpen, setEventsOpen] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
   const eventsQuery = useEvents(user?.id)
+
+  useEnsureNutritionPlan({ userId: user?.id, range })
 
   const animationProps = useMemo(
     () =>
