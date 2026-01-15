@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { CalendarEvent } from "@/lib/mock-data"
+import type { CalendarEvent } from "@/lib/db/types"
 
 interface CalendarViewProps {
   events: CalendarEvent[]
@@ -16,7 +16,7 @@ const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const hours = Array.from({ length: 16 }, (_, i) => i + 6) // 6 AM to 9 PM
 
 export function CalendarView({ events, view, onViewChange, onEventClick }: CalendarViewProps) {
-  const [currentDate, setCurrentDate] = useState(new Date(2024, 0, 15)) // Jan 15, 2024
+  const [currentDate, setCurrentDate] = useState(new Date())
 
   const getWeekDates = () => {
     const start = new Date(currentDate)
@@ -42,7 +42,7 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
   }
 
   const isToday = (date: Date) => {
-    const today = new Date(2024, 0, 15) // Mock today
+    const today = new Date()
     return date.toDateString() === today.toDateString()
   }
 
@@ -207,7 +207,7 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
                     )}
                   </div>
                 </div>
-              )
+              )}
             })}
           </div>
         </div>

@@ -1,21 +1,10 @@
 "use client"
 
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
+import type { NutritionSummary } from "@/lib/db/types"
 
 interface NutritionOverviewProps {
-  weeklyData: {
-    targetCalories: number
-    targetProtein: number
-    targetCarbs: number
-    targetFat: number
-    dailyData: Array<{
-      day: string
-      calories: number
-      protein: number
-      carbs: number
-      fat: number
-    }>
-  }
+  weeklyData: NutritionSummary
 }
 
 export function NutritionOverview({ weeklyData }: NutritionOverviewProps) {
@@ -24,21 +13,21 @@ export function NutritionOverview({ weeklyData }: NutritionOverviewProps) {
   const metrics = [
     {
       label: "Calories",
-      current: todayData.calories,
+      current: todayData?.kcal ?? 0,
       target: weeklyData.targetCalories,
       unit: "kcal",
       color: "bg-primary",
     },
     {
       label: "Protein",
-      current: todayData.protein,
+      current: todayData?.protein_g ?? 0,
       target: weeklyData.targetProtein,
       unit: "g",
       color: "bg-cyan-500",
     },
     {
       label: "Carbs",
-      current: todayData.carbs,
+      current: todayData?.carbs_g ?? 0,
       target: weeklyData.targetCarbs,
       unit: "g",
       color: "bg-orange-500",
@@ -48,7 +37,7 @@ export function NutritionOverview({ weeklyData }: NutritionOverviewProps) {
   return (
     <>
       {metrics.map((metric) => {
-        const percentage = Math.round((metric.current / metric.target) * 100)
+        const percentage = metric.target ? Math.round((metric.current / metric.target) * 100) : 0
         const diff = metric.current - metric.target
         const TrendIcon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
 

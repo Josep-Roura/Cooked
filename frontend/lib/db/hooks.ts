@@ -1,0 +1,442 @@
+"use client"
+
+import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { format } from "date-fns"
+import type {
+  CalendarEvent,
+  DashboardOverviewData,
+  DateRangeOption,
+  MacroSummary,
+  NutritionDaySummary,
+  NutritionPlan,
+  NutritionPlanRow,
+  NutritionSummary,
+  OnboardingProfileInput,
+  PlanPreview,
+  ProfileRow,
+  TrainingIntensity,
+  TrainingSessionSummary,
+  TrainingSummary,
+  TrainingType,
+  TpWorkout,
+  UpcomingEvent,
+} from "@/lib/db/types"
+import {
+  fetchActivePlanByDate,
+  fetchNutritionPlanRowsByPlanId,
+  fetchNutritionPlans,
+  fetchProfile,
+  fetchWorkoutsByDateRange,
+  getDateRange,
+  upsertProfileFromOnboarding,
+} from "@/lib/db/queries"
+
+const intensityThresholds = {
+  low: 4,
+  high: 7,
+}
+
+function getAthleteId(profile: ProfileRow | null | undefined, fallbackId: string) {
+  const meta = profile?.meta ?? {}
+  const athleteId =
+    (typeof meta === "object" && meta !== null &&
+      (meta["athlete_id"] ?? meta["trainingpeaks_athlete_id"] ?? meta["tp_athlete_id"])) ||
+    null
+
+  return typeof athleteId === "string" && athleteId.trim() ? athleteId : fallbackId
+}
+
+function mapWorkoutType(value: string | null): TrainingType {
+  if (!value) return "other"
+  const normalized = value.toLowerCase()
+  if (normalized.includes("swim")) return "swim"
+  if (normalized.includes("bike") || normalized.includes("cycle")) return "bike"
+  if (normalized.includes("run")) return "run"
+  if (normalized.includes("strength") || normalized.includes("gym")) return "strength"
+  if (normalized.includes("rest")) return "rest"
+  return "other"
+}
+
+function mapIntensity(workout: TpWorkout): TrainingIntensity {
+  const rpe = workout.rpe ?? null
+  if (rpe !== null) {
+    if (rpe >= intensityThresholds.high) return "high"
+    if (rpe >= intensityThresholds.low) return "moderate"
+    return "low"
+  }
+
+  const intensityFactor = workout.if ?? null
+  if (intensityFactor !== null) {
+    if (intensityFactor >= 0.85) return "high"
+    if (intensityFactor >= 0.7) return "moderate"
+    return "low"
+  }
+
+  return "moderate"
+}
+
+function formatTime(profile: ProfileRow | null | undefined) {
+  return profile?.workout_time ?? "06:00"
+}
+
+function buildTrainingSessions(workouts: TpWorkout[], profile: ProfileRow | null | undefined): TrainingSessionSummary[] {
+  return workouts.map((workout) => {
+    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 0
+    const durationMinutes = Math.round(durationHours * 60)
+    const calories = Math.round(workout.tss ?? 0)
+
+    return {
+      id: String(workout.id),
+      type: mapWorkoutType(workout.workout_type),
+      title: workout.title ?? workout.workout_type ?? "Training session",
+      durationMinutes,
+      intensity: mapIntensity(workout),
+      calories,
+      completed: Boolean(workout.has_actual ?? workout.actual_hours),
+      time: formatTime(profile),
+      date: workout.workout_day,
+      description: workout.description ?? workout.coach_comments ?? null,
+    }
+  })
+}
+
+function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
+  const summaryByDay = new Map<string, { durationMinutes: number; calories: number; type: TrainingType; intensity: TrainingIntensity }>()
+
+  workouts.forEach((workout) => {
+    const dayLabel = format(new Date(workout.workout_day), "EEE")
+    const durationMinutes = Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60)
+    const calories = Math.round(workout.tss ?? 0)
+    const existing = summaryByDay.get(dayLabel)
+
+    summaryByDay.set(dayLabel, {
+      durationMinutes: (existing?.durationMinutes ?? 0) + durationMinutes,
+      calories: (existing?.calories ?? 0) + calories,
+      type: mapWorkoutType(workout.workout_type),
+      intensity: mapIntensity(workout),
+    })
+  })
+
+  const sessions = Array.from(summaryByDay.entries()).map(([day, data]) => ({
+    day,
+    type: data.type,
+    durationMinutes: data.durationMinutes,
+    intensity: data.intensity,
+  }))
+
+  return {
+    totalDurationMinutes: workouts.reduce(
+      (sum, workout) => sum + Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60),
+      0,
+    ),
+    totalCalories: workouts.reduce((sum, workout) => sum + Math.round(workout.tss ?? 0), 0),
+    sessions,
+  }
+}
+
+function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
+  return workouts.map((workout) => {
+    const type = mapWorkoutType(workout.workout_type)
+    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 1
+    const startTime = "06:00"
+    const endTime = durationHours ? format(new Date(0, 0, 0, 6 + durationHours), "HH:mm") : "07:00"
+
+    const colorMap: Record<TrainingType, string> = {
+      swim: "bg-cyan-400",
+      bike: "bg-orange-500",
+      run: "bg-green-500",
+      strength: "bg-purple-500",
+      rest: "bg-gray-400",
+      other: "bg-gray-400",
+    }
+
+    return {
+      id: String(workout.id),
+      title: workout.title ?? workout.workout_type ?? "Training",
+      type,
+      startTime,
+      endTime,
+      date: workout.workout_day,
+      color: colorMap[type],
+      description: workout.description ?? workout.coach_comments ?? null,
+    }
+  })
+}
+
+function buildNutritionDailySummary(
+  rows: NutritionPlanRow[],
+  range: DateRangeOption,
+  now: Date,
+): NutritionDaySummary[] {
+  const { start, end } = getDateRange(range, now)
+  const days: NutritionDaySummary[] = []
+  const dateCursor = new Date(start)
+
+  while (dateCursor <= end) {
+    const dateKey = format(dateCursor, "yyyy-MM-dd")
+    const row = rows.find((item) => item.date === dateKey)
+    const dayLabel = range === "month" ? format(dateCursor, "d") : format(dateCursor, "EEE")
+
+    days.push({
+      date: dateKey,
+      dayLabel,
+      kcal: row?.kcal ?? 0,
+      protein_g: row?.protein_g ?? 0,
+      carbs_g: row?.carbs_g ?? 0,
+      fat_g: row?.fat_g ?? 0,
+      intra_cho_g_per_h: row?.intra_cho_g_per_h ?? 0,
+    })
+
+    dateCursor.setDate(dateCursor.getDate() + 1)
+  }
+
+  return days
+}
+
+function buildMacroSummary(
+  rows: NutritionPlanRow[],
+  range: DateRangeOption,
+  now: Date,
+): MacroSummary | null {
+  if (rows.length === 0) {
+    return null
+  }
+
+  const { start, end } = getDateRange(range, now)
+  const rangeRows = rows.filter((row) => row.date >= format(start, "yyyy-MM-dd") && row.date <= format(end, "yyyy-MM-dd"))
+
+  if (rangeRows.length === 0) {
+    return null
+  }
+
+  const totals = rangeRows.reduce(
+    (acc, row) => {
+      acc.calories += row.kcal
+      acc.protein += row.protein_g
+      acc.carbs += row.carbs_g
+      acc.fat += row.fat_g
+      return acc
+    },
+    { calories: 0, protein: 0, carbs: 0, fat: 0 },
+  )
+
+  const previousDay = new Date(start)
+  previousDay.setDate(previousDay.getDate() - 1)
+  const previousRow = rows.find((row) => row.date === format(previousDay, "yyyy-MM-dd"))
+  const averageCalories = totals.calories / rangeRows.length
+  const deltaBase = range === "today" ? previousRow?.kcal ?? 0 : averageCalories
+  const calorieDelta = Math.round(totals.calories - deltaBase)
+  const deltaLabel = range === "today" ? "vs yesterday" : "vs avg"
+
+  return {
+    range,
+    calories: Math.round(totals.calories),
+    protein: Math.round(totals.protein),
+    carbs: Math.round(totals.carbs),
+    fat: Math.round(totals.fat),
+    targetCalories: Math.round(averageCalories),
+    targetProtein: Math.round(totals.protein / rangeRows.length),
+    targetCarbs: Math.round(totals.carbs / rangeRows.length),
+    targetFat: Math.round(totals.fat / rangeRows.length),
+    calorieDelta,
+    deltaLabel,
+  }
+}
+
+function buildNutritionSummary(rows: NutritionPlanRow[], range: DateRangeOption, now: Date): NutritionSummary {
+  const dailyData = buildNutritionDailySummary(rows, range, now)
+
+  const average = dailyData.reduce(
+    (acc, day) => {
+      acc.calories += day.kcal
+      acc.protein += day.protein_g
+      acc.carbs += day.carbs_g
+      acc.fat += day.fat_g
+      return acc
+    },
+    { calories: 0, protein: 0, carbs: 0, fat: 0 },
+  )
+
+  const divisor = dailyData.length || 1
+
+  return {
+    targetCalories: Math.round(average.calories / divisor),
+    targetProtein: Math.round(average.protein / divisor),
+    targetCarbs: Math.round(average.carbs / divisor),
+    targetFat: Math.round(average.fat / divisor),
+    dailyData,
+  }
+}
+
+function buildPlanPreview(plan: NutritionPlan): PlanPreview {
+  return {
+    id: plan.id,
+    title: `Plan ${plan.start_date}`,
+    createdAt: plan.created_at,
+    focus: plan.user_key,
+    summary: `${plan.start_date} → ${plan.end_date}`,
+    startDate: plan.start_date,
+    endDate: plan.end_date,
+  }
+}
+
+function buildUpcomingEvent(profile: ProfileRow | null): UpcomingEvent | null {
+  if (!profile?.event) {
+    return null
+  }
+
+  const meta = profile.meta ?? {}
+  const eventDate = typeof meta === "object" && meta ? (meta["event_date"] as string | undefined) : undefined
+
+  return {
+    name: profile.event,
+    date: eventDate ?? "",
+    description: profile.primary_goal ?? null,
+  }
+}
+
+export function useProfile(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "profile", userId],
+    queryFn: () => fetchProfile(userId as string),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useOnboardingProfileSave() {
+  return {
+    save: (userId: string, input: OnboardingProfileInput, email: string | null) =>
+      upsertProfileFromOnboarding(userId, input, email),
+  }
+}
+
+export function useNutritionPlans(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "nutrition-plans", userId],
+    queryFn: () => fetchNutritionPlans(userId as string),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useNutritionPlanRows(planId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "nutrition-plan-rows", planId],
+    queryFn: () => fetchNutritionPlanRowsByPlanId(planId as string),
+    enabled: Boolean(planId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useTrainingWorkouts(
+  userId: string | null | undefined,
+  profile: ProfileRow | null | undefined,
+  range: DateRangeOption,
+) {
+  return useQuery({
+    queryKey: ["db", "training-workouts", userId, range],
+    queryFn: async () => {
+      const { start, end } = getDateRange(range, new Date())
+      const athleteId = getAthleteId(profile, userId as string)
+      return fetchWorkoutsByDateRange(athleteId, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useDashboardOverview(
+  userId: string | null | undefined,
+  profile: ProfileRow | null | undefined,
+  range: DateRangeOption,
+) {
+  return useQuery({
+    queryKey: ["db", "dashboard-overview", userId, range],
+    queryFn: async (): Promise<DashboardOverviewData> => {
+      const now = new Date()
+      const { start, end } = getDateRange(range, now)
+      const athleteId = getAthleteId(profile, userId as string)
+      const workouts = await fetchWorkoutsByDateRange(
+        athleteId,
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd"),
+      )
+
+      const activePlan = await fetchActivePlanByDate(userId as string, format(now, "yyyy-MM-dd"))
+      const planRows = activePlan ? await fetchNutritionPlanRowsByPlanId(activePlan.id) : []
+
+      return {
+        macros: buildMacroSummary(planRows, range, now),
+        trainingSessions: buildTrainingSessions(workouts, profile),
+        upcomingEvent: buildUpcomingEvent(profile),
+        planPreview: activePlan ? buildPlanPreview(activePlan) : null,
+      }
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useTrainingSummary(
+  userId: string | null | undefined,
+  profile: ProfileRow | null | undefined,
+  range: DateRangeOption,
+) {
+  return useQuery({
+    queryKey: ["db", "training-summary", userId, range],
+    queryFn: async (): Promise<{ sessions: TrainingSessionSummary[]; summary: TrainingSummary; calendar: CalendarEvent[] }> => {
+      const { start, end } = getDateRange(range, new Date())
+      const athleteId = getAthleteId(profile, userId as string)
+      const workouts = await fetchWorkoutsByDateRange(
+        athleteId,
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd"),
+      )
+
+      return {
+        sessions: buildTrainingSessions(workouts, profile),
+        summary: buildTrainingSummary(workouts),
+        calendar: buildCalendarEvents(workouts),
+      }
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useNutritionSummary(
+  userId: string | null | undefined,
+  range: DateRangeOption,
+) {
+  return useQuery({
+    queryKey: ["db", "nutrition-summary", userId, range],
+    queryFn: async () => {
+      const now = new Date()
+      const activePlan = await fetchActivePlanByDate(userId as string, format(now, "yyyy-MM-dd"))
+      const planRows = activePlan ? await fetchNutritionPlanRowsByPlanId(activePlan.id) : []
+
+      return {
+        plan: activePlan,
+        rows: planRows,
+        summary: buildNutritionSummary(planRows, range, now),
+      }
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useCalendarEvents(
+  userId: string | null | undefined,
+  profile: ProfileRow | null | undefined,
+  range: DateRangeOption,
+) {
+  const summary = useTrainingSummary(userId, profile, range)
+
+  return useMemo(() => ({
+    ...summary,
+    events: summary.data?.calendar ?? [],
+  }), [summary])
+}
