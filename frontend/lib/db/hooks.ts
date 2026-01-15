@@ -28,6 +28,7 @@ import type {
 } from "@/lib/db/types"
 import {
   fetchActivePlanByDate,
+  fetchNutritionPlanRowsByPlanId,
   fetchNutritionPlanRowsByDateRange,
   fetchNutritionPlans,
   fetchProfile,
@@ -180,7 +181,17 @@ type NutritionMetaEntry = {
   macros?: NutritionMacros
   day_type?: NutritionDayType
   meals_per_day?: number
-  updated_at?: string
+}
+
+function parseNutritionMeta(meta: Record<string, unknown> | null | undefined): Record<string, NutritionMetaEntry> {
+  if (!meta || typeof meta !== "object") {
+    return {}
+  }
+  const raw = (meta as Record<string, unknown>)["nutrition_by_date"]
+  if (!raw || typeof raw !== "object") {
+    return {}
+  }
+  return raw as Record<string, NutritionMetaEntry>
 }
 
 function normalizeMealTime(value: string | undefined | null): string | null {
@@ -192,18 +203,19 @@ function normalizeMealTime(value: string | undefined | null): string | null {
 
 function buildNutritionEvents(
   rows: NutritionPlanRow[],
-  mealsByDate: Record<string, NutritionMetaEntry>,
+  profile: ProfileRow | null | undefined,
   range: DateRangeOption,
   now: Date,
 ): CalendarEvent[] {
   const { start, end } = getDateRange(range, now)
   const startKey = format(start, "yyyy-MM-dd")
   const endKey = format(end, "yyyy-MM-dd")
+  const nutritionMeta = parseNutritionMeta(profile?.meta)
   const events: CalendarEvent[] = []
   const coveredDates = new Set<string>()
-  const defaultMealsPerDay = 3
+  const defaultMealsPerDay = profile?.meals_per_day ?? 3
 
-  Object.entries(mealsByDate).forEach(([date, entry]) => {
+  Object.entries(nutritionMeta).forEach(([date, entry]) => {
     if (date < startKey || date > endKey) return
     const meals = Array.isArray(entry.meals) ? entry.meals : []
     const dayMeals = meals.filter((meal) => Boolean(meal))
@@ -543,26 +555,6 @@ export function useNutritionDayPlan(
   })
 }
 
-export function useNutritionRange(
-  userId: string | null | undefined,
-  start: string,
-  end: string,
-) {
-  return useQuery({
-    queryKey: ["db", "nutrition-range", userId, start, end],
-    queryFn: async () => {
-      const response = await fetch(`/api/v1/nutrition/range?start=${start}&end=${end}`)
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to load nutrition range")
-      }
-      return response.json() as Promise<{ rows: NutritionPlanRow[]; meals_by_date: Record<string, NutritionMetaEntry> }>
-    },
-    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
-    staleTime: 1000 * 30,
-  })
-}
-
 export function useCalendarEvents(
   userId: string | null | undefined,
   profile: ProfileRow | null | undefined,
@@ -575,53 +567,27 @@ export function useCalendarEvents(
     queryFn: async () => {
       const now = new Date()
       const { start, end } = getDateRange(range, now)
-      const [workouts, nutritionResponse] = await Promise.all([
+      const [workouts, nutritionRows] = await Promise.all([
         fetchWorkoutsByDateRange(
           userId as string,
           format(start, "yyyy-MM-dd"),
           format(end, "yyyy-MM-dd"),
         ),
-        fetch(`/api/v1/nutrition/range?start=${format(start, "yyyy-MM-dd")}&end=${format(end, "yyyy-MM-dd")}`).then(
-          async (response) => {
-            if (!response.ok) {
-              const errorBody = await response.json().catch(() => ({}))
-              throw new Error(errorBody?.error ?? "Failed to load nutrition range")
-            }
-            return response.json() as Promise<{ rows: NutritionPlanRow[]; meals_by_date: Record<string, NutritionMetaEntry> }>
-          },
+        fetchNutritionPlanRowsByDateRange(
+          userId as string,
+          format(start, "yyyy-MM-dd"),
+          format(end, "yyyy-MM-dd"),
         ),
       ])
 
       const trainingCalendar = buildCalendarEvents(workouts)
-      const nutritionCalendar = buildNutritionEvents(
-        nutritionResponse.rows ?? [],
-        nutritionResponse.meals_by_date ?? {},
-        range,
-        now,
-      )
+      const nutritionCalendar = buildNutritionEvents(nutritionRows, profile, range, now)
 
       return {
         sessions: buildTrainingSessions(workouts),
         summary: buildTrainingSummary(workouts),
         calendar: [...trainingCalendar, ...nutritionCalendar],
       }
-    },
-    enabled: Boolean(userId),
-    staleTime: 1000 * 30,
-  })
-}
-
-export function useEvents(userId: string | null | undefined) {
-  return useQuery({
-    queryKey: ["db", "events", userId],
-    queryFn: async () => {
-      const response = await fetch("/api/v1/events")
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to load events")
-      }
-      const data = (await response.json()) as { events: ProfileEvent[] }
-      return data.events ?? []
     },
     enabled: Boolean(userId),
     staleTime: 1000 * 30,
