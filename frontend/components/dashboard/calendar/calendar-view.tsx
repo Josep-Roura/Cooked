@@ -17,6 +17,7 @@ const hours = Array.from({ length: 16 }, (_, i) => i + 6) // 6 AM to 9 PM
 
 export function CalendarView({ events, view, onViewChange, onEventClick }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
+
   const getWeekDates = () => {
     const start = new Date(currentDate)
     start.setDate(start.getDate() - start.getDay())
@@ -52,17 +53,18 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold text-foreground">Calendar</h1>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)}>
+            <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)} type="button">
               <ChevronLeft className="h-5 w-5" />
             </Button>
             <span className="text-sm font-medium text-foreground min-w-32 text-center">
               {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </span>
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)}>
+            <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)} type="button">
               <ChevronRight className="h-5 w-5" />
             </Button>
           </div>
         </div>
+
         <div className="flex items-center gap-3">
           {/* View Toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -81,6 +83,7 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
               </button>
             ))}
           </div>
+
           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2" type="button">
             <Plus className="h-4 w-4" />
             Add Event
@@ -179,45 +182,47 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
           </div>
 
           <div className="grid grid-cols-7 grid-rows-5">
-            {Array.from({ length: 35 }, (_, i) => {
-              const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), i - 3)
-              const dayEvents = getEventsForDate(date)
-              const isCurrentMonth = date.getMonth() === currentDate.getMonth()
+            {Array.from({ length: 35 }, (_, i) => (
+              (() => {
+                const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), i - 3)
+                const dayEvents = getEventsForDate(date)
+                const isCurrentMonth = date.getMonth() === currentDate.getMonth()
 
-              return (
-                <div
-                  key={i}
-                  className={`min-h-24 p-2 border-b border-r border-border/50 ${!isCurrentMonth ? "bg-muted/20" : ""} ${
-                    isToday(date) ? "bg-primary/10" : ""
-                  }`}
-                >
+                return (
                   <div
-                    className={`text-sm mb-1 ${isCurrentMonth ? "text-foreground" : "text-muted-foreground"} ${
-                      isToday(date) ? "font-bold text-primary" : ""
+                    key={i}
+                    className={`min-h-24 p-2 border-b border-r border-border/50 ${!isCurrentMonth ? "bg-muted/20" : ""} ${
+                      isToday(date) ? "bg-primary/10" : ""
                     }`}
                   >
-                    {date.getDate()}
-                  </div>
+                    <div
+                      className={`text-sm mb-1 ${isCurrentMonth ? "text-foreground" : "text-muted-foreground"} ${
+                        isToday(date) ? "font-bold text-primary" : ""
+                      }`}
+                    >
+                      {date.getDate()}
+                    </div>
 
-                  <div className="space-y-1">
-                    {dayEvents.slice(0, 2).map((event) => (
-                      <button
-                        key={event.id}
-                        onClick={() => onEventClick(event)}
-                        className={`w-full text-left text-xs p-1 rounded ${event.color} text-white truncate hover:opacity-90`}
-                        type="button"
-                      >
-                        {event.title}
-                      </button>
-                    ))}
+                    <div className="space-y-1">
+                      {dayEvents.slice(0, 2).map((event) => (
+                        <button
+                          key={event.id}
+                          onClick={() => onEventClick(event)}
+                          className={`w-full text-left text-xs p-1 rounded ${event.color} text-white truncate hover:opacity-90`}
+                          type="button"
+                        >
+                          {event.title}
+                        </button>
+                      ))}
 
-                    {dayEvents.length > 2 && (
-                      <div className="text-xs text-muted-foreground">+{dayEvents.length - 2} more</div>
-                    )}
+                      {dayEvents.length > 2 && (
+                        <div className="text-xs text-muted-foreground">+{dayEvents.length - 2} more</div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            })}
+                )
+              })()
+            ))}
           </div>
         </div>
       )}
@@ -236,38 +241,40 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
           </div>
 
           <div className="overflow-y-auto max-h-[calc(100vh-380px)]">
-            {hours.map((hour) => {
-              const dayEvents = getEventsForDate(currentDate)
-              const hourEvents = dayEvents.filter((e) => {
-                const eventHour = Number.parseInt(e.startTime.split(":")[0])
-                return eventHour === hour
-              })
+            {hours.map((hour) => (
+              (() => {
+                const dayEvents = getEventsForDate(currentDate)
+                const hourEvents = dayEvents.filter((e) => {
+                  const eventHour = Number.parseInt(e.startTime.split(":")[0])
+                  return eventHour === hour
+                })
 
-              return (
-                <div key={hour} className="flex border-b border-border/50 min-h-20">
-                  <div className="w-20 p-3 text-sm text-muted-foreground text-right">
-                    {hour.toString().padStart(2, "0")}:00
-                  </div>
+                return (
+                  <div key={hour} className="flex border-b border-border/50 min-h-20">
+                    <div className="w-20 p-3 text-sm text-muted-foreground text-right">
+                      {hour.toString().padStart(2, "0")}:00
+                    </div>
 
-                  <div className="flex-1 relative border-l border-border/50 p-1">
-                    {hourEvents.map((event) => (
-                      <button
-                        key={event.id}
-                        onClick={() => onEventClick(event)}
-                        className={`w-full rounded-lg p-3 text-left ${event.color} text-white mb-1 hover:opacity-90 transition-opacity`}
-                        type="button"
-                      >
-                        <div className="font-medium">{event.title}</div>
-                        <div className="text-sm opacity-80">
-                          {event.startTime} - {event.endTime}
-                        </div>
-                        {event.description && <div className="text-sm opacity-70 mt-1">{event.description}</div>}
-                      </button>
-                    ))}
+                    <div className="flex-1 relative border-l border-border/50 p-1">
+                      {hourEvents.map((event) => (
+                        <button
+                          key={event.id}
+                          onClick={() => onEventClick(event)}
+                          className={`w-full rounded-lg p-3 text-left ${event.color} text-white mb-1 hover:opacity-90 transition-opacity`}
+                          type="button"
+                        >
+                          <div className="font-medium">{event.title}</div>
+                          <div className="text-sm opacity-80">
+                            {event.startTime} - {event.endTime}
+                          </div>
+                          {event.description && <div className="text-sm opacity-70 mt-1">{event.description}</div>}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })()
+            ))}
           </div>
         </div>
       )}
