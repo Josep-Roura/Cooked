@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
@@ -11,8 +11,9 @@ import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-sel
 import { TodaysMacrosCard } from "@/components/dashboard/widgets/todays-macros-card"
 import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-training-card"
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
+import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
-import { useDashboardOverview, useProfile } from "@/lib/db/hooks"
+import { useDashboardOverview, useEvents, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 
@@ -23,7 +24,9 @@ export function OverviewPage() {
   const { user } = useSession()
   const profileQuery = useProfile(user?.id)
   const [range, setRange] = useState<DateRangeOption>("today")
+  const [eventsOpen, setEventsOpen] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
+  const eventsQuery = useEvents(user?.id)
 
   const animationProps = useMemo(
     () =>
@@ -53,9 +56,29 @@ export function OverviewPage() {
     toast({ title: "Session selected", description: `${session.title} details opened.` })
   }
 
+  useEffect(() => {
+    if (eventsQuery.isError) {
+      toast({ title: "Unable to load events", description: "Please try again later.", variant: "destructive" })
+    }
+  }, [eventsQuery.isError, toast])
+
   if (overviewQuery.isError) {
     return <ErrorState onRetry={() => overviewQuery.refetch()} />
   }
+
+  const now = new Date()
+  const upcomingEvents = (eventsQuery.data ?? [])
+    .filter((event) => {
+      const timeValue = event.time ?? "23:59"
+      const dateValue = new Date(`${event.date}T${timeValue}:00`)
+      return dateValue.getTime() >= now.getTime()
+    })
+    .sort((a, b) => {
+      const aTime = new Date(`${a.date}T${a.time ?? "23:59"}:00`).getTime()
+      const bTime = new Date(`${b.date}T${b.time ?? "23:59"}:00`).getTime()
+      return aTime - bTime
+    })
+    .slice(0, 3)
 
   return (
     <main className="flex-1 p-8 bg-background overflow-auto">
@@ -77,8 +100,8 @@ export function OverviewPage() {
         <motion.div {...hoverProps}>
           <UpcomingEventCard
             isLoading={overviewQuery.isLoading}
-            event={overviewQuery.data?.upcomingEvent ?? null}
-            onEdit={() => router.push("/onboarding")}
+            events={upcomingEvents}
+            onEdit={() => setEventsOpen(true)}
           />
         </motion.div>
       </motion.div>
@@ -99,6 +122,13 @@ export function OverviewPage() {
           />
         </motion.div>
       </motion.div>
+
+      <EventManagementSheet
+        open={eventsOpen}
+        onOpenChange={setEventsOpen}
+        events={eventsQuery.data ?? []}
+        onRefresh={eventsQuery.refetch}
+      />
     </main>
   )
 }

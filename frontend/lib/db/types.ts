@@ -181,6 +181,20 @@ export interface UpcomingEvent {
   location?: string | null
 }
 
+export type EventCategory = "race" | "test" | "other"
+
+export interface ProfileEvent {
+  id: string
+  title: string
+  category: EventCategory
+  goal: string | null
+  date: string
+  time: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface PlanPreview {
   id: string
   title: string
