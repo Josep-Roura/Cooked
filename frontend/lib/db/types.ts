@@ -129,6 +129,37 @@ export interface NutritionSummary {
   dailyData: NutritionDaySummary[]
 }
 
+export type NutritionDayType = "rest" | "training" | "high"
+
+export interface NutritionMacros {
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  intra_cho_g_per_h: number
+}
+
+export interface Meal {
+  slot: number
+  name: string
+  time: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  notes?: string | null
+  tags?: string[]
+}
+
+export interface NutritionDayPlan {
+  date: string
+  day_type: NutritionDayType
+  macros: NutritionMacros
+  meals_per_day: number
+  meals: Meal[]
+  plan_id: string | null
+}
+
 export interface MacroSummary {
   range: DateRangeOption
   calories: number
@@ -150,6 +181,20 @@ export interface UpcomingEvent {
   location?: string | null
 }
 
+export type EventCategory = "race" | "test" | "other"
+
+export interface ProfileEvent {
+  id: string
+  title: string
+  category: EventCategory
+  goal: string | null
+  date: string
+  time: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface PlanPreview {
   id: string
   title: string
@@ -167,10 +212,12 @@ export interface DashboardOverviewData {
   planPreview: PlanPreview | null
 }
 
+export type CalendarEventType = TrainingType | "nutrition"
+
 export interface CalendarEvent {
   id: string
   title: string
-  type: TrainingType
+  type: CalendarEventType
   startTime: string
   endTime: string
   date: string
