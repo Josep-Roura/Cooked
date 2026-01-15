@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/ui/error-state"
 import { useCalendarEvents, useProfile } from "@/lib/db/hooks"
 import type { CalendarEvent, DateRangeOption } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
+import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export default function CalendarPage() {
   const { user } = useSession()
@@ -16,6 +17,8 @@ export default function CalendarPage() {
   const range: DateRangeOption = view === "month" ? "month" : "week"
 
   const calendarQuery = useCalendarEvents(user?.id, profileQuery.data, range)
+
+  useEnsureNutritionPlan({ userId: user?.id, range })
 
   const events = useMemo(() => calendarQuery.data?.calendar ?? [], [calendarQuery.data?.calendar])
 
