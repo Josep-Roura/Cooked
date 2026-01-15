@@ -512,8 +512,13 @@ export function useNutritionSummary(
     queryKey: ["db", "nutrition-summary", userId, range],
     queryFn: async () => {
       const now = new Date()
+      const { start, end } = getDateRange(range, now)
       const activePlan = await fetchActivePlanByDate(userId as string, format(now, "yyyy-MM-dd"))
-      const planRows = activePlan ? await fetchNutritionPlanRowsByPlanId(activePlan.id) : []
+      const planRows = await fetchNutritionPlanRowsByDateRange(
+        userId as string,
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd"),
+      )
 
       return {
         plan: activePlan,
