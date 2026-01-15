@@ -13,7 +13,7 @@ import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-traini
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
-import { useDashboardOverview, useEvents, useProfile } from "@/lib/db/hooks"
+import { useDashboardOverview, useCalendarEvents, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 
@@ -26,7 +26,7 @@ export function OverviewPage() {
   const [range, setRange] = useState<DateRangeOption>("today")
   const [eventsOpen, setEventsOpen] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  const eventsQuery = useEvents(user?.id)
+  const eventsQuery = useCalendarEvents(user?.id)
 
   const animationProps = useMemo(
     () =>
@@ -66,14 +66,20 @@ export function OverviewPage() {
     return <ErrorState onRetry={() => overviewQuery.refetch()} />
   }
 
+  // ✅ Normalize eventsQuery.data into a guaranteed array
+  const events = Array.isArray(eventsQuery.data)
+    ? eventsQuery.data
+    : (eventsQuery.data as any)?.events ?? []
+
   const now = new Date()
-  const upcomingEvents = (eventsQuery.data ?? [])
-    .filter((event) => {
+
+  const upcomingEvents = events
+    .filter((event: any) => {
       const timeValue = event.time ?? "23:59"
       const dateValue = new Date(`${event.date}T${timeValue}:00`)
       return dateValue.getTime() >= now.getTime()
     })
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       const aTime = new Date(`${a.date}T${a.time ?? "23:59"}:00`).getTime()
       const bTime = new Date(`${b.date}T${b.time ?? "23:59"}:00`).getTime()
       return aTime - bTime
@@ -126,7 +132,7 @@ export function OverviewPage() {
       <EventManagementSheet
         open={eventsOpen}
         onOpenChange={setEventsOpen}
-        events={eventsQuery.data ?? []}
+        events={events}
         onRefresh={eventsQuery.refetch}
       />
     </main>
