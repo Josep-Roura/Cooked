@@ -17,7 +17,6 @@ const hours = Array.from({ length: 16 }, (_, i) => i + 6) // 6 AM to 9 PM
 
 export function CalendarView({ events, view, onViewChange, onEventClick }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
-
   const getWeekDates = () => {
     const start = new Date(currentDate)
     start.setDate(start.getDate() - start.getDay())
@@ -217,7 +216,7 @@ export function CalendarView({ events, view, onViewChange, onEventClick }: Calen
                     )}
                   </div>
                 </div>
-              )
+              )}
             })}
           </div>
         </div>
