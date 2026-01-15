@@ -2,10 +2,10 @@
 
 import { Crown, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { UserProfile } from "@/lib/mock-data"
+import type { ProfileRow } from "@/lib/db/types"
 
 interface SubscriptionStatusProps {
-  profile: UserProfile
+  profile: ProfileRow
 }
 
 const planFeatures = {
@@ -32,23 +32,22 @@ const planColors = {
 }
 
 export function SubscriptionStatus({ profile }: SubscriptionStatusProps) {
-  const features = planFeatures[profile.subscriptionStatus]
+  const subscription = (profile.meta?.subscription_status as keyof typeof planFeatures | undefined) ?? "free"
+  const features = planFeatures[subscription] ?? planFeatures.free
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div
-            className={`h-12 w-12 rounded-xl flex items-center justify-center ${planColors[profile.subscriptionStatus]}`}
-          >
+          <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${planColors[subscription]}`}>
             <Crown className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-foreground capitalize">{profile.subscriptionStatus} Plan</h3>
-            {profile.subscriptionExpiry && (
+            <h3 className="text-lg font-semibold text-foreground capitalize">{subscription} Plan</h3>
+            {profile.meta?.subscription_expiry && (
               <p className="text-sm text-muted-foreground">
                 Renews on{" "}
-                {new Date(profile.subscriptionExpiry).toLocaleDateString("en-US", {
+                {new Date(profile.meta.subscription_expiry as string).toLocaleDateString("en-US", {
                   month: "long",
                   day: "numeric",
                   year: "numeric",
@@ -57,7 +56,7 @@ export function SubscriptionStatus({ profile }: SubscriptionStatusProps) {
             )}
           </div>
         </div>
-        {profile.subscriptionStatus !== "team" && (
+        {subscription !== "team" && (
           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">Upgrade Plan</Button>
         )}
       </div>

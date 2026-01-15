@@ -1,0 +1,217 @@
+export type Units = "metric" | "imperial"
+
+export interface ProfileRow {
+  id: string
+  email: string | null
+  full_name: string | null
+  avatar_url: string | null
+  created_at: string
+  meta: Record<string, unknown> | null
+  name: string | null
+  height_cm: number | null
+  weight_kg: number | null
+  units: Units | null
+  primary_goal: string | null
+  experience_level: string | null
+  event: string | null
+  sports: string[] | null
+  workout_time: string | null
+  diet: string | null
+  meals_per_day: number | null
+  cooking_time_min: number | null
+  budget: string | null
+  kitchen: string | null
+  trainingpeaks_connected: boolean | null
+  updated_at: string | null
+  accept_terms: boolean | null
+  accept_terms_at: string | null
+}
+
+export interface NutritionPlanRow {
+  id: string
+  plan_id: string | null
+  date: string
+  day_type: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  intra_cho_g_per_h: number
+  created_at: string
+  user_id: string | null
+}
+
+export interface NutritionPlan {
+  id: string
+  user_key: string
+  source_filename: string | null
+  weight_kg: number
+  start_date: string
+  end_date: string
+  created_at: string
+  user_id: string
+}
+
+export interface TpWorkout {
+  id: number
+  athlete_id: string
+  workout_day: string
+  workout_type: string | null
+  title: string | null
+  description: string | null
+  coach_comments: string | null
+  athlete_comments: string | null
+  planned_hours: number | null
+  planned_km: number | null
+  actual_hours: number | null
+  actual_km: number | null
+  if: number | null
+  tss: number | null
+  power_avg: number | null
+  hr_avg: number | null
+  rpe: number | null
+  feeling: number | null
+  has_actual: boolean | null
+  week: string | null
+  dow: string | null
+  source: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type DateRangeOption = "today" | "week" | "month"
+
+export type TrainingType = "swim" | "bike" | "run" | "strength" | "rest" | "other"
+
+export type TrainingIntensity = "low" | "moderate" | "high"
+
+export interface TrainingSessionSummary {
+  id: string
+  type: TrainingType
+  title: string
+  durationMinutes: number
+  intensity: TrainingIntensity
+  calories: number
+  completed: boolean
+  time: string
+  date: string
+  description?: string | null
+}
+
+export interface TrainingSummary {
+  totalDurationMinutes: number
+  totalCalories: number
+  sessions: Array<{
+    day: string
+    type: TrainingType
+    durationMinutes: number
+    intensity: TrainingIntensity
+  }>
+}
+
+export interface NutritionDaySummary {
+  date: string
+  dayLabel: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  intra_cho_g_per_h: number
+}
+
+export interface NutritionSummary {
+  targetCalories: number
+  targetProtein: number
+  targetCarbs: number
+  targetFat: number
+  dailyData: NutritionDaySummary[]
+}
+
+export interface MacroSummary {
+  range: DateRangeOption
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  targetCalories: number
+  targetProtein: number
+  targetCarbs: number
+  targetFat: number
+  calorieDelta: number
+  deltaLabel: string
+}
+
+export interface UpcomingEvent {
+  name: string
+  date: string
+  description?: string | null
+  location?: string | null
+}
+
+export interface PlanPreview {
+  id: string
+  title: string
+  createdAt: string
+  focus: string
+  summary: string
+  startDate: string
+  endDate: string
+}
+
+export interface DashboardOverviewData {
+  macros: MacroSummary | null
+  trainingSessions: TrainingSessionSummary[]
+  upcomingEvent: UpcomingEvent | null
+  planPreview: PlanPreview | null
+}
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  type: TrainingType
+  startTime: string
+  endTime: string
+  date: string
+  color: string
+  description?: string | null
+}
+
+export interface OnboardingProfileInput {
+  full_name: string
+  email?: string
+  height_cm?: number
+  weight_kg: number
+  units: Units
+  primary_goal: string
+  experience_level: string
+  event_name?: string
+  sports: string[]
+  typical_workout_time: string
+  diet_type: string
+  meals_per_day: number
+  cooking_time_per_day: string
+  budget_level: string
+  kitchen_access: string
+  trainingpeaks_connected: boolean
+  accept_terms: boolean
+  gender?: string
+  birthdate?: string
+  country?: string
+  timezone?: string
+  target_weight_kg?: number
+  event_date?: string
+  weekly_training_hours_target?: number
+  weekly_sessions_swim?: number
+  weekly_sessions_bike?: number
+  weekly_sessions_run?: number
+  weekly_sessions_gym?: number
+  intensity_preference?: string
+  long_session_day?: string
+  days_off_preference?: string[]
+  allergies?: string[]
+  dislikes?: string
+  caffeine?: string
+  hydration_focus?: boolean
+  travel_frequency?: string
+  data_processing_consent?: boolean
+}
