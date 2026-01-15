@@ -17,6 +17,7 @@ import type {
   NutritionSummary,
   OnboardingProfileInput,
   PlanPreview,
+  ProfileEvent,
   ProfileRow,
   TrainingIntensity,
   TrainingSessionSummary,
