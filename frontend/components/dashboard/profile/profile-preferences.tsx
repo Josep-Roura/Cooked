@@ -2,13 +2,16 @@
 
 import { Moon, Sun, Ruler, Bell } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
-import type { UserProfile } from "@/lib/mock-data"
 
 interface ProfilePreferencesProps {
-  profile: UserProfile
+  preferences: {
+    darkMode: boolean
+    units: "metric" | "imperial"
+    notifications: boolean
+  }
 }
 
-export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
+export function ProfilePreferences({ preferences }: ProfilePreferencesProps) {
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <h3 className="text-lg font-semibold text-foreground mb-4">Preferences</h3>
@@ -16,7 +19,7 @@ export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
       <div className="space-y-4">
         <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
           <div className="flex items-center gap-3">
-            {profile.preferences.darkMode ? (
+            {preferences.darkMode ? (
               <Moon className="h-5 w-5 text-muted-foreground" />
             ) : (
               <Sun className="h-5 w-5 text-muted-foreground" />
@@ -26,7 +29,7 @@ export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
               <p className="text-sm text-muted-foreground">Switch between light and dark theme</p>
             </div>
           </div>
-          <Switch checked={profile.preferences.darkMode} />
+          <Switch checked={preferences.darkMode} />
         </div>
 
         <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
@@ -34,13 +37,13 @@ export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
             <Ruler className="h-5 w-5 text-muted-foreground" />
             <div>
               <p className="font-medium text-foreground">Units</p>
-              <p className="text-sm text-muted-foreground">Currently using {profile.preferences.units} system</p>
+              <p className="text-sm text-muted-foreground">Currently using {preferences.units} system</p>
             </div>
           </div>
           <div className="flex rounded-lg border border-border overflow-hidden">
             <button
               className={`px-3 py-1.5 text-sm ${
-                profile.preferences.units === "metric"
+                preferences.units === "metric"
                   ? "bg-primary text-primary-foreground"
                   : "bg-background text-muted-foreground"
               }`}
@@ -49,7 +52,7 @@ export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
             </button>
             <button
               className={`px-3 py-1.5 text-sm ${
-                profile.preferences.units === "imperial"
+                preferences.units === "imperial"
                   ? "bg-primary text-primary-foreground"
                   : "bg-background text-muted-foreground"
               }`}
@@ -67,7 +70,7 @@ export function ProfilePreferences({ profile }: ProfilePreferencesProps) {
               <p className="text-sm text-muted-foreground">Receive training and nutrition reminders</p>
             </div>
           </div>
-          <Switch checked={profile.preferences.notifications} />
+          <Switch checked={preferences.notifications} />
         </div>
       </div>
     </div>

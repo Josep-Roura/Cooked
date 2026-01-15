@@ -69,19 +69,72 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const workouts = Array.isArray(body?.workouts) ? body.workouts : [];
+    const workouts = Array.isArray(body?.workouts) ? body.workouts : null;
 
-    if (
-      !Array.isArray(workouts) ||
-      !workouts.every(
-        (w) =>
-          typeof w?.day === "number" &&
-          typeof w?.start === "string" &&
-          typeof w?.end === "string" &&
-          typeof w?.type === "string" &&
-          Array.isArray(w?.nutrition)
-      )
-    ) {
+    if (!workouts) {
+      return NextResponse.json(
+        { error: "Payload inválido" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedWorkouts = workouts.map((workout) => {
+      if (
+        typeof workout?.day !== "number" ||
+        !Number.isFinite(workout.day) ||
+        typeof workout?.start !== "string" ||
+        typeof workout?.end !== "string" ||
+        typeof workout?.type !== "string"
+      ) {
+        return null;
+      }
+
+      if (
+        workout?.intensity !== undefined &&
+        workout.intensity !== null &&
+        typeof workout.intensity !== "string"
+      ) {
+        return null;
+      }
+
+      if (
+        workout?.nutrition !== undefined &&
+        !Array.isArray(workout.nutrition)
+      ) {
+        return null;
+      }
+
+      const nutrition = Array.isArray(workout?.nutrition)
+        ? workout.nutrition
+            .filter(
+              (item: unknown) =>
+                typeof (item as { label?: unknown })?.label === "string" &&
+                typeof (item as { advice?: unknown })?.advice === "string"
+            )
+            .map((item: { label: string; advice: string }) => ({
+              label: item.label,
+              advice: item.advice
+            }))
+        : [];
+
+      if (
+        Array.isArray(workout?.nutrition) &&
+        nutrition.length !== workout.nutrition.length
+      ) {
+        return null;
+      }
+
+      return {
+        day: workout.day,
+        start: workout.start,
+        end: workout.end,
+        type: workout.type,
+        intensity: workout.intensity ?? null,
+        nutrition
+      };
+    });
+
+    if (normalizedWorkouts.some((workout) => workout === null)) {
       return NextResponse.json(
         { error: "Payload inválido" },
         { status: 400 }
@@ -117,8 +170,8 @@ export async function POST(req: Request) {
       );
     }
 
-    if (workouts.length > 0) {
-      const payload = workouts.map((w) => ({
+    if (normalizedWorkouts.length > 0) {
+      const payload = normalizedWorkouts.map((w) => ({
         user_id: userId,
         day_index: w.day,
         start_time: w.start,

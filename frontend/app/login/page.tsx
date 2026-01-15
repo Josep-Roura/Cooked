@@ -13,8 +13,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { signIn } from "@/lib/auth"
-import { getUserProfile } from "@/lib/api"
 import { useSession } from "@/hooks/use-session"
+import { useProfile } from "@/lib/db/hooks"
 import { z } from "zod"
 import { Loader2 } from "lucide-react"
 
@@ -25,7 +25,8 @@ const loginSchema = z.object({
 
 export default function LoginPage() {
   const router = useRouter()
-  const { session, loading: sessionLoading } = useSession()
+  const { session, user, loading: sessionLoading } = useSession()
+  const profileQuery = useProfile(user?.id)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -33,17 +34,14 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
 
   useEffect(() => {
-    if (!sessionLoading && session) {
-      // Check if user has a profile
-      getUserProfile().then((profile) => {
-        if (profile) {
-          router.replace("/dashboard")
-        } else {
-          router.replace("/onboarding")
-        }
-      })
+    if (!sessionLoading && session && profileQuery.isFetched) {
+      if (profileQuery.data) {
+        router.replace("/dashboard")
+      } else {
+        router.replace("/onboarding")
+      }
     }
-  }, [session, sessionLoading, router])
+  }, [session, sessionLoading, router, profileQuery.isFetched, profileQuery.data])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,9 +62,8 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await signIn(email, password)
-      // Check if profile exists
-      const profile = await getUserProfile()
-      if (profile) {
+      const profile = await profileQuery.refetch()
+      if (profile.data) {
         router.push("/dashboard")
       } else {
         router.push("/onboarding")
