@@ -1,12 +1,15 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { format } from "date-fns"
+import { useQueryClient } from "@tanstack/react-query"
 import { NutritionOverview } from "@/components/dashboard/nutrition/nutrition-overview"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { MacroChart } from "@/components/dashboard/nutrition/macro-chart"
 import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
+import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
-import { useNutritionSummary, useProfile } from "@/lib/db/hooks"
+import { useNutritionDayPlan, useNutritionSummary, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 
@@ -15,8 +18,12 @@ export default function NutritionPage() {
   const profileQuery = useProfile(user?.id)
   const [range, setRange] = useState<DateRangeOption>("week")
   const [search, setSearch] = useState("")
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
+  const [isGenerating, setIsGenerating] = useState(false)
+  const queryClient = useQueryClient()
 
   const nutritionQuery = useNutritionSummary(user?.id, range)
+  const nutritionDayQuery = useNutritionDayPlan(user?.id, selectedDate)
 
   if (nutritionQuery.isError) {
     return <ErrorState onRetry={() => nutritionQuery.refetch()} />
@@ -41,6 +48,33 @@ export default function NutritionPage() {
         })),
       }
     : null
+
+  const handleGenerate = async (regenerate: boolean) => {
+    if (!selectedDate) return
+    setIsGenerating(true)
+    try {
+      const response = await fetch("/api/v1/nutrition/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: selectedDate, regenerate }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to generate nutrition plan")
+      }
+
+      await Promise.all([
+        nutritionQuery.refetch(),
+        nutritionDayQuery.refetch(),
+        profileQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
+      ])
+    } catch (error) {
+      console.error("Failed to generate nutrition plan", error)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
 
   return (
     <main className="flex-1 p-8 overflow-auto">
@@ -77,17 +111,47 @@ export default function NutritionPage() {
 
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Meals</h2>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search meals"
-            className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
+            />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search meals"
+              className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
+            />
+            <Button
+              onClick={() => handleGenerate(false)}
+              disabled={isGenerating}
+              className="h-9 rounded-full px-4 text-xs"
+              type="button"
+            >
+              Generate today&apos;s plan
+            </Button>
+            <Button
+              onClick={() => handleGenerate(true)}
+              disabled={isGenerating}
+              variant="outline"
+              className="h-9 rounded-full px-4 text-xs"
+              type="button"
+            >
+              Regenerate
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {chartData && <MacroChart weeklyData={chartData} />}
-          <MealCards rows={filteredRows} />
+          <MealCards
+            rows={filteredRows}
+            dayPlan={nutritionDayQuery.data?.plan ?? null}
+            selectedDate={selectedDate}
+            search={search}
+          />
         </div>
       </div>
     </main>
