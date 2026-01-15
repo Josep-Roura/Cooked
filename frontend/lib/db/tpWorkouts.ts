@@ -4,14 +4,12 @@ import type { TrainingPeaksCsvRow } from "@/lib/integrations/trainingpeaks/csv"
 
 const BATCH_SIZE = 200
 
-export type TpWorkoutInsert = Omit<TpWorkout, "id" | "created_at" | "updated_at"> & {
-  user_id: string
-}
+export type TpWorkoutInsert = Omit<TpWorkout, "id" | "created_at" | "updated_at" | "user_id">
 
 function dedupeRows(rows: TpWorkoutInsert[]) {
   const seen = new Set<string>()
   return rows.filter((row) => {
-    const key = `${row.user_id}-${row.workout_day}-${row.title}-${row.workout_type}`
+    const key = `${row.athlete_id}-${row.workout_day}-${row.title}-${row.workout_type}`
     if (seen.has(key)) {
       return false
     }
@@ -22,7 +20,6 @@ function dedupeRows(rows: TpWorkoutInsert[]) {
 
 function toInsertRow(userId: string, row: TrainingPeaksCsvRow): TpWorkoutInsert {
   return {
-    user_id: userId,
     athlete_id: `user:${userId}`,
     workout_day: row.workout_day,
     start_time: row.start_time,
@@ -61,7 +58,7 @@ export async function importWorkouts(
     const batch = payload.slice(i, i + BATCH_SIZE)
     const { error } = await supabase
       .from("tp_workouts")
-      .upsert(batch, { onConflict: "user_id,workout_day,title,workout_type" })
+      .upsert(batch, { onConflict: "athlete_id,workout_day,title,workout_type" })
 
     if (error) {
       throw new Error(error.message)
@@ -84,7 +81,7 @@ export async function fetchWorkoutsByDateRange(
   const { data, error } = await supabase
     .from("tp_workouts")
     .select("*")
-    .eq("user_id", userId)
+    .eq("athlete_id", `user:${userId}`)
     .gte("workout_day", startDate)
     .lte("workout_day", endDate)
     .order("workout_day", { ascending: true })
