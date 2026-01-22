@@ -31,16 +31,19 @@ function parseMinutes(value: string | undefined): number | null {
 }
 
 export async function fetchProfile(userId: string): Promise<ProfileRow | null> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", userId)
-    .maybeSingle<ProfileRow>()
-
-  if (error) {
-    throw new Error(error.message)
+  if (!userId) {
+    return null
   }
 
+  const response = await fetch("/api/v1/profile/me", { method: "GET" })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to fetch profile")
+  }
+  const data = (await response.json()) as ProfileRow
   return data ?? null
 }
 
