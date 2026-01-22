@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
+function buildProfileSeed(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }) {
+  const metadata = user.user_metadata ?? {}
+  const fullName =
+    (typeof metadata["full_name"] === "string" && metadata["full_name"]) ||
+    (typeof metadata["name"] === "string" && metadata["name"]) ||
+    null
+
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    full_name: fullName,
+    name: fullName,
+    updated_at: new Date().toISOString(),
+  }
+}
+
 export async function GET() {
   try {
     const supabase = await createServerClient()
@@ -23,7 +39,6 @@ export async function GET() {
       .eq("id", user.id)
       .maybeSingle()
 
-    // Si la tabla no existe / permisos / etc:
     if (error) {
       console.error("GET /api/v1/profile/me supabase error:", error)
       return NextResponse.json(
@@ -33,7 +48,21 @@ export async function GET() {
     }
 
     if (!data) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 })
+      const { data: createdProfile, error: upsertError } = await supabase
+        .from("profiles")
+        .upsert(buildProfileSeed(user), { onConflict: "id" })
+        .select("*")
+        .single()
+
+      if (upsertError) {
+        console.error("GET /api/v1/profile/me upsert error:", upsertError)
+        return NextResponse.json(
+          { error: "Failed to create profile", details: upsertError.message, code: upsertError.code },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json(createdProfile, { status: 200 })
     }
 
     return NextResponse.json(data, { status: 200 })
