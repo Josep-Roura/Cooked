@@ -35,25 +35,19 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return NextResponse.json({ error: "Not authenticated", details: authError?.message ?? null }, { status: 401 })
     }
 
     const { data: rows, error: rowError } = await supabase
       .from("nutrition_plan_rows")
-      .select("id, plan_id, date, day_type, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h")
+      .select("id, plan_id, date, day_type, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at")
       .eq("user_id", user.id)
       .eq("date", date)
       .order("created_at", { ascending: false })
       .limit(1)
 
     if (rowError) {
-      return NextResponse.json(
-        { error: "Database error", details: rowError.message, code: rowError.code },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Database error", details: rowError.message, code: rowError.code }, { status: 400 })
     }
 
     if (!rows || rows.length === 0) {
@@ -61,6 +55,7 @@ export async function GET(req: NextRequest) {
     }
 
     const row = rows[0]
+
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("meta, meals_per_day")
@@ -86,10 +81,14 @@ export async function GET(req: NextRequest) {
       intra_cho_g_per_h: row.intra_cho_g_per_h,
     }
 
+    // normaliza day_type para UI
+    const normalizedDayType =
+      row.day_type === "high" || row.day_type === "rest" || row.day_type === "training" ? row.day_type : "training"
+
     const payload: NutritionDayPlan = {
       plan_id: row.plan_id ?? null,
-      date: row.date,
-      day_type: row.day_type === "high" || row.day_type === "rest" ? row.day_type : "training",
+      date: String(row.date),
+      day_type: normalizedDayType,
       macros,
       meals_per_day: mealsPerDay ?? 0,
       meals,

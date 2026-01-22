@@ -81,8 +81,12 @@ function computeMacros(weightKg: number, dayType: NutritionDayType, primaryGoal:
   const dietType = diet?.toLowerCase() ?? ""
 
   const baseMultiplier = dayType === "rest" ? 27 : dayType === "high" ? 34 : 30
-  const goalMultiplier = goal.includes("lose") || goal.includes("fat") || goal.includes("cut") ? 0.9 :
-    goal.includes("gain") || goal.includes("performance") || goal.includes("build") ? 1.05 : 1
+  const goalMultiplier =
+    goal.includes("lose") || goal.includes("fat") || goal.includes("cut")
+      ? 0.9
+      : goal.includes("gain") || goal.includes("performance") || goal.includes("build")
+        ? 1.05
+        : 1
 
   const kcalBase = clamp(Math.round(weightKg * baseMultiplier * goalMultiplier), 1600, 4500)
 
@@ -120,12 +124,8 @@ function computeIntraCho(workouts: WorkoutRow[], dayType: NutritionDayType) {
   const totalHours = workouts.reduce((sum, workout) => sum + (workout.actual_hours ?? workout.planned_hours ?? 0), 0)
   const highIntensity = workouts.some((workout) => (workout.tss ?? 0) >= 150 || (workout.if ?? 0) >= 0.85)
 
-  if (totalHours >= 2 || highIntensity) {
-    return dayType === "high" ? 90 : 60
-  }
-  if (totalHours >= 1) {
-    return dayType === "high" ? 60 : 30
-  }
+  if (totalHours >= 2 || highIntensity) return dayType === "high" ? 90 : 60
+  if (totalHours >= 1) return dayType === "high" ? 60 : 30
   return dayType === "high" ? 45 : 30
 }
 
@@ -244,10 +244,7 @@ export async function POST(req: NextRequest) {
 
     const range = buildDateRange(start, end)
     if (!range) {
-      return NextResponse.json(
-        { error: `Invalid date range (YYYY-MM-DD required, max ${MAX_RANGE_DAYS} days).` },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: `Invalid date range (YYYY-MM-DD required, max ${MAX_RANGE_DAYS} days).` }, { status: 400 })
     }
 
     const {
@@ -256,52 +253,45 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return NextResponse.json({ error: "Not authenticated", details: authError?.message ?? null }, { status: 401 })
     }
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, weight_kg, meals_per_day, diet, units, primary_goal, meta")
+      .select("id, weight_kg, meals_per_day, diet, primary_goal, meta")
       .eq("id", user.id)
       .maybeSingle()
 
     if (profileError || !profile) {
-      return NextResponse.json(
-        { error: "Profile not found", details: profileError?.message ?? null },
-        { status: 404 },
-      )
+      return NextResponse.json({ error: "Profile not found", details: profileError?.message ?? null }, { status: 404 })
     }
 
     const mealsPerDay = profile.meals_per_day ?? 4
-    const weightKg = profile.weight_kg ?? 70
+    const weightKg = Number(profile.weight_kg ?? 70)
 
+    // ✅ IMPORTANT: tu SQL tiene tp_workouts.user_id (uuid). Usamos eso.
     const { data: workouts, error: workoutError } = await supabase
       .from("tp_workouts")
       .select("workout_day, start_time, workout_type, planned_hours, actual_hours, tss, rpe, if")
-      .eq("athlete_id", `user:${user.id}`)
+      .eq("user_id", user.id)
       .gte("workout_day", range.start)
       .lte("workout_day", range.end)
       .order("workout_day", { ascending: true })
 
     if (workoutError) {
-      return NextResponse.json(
-        { error: "Failed to load workouts", details: workoutError.message, code: workoutError.code },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Failed to load workouts", details: workoutError.message, code: workoutError.code }, { status: 400 })
     }
 
     const workoutMap = new Map<string, WorkoutRow[]>()
     const workoutRows = (workouts ?? []) as WorkoutRow[]
     workoutRows.forEach((workout) => {
-      const dayKey = workout.workout_day
+      const dayKey = String(workout.workout_day)
       const list = workoutMap.get(dayKey) ?? []
       list.push(workout)
       workoutMap.set(dayKey, list)
     })
 
+    // Plan exacto por rango (lo mantengo igual que tú)
     const { data: existingPlan, error: existingPlanError } = await supabase
       .from("nutrition_plans")
       .select("id")
@@ -311,14 +301,11 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (existingPlanError) {
-      return NextResponse.json(
-        { error: "Failed to load nutrition plan", details: existingPlanError.message, code: existingPlanError.code },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Failed to load nutrition plan", details: existingPlanError.message, code: existingPlanError.code }, { status: 400 })
     }
 
-    let planId = existingPlan?.id ?? null
-    const userKey = user.id
+    let planId: string | null = existingPlan?.id ?? null
+    const userKey = user.email ?? user.id
 
     if (planId) {
       const { error: planUpdateError } = await supabase
@@ -331,10 +318,7 @@ export async function POST(req: NextRequest) {
         .eq("id", planId)
 
       if (planUpdateError) {
-        return NextResponse.json(
-          { error: "Failed to update nutrition plan", details: planUpdateError.message, code: planUpdateError.code },
-          { status: 400 },
-        )
+        return NextResponse.json({ error: "Failed to update nutrition plan", details: planUpdateError.message, code: planUpdateError.code }, { status: 400 })
       }
     } else {
       const { data: plan, error: planError } = await supabase
@@ -351,15 +335,17 @@ export async function POST(req: NextRequest) {
         .single()
 
       if (planError || !plan) {
-        return NextResponse.json(
-          { error: "Failed to create nutrition plan", details: planError?.message ?? null },
-          { status: 400 },
-        )
+        return NextResponse.json({ error: "Failed to create nutrition plan", details: planError?.message ?? null }, { status: 400 })
       }
 
       planId = plan.id
     }
 
+    if (!planId) {
+      return NextResponse.json({ error: "PlanId missing after ensure" }, { status: 500 })
+    }
+
+    // ✅ Borramos el rango y luego INSERT. Esto evita el problema del onConflict sin constraint unique.
     const { error: deleteError } = await supabase
       .from("nutrition_plan_rows")
       .delete()
@@ -368,13 +354,10 @@ export async function POST(req: NextRequest) {
       .lte("date", range.end)
 
     if (deleteError) {
-      return NextResponse.json(
-        { error: "Failed to clear existing plan rows", details: deleteError.message, code: deleteError.code },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Failed to clear existing plan rows", details: deleteError.message, code: deleteError.code }, { status: 400 })
     }
 
-    const rowsToUpsert: Array<{
+    const rowsToInsert: Array<{
       user_id: string
       plan_id: string
       date: string
@@ -385,6 +368,7 @@ export async function POST(req: NextRequest) {
       fat_g: number
       intra_cho_g_per_h: number
     }> = []
+
     const metaUpdates: Record<string, NutritionMetaEntry> = {}
     const nowIso = new Date().toISOString()
 
@@ -393,6 +377,7 @@ export async function POST(req: NextRequest) {
       const dateKey = formatDate(cursor)
       const dailyWorkouts = workoutMap.get(dateKey) ?? []
       const dayType = pickDayType(dailyWorkouts)
+
       const macros = computeMacros(weightKg, dayType, profile.primary_goal, profile.diet)
       macros.intra_cho_g_per_h = computeIntraCho(dailyWorkouts, dayType)
 
@@ -400,7 +385,7 @@ export async function POST(req: NextRequest) {
       const mealsWithMacros = splitMacrosAcrossMeals(macros, templates)
       const meals = alignMealTimes(mealsWithMacros, dailyWorkouts)
 
-      rowsToUpsert.push({
+      rowsToInsert.push({
         user_id: user.id,
         plan_id: planId,
         date: dateKey,
@@ -423,19 +408,20 @@ export async function POST(req: NextRequest) {
       cursor.setUTCDate(cursor.getUTCDate() + 1)
     }
 
-    if (rowsToUpsert.length > 0) {
-      const { error: upsertError } = await supabase
-        .from("nutrition_plan_rows")
-        .upsert(rowsToUpsert, { onConflict: "user_id,date,day_type" })
+    if (rowsToInsert.length > 0) {
+      const { error: insertError } = await supabase.from("nutrition_plan_rows").insert(rowsToInsert)
 
-      if (upsertError) {
+      if (insertError) {
+        // Log completo para que veas el motivo exacto en consola
+        console.error("Failed to save nutrition plan rows (insert)", insertError)
         return NextResponse.json(
-          { error: "Failed to save nutrition plan rows", details: upsertError.message, code: upsertError.code },
+          { error: "Failed to save nutrition plan rows", details: insertError.message, code: insertError.code },
           { status: 400 },
         )
       }
     }
 
+    // Actualiza meta en profiles
     const existingMeta = (profile.meta && typeof profile.meta === "object" ? profile.meta : {}) as Record<string, unknown>
     const currentNutrition =
       existingMeta["nutrition_by_date"] && typeof existingMeta["nutrition_by_date"] === "object"
@@ -450,36 +436,21 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    const { error: metaError } = await supabase
-      .from("profiles")
-      .update({ meta: updatedMeta, updated_at: nowIso })
-      .eq("id", user.id)
+    const { error: metaError } = await supabase.from("profiles").update({ meta: updatedMeta, updated_at: nowIso }).eq("id", user.id)
 
     if (metaError) {
-      return NextResponse.json(
-        { error: "Failed to update profile meta", details: metaError.message, code: metaError.code },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Failed to update profile meta", details: metaError.message, code: metaError.code }, { status: 400 })
     }
 
-    console.info("POST /api/v1/nutrition/ensure", {
+    console.info("POST /api/v1/nutrition/ensure OK", {
       userId: user.id,
       start: range.start,
       end: range.end,
       planId,
-      updated: Boolean(existingPlan),
-      rows: rowsToUpsert.length,
+      rows: rowsToInsert.length,
     })
 
-    return NextResponse.json(
-      {
-        ok: true,
-        planId,
-        start: range.start,
-        end: range.end,
-      },
-      { status: 200 },
-    )
+    return NextResponse.json({ ok: true, planId, start: range.start, end: range.end }, { status: 200 })
   } catch (error) {
     console.error("POST /api/v1/nutrition/ensure error:", error)
     return NextResponse.json(
