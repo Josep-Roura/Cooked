@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { addDays, format, parseISO } from "date-fns"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
@@ -15,15 +14,16 @@ import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
 import {
-  updateMealCompletion,
   useDashboardOverview,
-  useEvents,
-  useMealLog,
-  useMealSchedule,
-  useNutritionDay,
+  useEnsureMealPlans,
+  useMacrosDay,
+  useMealPlanDay,
+  useUpdateMealIngredient,
+  useUpdateMealPlanItem,
+  useUserEvents,
   useProfile,
 } from "@/lib/db/hooks"
-import type { DateRangeOption, Meal, NutritionMacros, TrainingSessionSummary } from "@/lib/db/types"
+import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
@@ -31,16 +31,21 @@ export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const { user } = useSession()
-  const queryClient = useQueryClient()
   const profileQuery = useProfile(user?.id)
   const [range, setRange] = useState<DateRangeOption>("today")
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
   const [eventsOpen, setEventsOpen] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  const eventsQuery = useEvents(user?.id)
-  const nutritionDayQuery = useNutritionDay(user?.id, selectedDate)
-  const mealScheduleQuery = useMealSchedule(user?.id, selectedDate, selectedDate)
-  const mealLogQuery = useMealLog(user?.id, selectedDate)
+  const eventsQuery = useUserEvents(
+    user?.id,
+    format(new Date(), "yyyy-MM-dd"),
+    format(addDays(new Date(), 365), "yyyy-MM-dd"),
+  )
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const macrosQuery = useMacrosDay(user?.id, selectedDate)
+  const ensureMealsMutation = useEnsureMealPlans()
+  const updateMealItemMutation = useUpdateMealPlanItem()
+  const updateMealIngredientMutation = useUpdateMealIngredient()
 
   useEnsureNutritionPlan({ userId: user?.id, range })
 
@@ -64,7 +69,12 @@ export function OverviewPage() {
       }
 
   const handleRefresh = async () => {
-    await overviewQuery.refetch()
+    await Promise.all([
+      overviewQuery.refetch(),
+      eventsQuery.refetch(),
+      mealPlanQuery.refetch(),
+      macrosQuery.refetch(),
+    ])
     toast({ title: "Dashboard refreshed", description: "Latest data has been loaded." })
   }
 
@@ -79,95 +89,24 @@ export function OverviewPage() {
   }, [eventsQuery.isError, toast])
 
   useEffect(() => {
-    if (nutritionDayQuery.isError) {
+    if (mealPlanQuery.isError) {
       toast({ title: "Unable to load meal plan", description: "Please try again later.", variant: "destructive" })
     }
-  }, [nutritionDayQuery.isError, toast])
+  }, [mealPlanQuery.isError, toast])
+
+  useEffect(() => {
+    if (!user?.id) return
+    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
+  }, [ensureMealsMutation, selectedDate, user?.id])
 
   if (overviewQuery.isError) {
     return <ErrorState onRetry={() => overviewQuery.refetch()} />
   }
 
   const events = eventsQuery.data ?? []
-  const dayPlan = nutritionDayQuery.data?.plan ?? null
-
-  const consumedMacros = useMemo<NutritionMacros | null>(() => {
-    const scheduleItems = mealScheduleQuery.data ?? []
-    const logEntries = mealLogQuery.data ?? []
-
-    if (scheduleItems.length > 0 || logEntries.length > 0) {
-      const eatenSlots = new Set(logEntries.filter((entry) => entry.is_eaten).map((entry) => entry.slot))
-      return scheduleItems.reduce(
-        (acc, meal) => {
-          if (!eatenSlots.has(meal.slot)) return acc
-          acc.kcal += meal.kcal
-          acc.protein_g += meal.protein_g
-          acc.carbs_g += meal.carbs_g
-          acc.fat_g += meal.fat_g
-          return acc
-        },
-        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
-      )
-    }
-
-    if (!dayPlan?.meals) return null
-    return dayPlan.meals.reduce(
-      (acc, meal) => {
-        if (!meal.completed) return acc
-        acc.kcal += meal.kcal
-        acc.protein_g += meal.protein_g
-        acc.carbs_g += meal.carbs_g
-        acc.fat_g += meal.fat_g
-        return acc
-      },
-      { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
-    )
-  }, [dayPlan?.meals, mealLogQuery.data, mealScheduleQuery.data])
-
-  const targetMacros = dayPlan?.macros ?? null
-
-  const toggleMealMutation = useMutation({
-    mutationFn: async ({ slot, completed }: { slot: number; completed: boolean }) =>
-      updateMealCompletion({ date: selectedDate, slot, completed }),
-    onMutate: async ({ slot, completed }) => {
-      await queryClient.cancelQueries({ queryKey: ["db", "nutrition-day", user?.id, selectedDate] })
-      const previous = queryClient.getQueryData<{ exists: boolean; plan: { meals: Meal[] } | null }>([
-        "db",
-        "nutrition-day",
-        user?.id,
-        selectedDate,
-      ])
-
-      if (previous?.plan?.meals) {
-        const updatedMeals = previous.plan.meals.map((meal) =>
-          meal.slot === slot ? { ...meal, completed } : meal,
-        )
-        queryClient.setQueryData(
-          ["db", "nutrition-day", user?.id, selectedDate],
-          { ...previous, plan: { ...previous.plan, meals: updatedMeals } },
-        )
-      }
-
-      return { previous }
-    },
-    onError: (error, _variables, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["db", "nutrition-day", user?.id, selectedDate], context.previous)
-      }
-      toast({
-        title: "Unable to update meal",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
-      })
-    },
-    onSuccess: (meals) => {
-      queryClient.setQueryData(
-        ["db", "nutrition-day", user?.id, selectedDate],
-        (current: { exists: boolean; plan: { meals: Meal[] } | null } | undefined) =>
-          current?.plan ? { ...current, plan: { ...current.plan, meals } } : current,
-      )
-    },
-  })
+  const mealPlanDay = mealPlanQuery.data ?? { plan: null, items: [] }
+  const consumedMacros = macrosQuery.data?.consumed ?? null
+  const targetMacros = macrosQuery.data?.target ?? null
 
   const now = new Date()
 
@@ -197,15 +136,15 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
-        <motion.div {...hoverProps}>
-          <TodaysMacrosCard
-            consumed={consumedMacros}
-            target={targetMacros}
-            isLoading={nutritionDayQuery.isLoading}
-            label={selectedDate === format(new Date(), "yyyy-MM-dd") ? "Today's macros" : "Consumed macros"}
-          />
-        </motion.div>
+        <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
+          <motion.div {...hoverProps}>
+            <TodaysMacrosCard
+              consumed={consumedMacros}
+              target={targetMacros}
+              isLoading={macrosQuery.isLoading}
+              label={selectedDate === format(new Date(), "yyyy-MM-dd") ? "Today's macros" : "Consumed macros"}
+            />
+          </motion.div>
         <motion.div {...hoverProps}>
           <UpcomingEventCard
             isLoading={eventsQuery.isLoading}
@@ -230,10 +169,13 @@ export function OverviewPage() {
               setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))
             }
             onNextDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
-            plan={dayPlan}
-            isLoading={nutritionDayQuery.isLoading}
-            isUpdating={toggleMealMutation.isPending}
-            onToggleMeal={(slot, completed) => toggleMealMutation.mutate({ slot, completed })}
+            plan={mealPlanDay}
+            isLoading={mealPlanQuery.isLoading}
+            isUpdating={updateMealItemMutation.isPending || updateMealIngredientMutation.isPending}
+            onToggleMeal={(itemId, eaten) => updateMealItemMutation.mutate({ id: itemId, payload: { eaten } })}
+            onToggleIngredient={(ingredientId, checked) =>
+              updateMealIngredientMutation.mutate({ id: ingredientId, checked })
+            }
           />
         </motion.div>
       </motion.div>

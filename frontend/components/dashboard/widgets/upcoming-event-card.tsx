@@ -4,15 +4,15 @@ import { Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/ui/empty-state"
-import type { ProfileEvent } from "@/lib/db/types"
+import type { UserEvent } from "@/lib/db/types"
 
 interface UpcomingEventCardProps {
   isLoading: boolean
-  events: ProfileEvent[]
+  events: UserEvent[]
   onEdit: () => void
 }
 
-function formatEventDate(event: ProfileEvent) {
+function formatEventDate(event: UserEvent) {
   return event.time ? `${event.date} · ${event.time}` : event.date
 }
 
@@ -55,7 +55,7 @@ export function UpcomingEventCard({ isLoading, events, onEdit }: UpcomingEventCa
           <div key={event.id} className="bg-muted rounded-xl p-4">
             <p className="text-sm text-muted-foreground">{formatEventDate(event)}</p>
             <h4 className="text-lg font-semibold text-foreground mt-1">{event.title}</h4>
-            {event.goal && <p className="text-sm text-muted-foreground mt-2">{event.goal}</p>}
+            {event.notes && <p className="text-sm text-muted-foreground mt-2">{event.notes}</p>}
           </div>
         ))}
       </div>

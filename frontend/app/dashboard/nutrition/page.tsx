@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { useQueryClient } from "@tanstack/react-query"
 import { NutritionOverview } from "@/components/dashboard/nutrition/nutrition-overview"
@@ -10,7 +10,7 @@ import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-sel
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
-import { useNutritionDayPlan, useNutritionSummary, useProfile } from "@/lib/db/hooks"
+import { useEnsureMealPlans, useMacrosDay, useMealPlanDay, useNutritionSummary, useProfile } from "@/lib/db/hooks"
 import type { DateRangeOption } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { ensureNutritionPlanRange, useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
@@ -26,9 +26,16 @@ export default function NutritionPage() {
   const queryClient = useQueryClient()
 
   const nutritionQuery = useNutritionSummary(user?.id, range)
-  const nutritionDayQuery = useNutritionDayPlan(user?.id, selectedDate)
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const macrosQuery = useMacrosDay(user?.id, selectedDate)
+  const ensureMealsMutation = useEnsureMealPlans()
 
   useEnsureNutritionPlan({ userId: user?.id, range })
+
+  useEffect(() => {
+    if (!user?.id) return
+    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
+  }, [ensureMealsMutation, selectedDate, user?.id])
 
   if (nutritionQuery.isError) {
     return <ErrorState onRetry={() => nutritionQuery.refetch()} />
@@ -59,10 +66,12 @@ export default function NutritionPage() {
     setIsGenerating(true)
     try {
       await ensureNutritionPlanRange({ start: selectedDate, end: selectedDate, force: regenerate })
+      await ensureMealsMutation.mutateAsync({ start: selectedDate, end: selectedDate })
 
       await Promise.all([
         nutritionQuery.refetch(),
-        nutritionDayQuery.refetch(),
+        mealPlanQuery.refetch(),
+        macrosQuery.refetch(),
         profileQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
       ])
@@ -150,7 +159,8 @@ export default function NutritionPage() {
           {chartData && <MacroChart weeklyData={chartData} />}
           <MealCards
             rows={filteredRows}
-            dayPlan={nutritionDayQuery.data?.plan ?? null}
+            mealPlan={mealPlanQuery.data ?? null}
+            macros={macrosQuery.data ?? null}
             selectedDate={selectedDate}
             search={search}
           />

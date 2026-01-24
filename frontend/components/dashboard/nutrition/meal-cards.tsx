@@ -2,11 +2,12 @@
 
 import { Clock, Flame, Utensils } from "lucide-react"
 import { EmptyState } from "@/components/ui/empty-state"
-import type { Meal, NutritionDayPlan, NutritionPlanRow } from "@/lib/db/types"
+import type { MacrosDaySummary, MealPlanDay, MealPlanItem, NutritionPlanRow } from "@/lib/db/types"
 
 interface MealCardsProps {
   rows: NutritionPlanRow[]
-  dayPlan?: NutritionDayPlan | null
+  mealPlan?: MealPlanDay | null
+  macros?: MacrosDaySummary | null
   selectedDate: string
   search: string
 }
@@ -25,29 +26,29 @@ const dayTypeColors: Record<string, string> = {
   high: "bg-red-100 border-red-200",
 }
 
-function filterMeals(meals: Meal[], search: string) {
+function filterMeals(meals: MealPlanItem[], search: string) {
   if (!search.trim()) {
     return meals
   }
   const query = search.trim().toLowerCase()
-  return meals.filter((meal) => meal.name.toLowerCase().includes(query) || meal.time.includes(query))
+  return meals.filter((meal) => meal.name.toLowerCase().includes(query) || (meal.time ?? "").includes(query))
 }
 
-export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProps) {
-  const meals = dayPlan?.meals ?? []
+export function MealCards({ rows, mealPlan, macros, selectedDate, search }: MealCardsProps) {
+  const meals = mealPlan?.items ?? []
   const filteredMeals = filterMeals(meals, search)
   const hasMeals = meals.length > 0
   const selectedRow = rows.find((row) => row.date === selectedDate)
-  const dayType = dayPlan?.day_type ?? selectedRow?.day_type ?? "training"
-  const calories = dayPlan?.macros.kcal ?? selectedRow?.kcal ?? 0
-  const protein = dayPlan?.macros.protein_g ?? selectedRow?.protein_g ?? 0
-  const carbs = dayPlan?.macros.carbs_g ?? selectedRow?.carbs_g ?? 0
-  const fat = dayPlan?.macros.fat_g ?? selectedRow?.fat_g ?? 0
+  const dayType = selectedRow?.day_type ?? "training"
+  const calories = macros?.target?.kcal ?? selectedRow?.kcal ?? 0
+  const protein = macros?.target?.protein_g ?? selectedRow?.protein_g ?? 0
+  const carbs = macros?.target?.carbs_g ?? selectedRow?.carbs_g ?? 0
+  const fat = macros?.target?.fat_g ?? selectedRow?.fat_g ?? 0
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <h3 className="text-lg font-semibold text-foreground mb-4">Today's Meals</h3>
-      {(dayPlan || selectedRow) && (
+      {(mealPlan || selectedRow) && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-4">
           <span className="capitalize">{dayType} day</span>
           <span>{calories} kcal</span>
@@ -72,11 +73,11 @@ export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProp
         <div className="space-y-3">
           {filteredMeals.map((meal) => (
             <div
-              key={`${selectedDate}-${meal.slot}`}
+              key={meal.id}
               className={`p-4 rounded-xl border ${dayTypeColors[dayType] ?? "bg-green-100 border-green-200"} transition-all hover:shadow-sm`}
             >
               <div className="flex items-start gap-3">
-                <div className="text-2xl">{dayTypeIcons[dayType] ?? "🥗"}</div>
+                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayType] ?? "🥗"}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="font-medium text-foreground">{meal.name}</h4>
@@ -85,7 +86,7 @@ export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProp
                   <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {meal.time}
+                      {meal.time ?? "Any time"}
                     </span>
                     <span className="flex items-center gap-1">
                       <Flame className="h-3 w-3" />
