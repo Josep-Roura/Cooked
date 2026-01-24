@@ -153,6 +153,66 @@ export interface Meal {
   tags?: string[]
 }
 
+export interface UserEvent {
+  id: string
+  user_id: string
+  title: string
+  date: string
+  time: string | null
+  category: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPlan {
+  id: string
+  user_id: string
+  date: string
+  plan_row_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPlanItem {
+  id: string
+  meal_plan_id: string
+  slot: number
+  name: string
+  time: string | null
+  emoji: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  eaten: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+  ingredients?: MealPlanIngredient[]
+}
+
+export interface MealPlanIngredient {
+  id: string
+  meal_item_id: string
+  name: string
+  quantity: string | null
+  checked: boolean
+  created_at: string
+}
+
+export interface MealPlanDay {
+  plan: MealPlan | null
+  items: MealPlanItem[]
+}
+
+export interface MacrosDaySummary {
+  date: string
+  target: NutritionMacros | null
+  consumed: NutritionMacros
+  percent: number
+}
+
 export interface NutritionDayPlan {
   date: string
   day_type: NutritionDayType

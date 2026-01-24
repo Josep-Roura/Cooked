@@ -6,13 +6,16 @@ import type {
   CalendarEvent,
   DashboardOverviewData,
   DateRangeOption,
-  EventCategory,
   GroceryItem,
   MacroSummary,
   Meal,
   MealLog,
   MealPrepSession,
   MealScheduleItem,
+  MealPlanDay,
+  MealPlanIngredient,
+  MealPlanItem,
+  MacrosDaySummary,
   NutritionDaySummary,
   NutritionDayType,
   NutritionMacros,
@@ -22,7 +25,6 @@ import type {
   NutritionSummary,
   OnboardingProfileInput,
   PlanPreview,
-  ProfileEvent,
   ProfileRow,
   Recipe,
   RecipeIngredient,
@@ -33,6 +35,7 @@ import type {
   TrainingType,
   TpWorkout,
   UpcomingEvent,
+  UserEvent,
 } from "@/lib/db/types"
 import {
   fetchActivePlanByDate,
@@ -75,6 +78,10 @@ function getWorkoutDurationHours(workout: TpWorkout): number {
   return hours > 0 ? hours : 0
 }
 
+function getWorkoutDurationMinutes(workout: TpWorkout): number {
+  return Math.round(getWorkoutDurationHours(workout) * 60)
+}
+
 function mapIntensity(workout: TpWorkout): TrainingIntensity {
   const rpe = workout.rpe ?? null
   if (rpe !== null) {
@@ -115,8 +122,7 @@ function calculateEndTime(startTime: string, durationHours: number) {
 
 function buildTrainingSessions(workouts: TpWorkout[]): TrainingSessionSummary[] {
   return workouts.map((workout) => {
-    const durationHours = getWorkoutDurationHours(workout)
-    const durationMinutes = Math.round(durationHours * 60)
+    const durationMinutes = getWorkoutDurationMinutes(workout)
     const calories = Math.round(workout.tss ?? 0)
 
     return {
@@ -139,7 +145,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   workouts.forEach((workout) => {
     const dayLabel = format(new Date(workout.workout_day), "EEE")
-    const durationMinutes = Math.round(getWorkoutDurationHours(workout) * 60)
+    const durationMinutes = getWorkoutDurationMinutes(workout)
     const calories = Math.round(workout.tss ?? 0)
     const existing = summaryByDay.get(dayLabel)
 
@@ -160,7 +166,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   return {
     totalDurationMinutes: workouts.reduce(
-      (sum, workout) => sum + Math.round(getWorkoutDurationHours(workout) * 60),
+      (sum, workout) => sum + getWorkoutDurationMinutes(workout),
       0,
     ),
     totalCalories: workouts.reduce((sum, workout) => sum + Math.round(workout.tss ?? 0), 0),
@@ -456,6 +462,17 @@ type MealPrepPayload = {
   sessions?: MealPrepSession[]
 }
 
+type UserEventsPayload = {
+  events?: UserEvent[]
+}
+
+type MealPlanDayPayload = {
+  plan?: MealPlanDay
+  items?: MealPlanItem[]
+}
+
+type MacrosDayPayload = MacrosDaySummary
+
 async function fetchPreferences() {
   const response = await fetch("/api/v1/settings/preferences")
   if (!response.ok) {
@@ -573,6 +590,39 @@ async function fetchMealPrep(start?: string, end?: string) {
   }
   const data = (await response.json()) as MealPrepPayload
   return Array.isArray(data.sessions) ? data.sessions : []
+}
+
+async function fetchUserEvents(from: string, to: string) {
+  const params = new URLSearchParams({ from, to })
+  const response = await fetch(`/api/v1/events?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load events")
+  }
+  const data = (await response.json()) as UserEventsPayload
+  return Array.isArray(data.events) ? data.events : []
+}
+
+async function fetchMealPlanDay(date: string) {
+  const response = await fetch(`/api/v1/meals/day?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal plan")
+  }
+  const data = (await response.json()) as MealPlanDayPayload
+  if (data.plan && Array.isArray(data.items)) {
+    return { plan: data.plan, items: data.items }
+  }
+  return { plan: null, items: [] }
+}
+
+async function fetchMacrosDay(date: string) {
+  const response = await fetch(`/api/v1/macros/day?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load macros")
+  }
+  return (await response.json()) as MacrosDayPayload
 }
 
 export function useProfile(userId: string | null | undefined) {
@@ -820,6 +870,90 @@ export function useNutritionDay(userId: string | null | undefined, date: string)
   })
 }
 
+export function useMealPlanDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "meal-plan-day", userId, date],
+    queryFn: () => fetchMealPlanDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useMacrosDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "macros-day", userId, date],
+    queryFn: () => fetchMacrosDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useEnsureMealPlans() {
+  return useMutation({
+    mutationFn: async ({ start, end }: { start: string; end: string }) => {
+      const params = new URLSearchParams({ start, end })
+      const response = await fetch(`/api/v1/meals/ensure?${params.toString()}`, { method: "POST" })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to ensure meals")
+      }
+      return response.json()
+    },
+  })
+}
+
+export function useUpdateMealPlanItem() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Partial<Pick<MealPlanItem, "eaten" | "name" | "time" | "notes">>
+    }) => {
+      const response = await fetch(`/api/v1/meals/item/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update meal")
+      }
+      return (await response.json()) as { item: MealPlanItem }
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "macros-day"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-item", variables.id] })
+    },
+  })
+}
+
+export function useUpdateMealIngredient() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
+      const response = await fetch(`/api/v1/meals/ingredient/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checked }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update ingredient")
+      }
+      return (await response.json()) as { ingredient: MealPlanIngredient }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
+    },
+  })
+}
+
 export function useRecipes(userId: string | null | undefined) {
   return useQuery({
     queryKey: ["db", "food-recipes", userId],
@@ -935,57 +1069,83 @@ export function useCalendarEvents(
   })
 }
 
-function isEventCategory(value: unknown): value is EventCategory {
-  return value === "race" || value === "test" || value === "other"
-}
-
-function normalizeProfileEvent(raw: unknown): ProfileEvent | null {
-  if (!raw || typeof raw !== "object") {
-    return null
-  }
-  const record = raw as Record<string, unknown>
-  const id = typeof record.id === "string" ? record.id : null
-  const title = typeof record.title === "string" ? record.title.trim() : ""
-  const date = typeof record.date === "string" ? record.date : ""
-  if (!id || title.length < 2 || !date) {
-    return null
-  }
-  const category = isEventCategory(record.category) ? record.category : "other"
-  const goal = typeof record.goal === "string" ? record.goal.trim() : null
-  const time = typeof record.time === "string" ? record.time : null
-  const notes = typeof record.notes === "string" ? record.notes.trim() : null
-  const createdAt =
-    typeof record.created_at === "string" ? record.created_at : typeof record.updated_at === "string" ? record.updated_at : ""
-  const updatedAt = typeof record.updated_at === "string" ? record.updated_at : createdAt
-  const nowIso = new Date().toISOString()
-
-  return {
-    id,
-    title,
-    category,
-    goal,
-    date,
-    time,
-    notes,
-    created_at: createdAt || nowIso,
-    updated_at: updatedAt || nowIso,
-  }
-}
-
-export function useEvents(userId: string | null | undefined) {
+export function useUserEvents(
+  userId: string | null | undefined,
+  from: string,
+  to: string,
+) {
   return useQuery({
-    queryKey: ["db", "events", userId],
-    queryFn: async (): Promise<ProfileEvent[]> => {
-      const response = await fetch("/api/v1/events")
+    queryKey: ["db", "events", userId, from, to],
+    queryFn: () => fetchUserEvents(from, to),
+    enabled: Boolean(userId) && Boolean(from) && Boolean(to),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useCreateEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (payload: Omit<UserEvent, "id" | "user_id" | "created_at" | "updated_at">) => {
+      const response = await fetch("/api/v1/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to load events")
+        throw new Error(errorBody?.error ?? "Failed to create event")
       }
-      const data = (await response.json().catch(() => ({}))) as { events?: unknown } | unknown[]
-      const rawEvents = Array.isArray(data) ? data : Array.isArray(data.events) ? data.events : []
-      return rawEvents.map(normalizeProfileEvent).filter((event): event is ProfileEvent => Boolean(event))
+      return (await response.json()) as { event: UserEvent }
     },
-    enabled: Boolean(userId),
-    staleTime: 1000 * 30,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
+  })
+}
+
+export function useUpdateEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Partial<Omit<UserEvent, "id" | "user_id" | "created_at" | "updated_at">>
+    }) => {
+      const response = await fetch(`/api/v1/events/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update event")
+      }
+      return (await response.json()) as { event: UserEvent }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
+  })
+}
+
+export function useDeleteEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/v1/events/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to delete event")
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
   })
 }

@@ -7,18 +7,20 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import type { EventCategory, ProfileEvent } from "@/lib/db/types"
+import type { UserEvent } from "@/lib/db/types"
+import { useCreateEvent, useDeleteEvent, useUpdateEvent } from "@/lib/db/hooks"
 
 interface EventManagementSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  events: ProfileEvent[]
+  events: UserEvent[]
   onRefresh: () => Promise<unknown>
 }
 
-const CATEGORY_LABELS: Record<EventCategory, string> = {
+const CATEGORY_LABELS: Record<string, string> = {
   race: "Race",
-  test: "Test",
+  milestone: "Milestone",
+  travel: "Travel",
   other: "Other",
 }
 
@@ -30,10 +32,12 @@ function toTimestamp(date: string, time: string | null) {
 
 export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: EventManagementSheetProps) {
   const { toast } = useToast()
+  const createEventMutation = useCreateEvent()
+  const updateEventMutation = useUpdateEvent()
+  const deleteEventMutation = useDeleteEvent()
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
   const [title, setTitle] = useState("")
-  const [category, setCategory] = useState<EventCategory>("race")
-  const [goal, setGoal] = useState("")
+  const [category, setCategory] = useState("race")
   const [date, setDate] = useState("")
   const [time, setTime] = useState("")
   const [notes, setNotes] = useState("")
@@ -49,7 +53,6 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
     setEditingEventId(null)
     setTitle("")
     setCategory("race")
-    setGoal("")
     setDate("")
     setTime("")
     setNotes("")
@@ -62,11 +65,10 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
     }
   }, [open])
 
-  const populateForm = (event: ProfileEvent) => {
+  const populateForm = (event: UserEvent) => {
     setEditingEventId(event.id)
     setTitle(event.title)
-    setCategory(event.category)
-    setGoal(event.goal ?? "")
+    setCategory(event.category ?? "other")
     setDate(event.date)
     setTime(event.time ?? "")
     setNotes(event.notes ?? "")
@@ -95,19 +97,14 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
       const payload = {
         title: title.trim(),
         category,
-        goal: goal.trim() || null,
         date,
         time: time || null,
         notes: notes.trim() || null,
       }
-      const response = await fetch(editingEventId ? `/api/v1/events/${editingEventId}` : "/api/v1/events", {
-        method: editingEventId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to save event")
+      if (editingEventId) {
+        await updateEventMutation.mutateAsync({ id: editingEventId, payload })
+      } else {
+        await createEventMutation.mutateAsync(payload)
       }
       await onRefresh()
       resetForm()
@@ -124,11 +121,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
   const handleDelete = async (eventId: string) => {
     setIsSubmitting(true)
     try {
-      const response = await fetch(`/api/v1/events/${eventId}`, { method: "DELETE" })
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to delete event")
-      }
+      await deleteEventMutation.mutateAsync(eventId)
       await onRefresh()
       if (editingEventId === eventId) {
         resetForm()
@@ -162,7 +155,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
           <div className="grid gap-3">
             <Input placeholder="Event title" value={title} onChange={(event) => setTitle(event.target.value)} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Select value={category} onValueChange={(value) => setCategory(value as EventCategory)}>
+              <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger>
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
@@ -174,14 +167,13 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
                   ))}
                 </SelectContent>
               </Select>
-              <Input placeholder="Goal (optional)" value={goal} onChange={(event) => setGoal(event.target.value)} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
               <Input type="time" value={time} onChange={(event) => setTime(event.target.value)} />
             </div>
+            <div className="grid grid-cols-1 gap-3">
+              <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            </div>
             <Textarea
-              placeholder="Notes (optional)"
+              placeholder="Extra details (optional)"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               className="min-h-20"
@@ -206,7 +198,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
                       {event.date} {event.time ? `· ${event.time}` : ""}
                     </p>
                     <p className="text-sm font-semibold text-foreground">{event.title}</p>
-                    {event.goal && <p className="text-xs text-muted-foreground mt-1">{event.goal}</p>}
+                    {event.notes && <p className="text-xs text-muted-foreground mt-1">{event.notes}</p>}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" className="rounded-full px-3 text-xs" onClick={() => populateForm(event)}>
@@ -221,7 +213,9 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
                     </Button>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">{CATEGORY_LABELS[event.category]}</p>
+                <p className="text-xs text-muted-foreground">
+                  {CATEGORY_LABELS[event.category ?? "other"] ?? "Other"}
+                </p>
               </div>
             ))
           )}

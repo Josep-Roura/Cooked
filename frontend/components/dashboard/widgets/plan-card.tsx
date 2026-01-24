@@ -8,19 +8,20 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { Meal, NutritionDayPlan } from "@/lib/db/types"
+import type { MealPlanDay, MealPlanIngredient, MealPlanItem } from "@/lib/db/types"
 
 interface PlanCardProps {
   date: string
   onPreviousDay: () => void
   onNextDay: () => void
-  plan: NutritionDayPlan | null
+  plan: MealPlanDay | null
   isLoading: boolean
   isUpdating: boolean
-  onToggleMeal: (slot: number, completed: boolean) => void
+  onToggleMeal: (itemId: string, eaten: boolean) => void
+  onToggleIngredient: (ingredientId: string, checked: boolean) => void
 }
 
-function formatMealMacros(meal: Meal) {
+function formatMealMacros(meal: MealPlanItem) {
   return [
     { label: "kcal", value: meal.kcal },
     { label: "P", value: meal.protein_g },
@@ -37,6 +38,7 @@ export function PlanCard({
   isLoading,
   isUpdating,
   onToggleMeal,
+  onToggleIngredient,
 }: PlanCardProps) {
   if (isLoading) {
     return (
@@ -64,18 +66,19 @@ export function PlanCard({
         </div>
       </div>
 
-      {plan && plan.meals.length > 0 ? (
+      {plan && plan.items.length > 0 ? (
         <Accordion type="multiple" className="space-y-2">
-          {plan.meals.map((meal) => {
+          {plan.items.map((meal) => {
             const checkboxId = `meal-${date}-${meal.slot}`
+            const ingredients = meal.ingredients ?? []
             return (
               <AccordionItem key={meal.slot} value={String(meal.slot)} className="border border-border rounded-xl px-4">
                 <div className="flex items-start gap-3">
                   <div className="flex items-center gap-2 pt-4">
                     <Checkbox
                       id={checkboxId}
-                      checked={meal.completed ?? false}
-                      onCheckedChange={(checked) => onToggleMeal(meal.slot, Boolean(checked))}
+                      checked={meal.eaten}
+                      onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
                       disabled={isUpdating}
                     />
                     <label htmlFor={checkboxId} className="text-xs text-muted-foreground">
@@ -85,8 +88,11 @@ export function PlanCard({
                   <AccordionTrigger className="hover:no-underline flex-1">
                     <div className="flex flex-1 flex-col">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground">{meal.name}</p>
-                        <span className="text-xs text-muted-foreground">{meal.time}</span>
+                        <p className="text-sm font-semibold text-foreground">
+                          {meal.emoji ? `${meal.emoji} ` : ""}
+                          {meal.name}
+                        </p>
+                        <span className="text-xs text-muted-foreground">{meal.time ?? "Any time"}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {formatMealMacros(meal).map((macro) => (
@@ -101,10 +107,21 @@ export function PlanCard({
                 </div>
                 <AccordionContent>
                   <div className="pl-7 text-xs text-muted-foreground">
-                    {meal.ingredients && meal.ingredients.length > 0 ? (
-                      <ul className="list-disc pl-4 space-y-1">
-                        {meal.ingredients.map((ingredient, index) => (
-                          <li key={`${meal.slot}-ingredient-${index}`}>{ingredient}</li>
+                    {ingredients.length > 0 ? (
+                      <ul className="space-y-2">
+                        {ingredients.map((ingredient: MealPlanIngredient) => (
+                          <li key={ingredient.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`ingredient-${ingredient.id}`}
+                              checked={ingredient.checked}
+                              onCheckedChange={(checked) => onToggleIngredient(ingredient.id, Boolean(checked))}
+                              disabled={isUpdating}
+                            />
+                            <label htmlFor={`ingredient-${ingredient.id}`} className="text-xs text-muted-foreground">
+                              {ingredient.name}
+                              {ingredient.quantity ? ` · ${ingredient.quantity}` : ""}
+                            </label>
+                          </li>
                         ))}
                       </ul>
                     ) : (
