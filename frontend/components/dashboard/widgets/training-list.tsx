@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { format, parseISO } from "date-fns"
 import { Activity, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -26,6 +27,15 @@ const filterOptions: Array<{ label: string; value: TrainingType | "all" }> = [
   { label: "Run", value: "run" },
   { label: "Strength", value: "strength" },
 ]
+
+function formatDuration(minutes: number) {
+  if (minutes <= 0) return "0m"
+  const hours = Math.floor(minutes / 60)
+  const remaining = minutes % 60
+  if (hours === 0) return `${remaining} min`
+  if (remaining === 0) return `${hours} hr`
+  return `${hours} hr ${remaining} min`
+}
 
 export function TrainingList({
   sessions,
@@ -101,15 +111,29 @@ export function TrainingList({
         />
       ) : (
         <div className="space-y-3">
-          {sessions.map((session) => (
-            <div key={session.id} className="flex items-center justify-between bg-muted rounded-xl p-4">
-              <div>
-                <p className="font-medium text-foreground">{session.title}</p>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {session.type} • {session.durationMinutes} min • {session.intensity}
-                </p>
-              </div>
-              <span className="text-xs text-muted-foreground">{session.time}</span>
+          {sessions.reduce<{ date: string; label: string; items: TrainingSessionSummary[] }[]>((acc, session) => {
+            const label = format(parseISO(session.date), "EEE dd MMM")
+            const existing = acc.find((group) => group.date === session.date)
+            if (existing) {
+              existing.items.push(session)
+            } else {
+              acc.push({ date: session.date, label, items: [session] })
+            }
+            return acc
+          }, []).map((group) => (
+            <div key={group.date} className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground">{group.label}</p>
+              {group.items.map((session) => (
+                <div key={session.id} className="flex items-center justify-between bg-muted rounded-xl p-4">
+                  <div>
+                    <p className="font-medium text-foreground">{session.title}</p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {session.type} • {formatDuration(session.durationMinutes)} • {session.intensity}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{session.time}</span>
+                </div>
+              ))}
             </div>
           ))}
         </div>
