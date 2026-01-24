@@ -14,7 +14,15 @@ import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-traini
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
-import { updateMealCompletion, useDashboardOverview, useEvents, useNutritionDay, useProfile } from "@/lib/db/hooks"
+import {
+  updateMealCompletion,
+  useDashboardOverview,
+  useEvents,
+  useMealLog,
+  useMealSchedule,
+  useNutritionDay,
+  useProfile,
+} from "@/lib/db/hooks"
 import type { DateRangeOption, Meal, NutritionMacros, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
@@ -31,6 +39,8 @@ export function OverviewPage() {
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
   const eventsQuery = useEvents(user?.id)
   const nutritionDayQuery = useNutritionDay(user?.id, selectedDate)
+  const mealScheduleQuery = useMealSchedule(user?.id, selectedDate, selectedDate)
+  const mealLogQuery = useMealLog(user?.id, selectedDate)
 
   useEnsureNutritionPlan({ userId: user?.id, range })
 
@@ -82,6 +92,24 @@ export function OverviewPage() {
   const dayPlan = nutritionDayQuery.data?.plan ?? null
 
   const consumedMacros = useMemo<NutritionMacros | null>(() => {
+    const scheduleItems = mealScheduleQuery.data ?? []
+    const logEntries = mealLogQuery.data ?? []
+
+    if (scheduleItems.length > 0 || logEntries.length > 0) {
+      const eatenSlots = new Set(logEntries.filter((entry) => entry.is_eaten).map((entry) => entry.slot))
+      return scheduleItems.reduce(
+        (acc, meal) => {
+          if (!eatenSlots.has(meal.slot)) return acc
+          acc.kcal += meal.kcal
+          acc.protein_g += meal.protein_g
+          acc.carbs_g += meal.carbs_g
+          acc.fat_g += meal.fat_g
+          return acc
+        },
+        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
+      )
+    }
+
     if (!dayPlan?.meals) return null
     return dayPlan.meals.reduce(
       (acc, meal) => {
@@ -94,7 +122,7 @@ export function OverviewPage() {
       },
       { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
     )
-  }, [dayPlan?.meals])
+  }, [dayPlan?.meals, mealLogQuery.data, mealScheduleQuery.data])
 
   const targetMacros = dayPlan?.macros ?? null
 

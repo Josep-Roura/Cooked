@@ -162,6 +162,120 @@ export interface NutritionDayPlan {
   plan_id: string | null
 }
 
+export type RecipeCategory =
+  | "breakfast"
+  | "lunch"
+  | "dinner"
+  | "snack"
+  | "preworkout"
+  | "postworkout"
+  | "other"
+
+export interface Recipe {
+  id: string
+  user_id: string
+  title: string
+  description: string | null
+  servings: number
+  cook_time_min: number | null
+  tags: string[]
+  category: RecipeCategory | null
+  macros_kcal: number
+  macros_protein_g: number
+  macros_carbs_g: number
+  macros_fat_g: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RecipeIngredient {
+  id: string
+  recipe_id: string
+  user_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  category: string | null
+  optional: boolean
+  created_at: string
+}
+
+export interface RecipeStep {
+  id: string
+  recipe_id: string
+  user_id: string
+  step_number: number
+  instruction: string
+  timer_seconds: number | null
+  created_at: string
+}
+
+export interface MealScheduleItem {
+  id: string
+  user_id: string
+  date: string
+  slot: number
+  name: string
+  recipe_id: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  ingredients: unknown | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealLog {
+  id: string
+  user_id: string
+  date: string
+  slot: number
+  is_eaten: boolean
+  eaten_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GroceryItem {
+  id: string
+  user_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  category: string | null
+  is_bought: boolean
+  source: string | null
+  recipe_id: string | null
+  date_range_start: string | null
+  date_range_end: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPrepSession {
+  id: string
+  user_id: string
+  title: string
+  session_date: string | null
+  duration_min: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  items?: MealPrepItem[]
+}
+
+export interface MealPrepItem {
+  id: string
+  session_id: string
+  user_id: string
+  label: string
+  linked_recipe_id: string | null
+  linked_dates: string[] | null
+  is_done: boolean
+  created_at: string
+}
+
 export interface MacroSummary {
   range: DateRangeOption
   calories: number
