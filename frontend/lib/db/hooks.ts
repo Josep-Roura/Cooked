@@ -1,11 +1,12 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import type {
   CalendarEvent,
   DashboardOverviewData,
   DateRangeOption,
+  EventCategory,
   MacroSummary,
   Meal,
   NutritionDaySummary,
@@ -399,12 +400,138 @@ function buildUpcomingEvent(profile: ProfileRow | null): UpcomingEvent | null {
   }
 }
 
+type PreferencesPayload = {
+  units: "metric" | "imperial"
+  theme: "light" | "dark"
+  notifications_enabled: boolean
+}
+
+type MonthWorkoutsPayload = {
+  workouts: TpWorkout[]
+}
+
+async function fetchPreferences() {
+  const response = await fetch("/api/v1/settings/preferences")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load preferences")
+  }
+  return (await response.json()) as PreferencesPayload
+}
+
+async function patchPreferences(payload: Partial<PreferencesPayload>) {
+  const response = await fetch("/api/v1/settings/preferences", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to update preferences")
+  }
+  return (await response.json()) as PreferencesPayload
+}
+
+async function fetchMonthWorkouts(year: number, month: number) {
+  const response = await fetch(`/api/v1/workouts/month?year=${year}&month=${month}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load workouts")
+  }
+  const data = (await response.json()) as MonthWorkoutsPayload
+  return data.workouts ?? []
+}
+
+async function fetchNutritionDay(date: string) {
+  const response = await fetch(`/api/v1/nutrition/day?date=${date}`)
+  if (response.status === 404) {
+    return { exists: false, plan: null }
+  }
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load nutrition day")
+  }
+  const data = (await response.json()) as NutritionDayPlan
+  return { exists: true, plan: data }
+}
+
 export function useProfile(userId: string | null | undefined) {
   return useQuery({
     queryKey: ["db", "profile", userId],
     queryFn: () => fetchProfile(userId as string),
     enabled: Boolean(userId),
     staleTime: 1000 * 60,
+  })
+}
+
+export function usePreferences(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "preferences", userId],
+    queryFn: fetchPreferences,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useUpdatePreferences(userId: string | null | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: patchPreferences,
+    onMutate: async (nextPayload) => {
+      await queryClient.cancelQueries({ queryKey: ["db", "preferences", userId] })
+      const previous = queryClient.getQueryData<PreferencesPayload>(["db", "preferences", userId])
+
+      if (previous) {
+        const updated = { ...previous, ...nextPayload }
+        queryClient.setQueryData(["db", "preferences", userId], updated)
+        queryClient.setQueryData<ProfileRow | null | undefined>(["db", "profile", userId], (current) =>
+          current
+            ? {
+                ...current,
+                units: updated.units,
+                meta: {
+                  ...(typeof current.meta === "object" && current.meta ? current.meta : {}),
+                  theme: updated.theme,
+                  notifications_enabled: updated.notifications_enabled,
+                },
+              }
+            : current,
+        )
+      }
+
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["db", "preferences", userId], context.previous)
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["db", "preferences", userId], data)
+      queryClient.setQueryData<ProfileRow | null | undefined>(["db", "profile", userId], (current) =>
+        current
+          ? {
+              ...current,
+              units: data.units,
+              meta: {
+                ...(typeof current.meta === "object" && current.meta ? current.meta : {}),
+                theme: data.theme,
+                notifications_enabled: data.notifications_enabled,
+              },
+            }
+          : current,
+      )
+    },
+  })
+}
+
+export function useMonthWorkouts(userId: string | null | undefined, year: number, month: number) {
+  return useQuery({
+    queryKey: ["db", "month-workouts", userId, year, month],
+    queryFn: () => fetchMonthWorkouts(year, month),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
   })
 }
 
@@ -538,21 +665,41 @@ export function useNutritionDayPlan(
 ) {
   return useQuery({
     queryKey: ["db", "nutrition-day", userId, date],
-    queryFn: async () => {
-      const response = await fetch(`/api/v1/nutrition/day?date=${date}`)
-      if (response.status === 404) {
-        return { exists: false, plan: null }
-      }
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to load nutrition day")
-      }
-      const data = (await response.json()) as NutritionDayPlan
-      return { exists: true, plan: data }
-    },
+    queryFn: () => fetchNutritionDay(date),
     enabled: Boolean(userId) && Boolean(date),
     staleTime: 1000 * 30,
   })
+}
+
+export function useNutritionDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "nutrition-day", userId, date],
+    queryFn: () => fetchNutritionDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 30,
+  })
+}
+
+export async function updateMealCompletion({
+  date,
+  slot,
+  completed,
+}: {
+  date: string
+  slot: number
+  completed: boolean
+}) {
+  const response = await fetch("/api/v1/nutrition/meal", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, slot, completed }),
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to update meal")
+  }
+  const data = (await response.json()) as { meals?: Meal[] }
+  return Array.isArray(data.meals) ? data.meals : []
 }
 
 export function useCalendarEvents(
@@ -588,6 +735,61 @@ export function useCalendarEvents(
         summary: buildTrainingSummary(workouts),
         calendar: [...trainingCalendar, ...nutritionCalendar],
       }
+    },
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+function isEventCategory(value: unknown): value is EventCategory {
+  return value === "race" || value === "test" || value === "other"
+}
+
+function normalizeProfileEvent(raw: unknown): ProfileEvent | null {
+  if (!raw || typeof raw !== "object") {
+    return null
+  }
+  const record = raw as Record<string, unknown>
+  const id = typeof record.id === "string" ? record.id : null
+  const title = typeof record.title === "string" ? record.title.trim() : ""
+  const date = typeof record.date === "string" ? record.date : ""
+  if (!id || title.length < 2 || !date) {
+    return null
+  }
+  const category = isEventCategory(record.category) ? record.category : "other"
+  const goal = typeof record.goal === "string" ? record.goal.trim() : null
+  const time = typeof record.time === "string" ? record.time : null
+  const notes = typeof record.notes === "string" ? record.notes.trim() : null
+  const createdAt =
+    typeof record.created_at === "string" ? record.created_at : typeof record.updated_at === "string" ? record.updated_at : ""
+  const updatedAt = typeof record.updated_at === "string" ? record.updated_at : createdAt
+  const nowIso = new Date().toISOString()
+
+  return {
+    id,
+    title,
+    category,
+    goal,
+    date,
+    time,
+    notes,
+    created_at: createdAt || nowIso,
+    updated_at: updatedAt || nowIso,
+  }
+}
+
+export function useEvents(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "events", userId],
+    queryFn: async (): Promise<ProfileEvent[]> => {
+      const response = await fetch("/api/v1/events")
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to load events")
+      }
+      const data = (await response.json().catch(() => ({}))) as { events?: unknown } | unknown[]
+      const rawEvents = Array.isArray(data) ? data : Array.isArray(data.events) ? data.events : []
+      return rawEvents.map(normalizeProfileEvent).filter((event): event is ProfileEvent => Boolean(event))
     },
     enabled: Boolean(userId),
     staleTime: 1000 * 30,

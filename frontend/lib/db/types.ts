@@ -147,6 +147,8 @@ export interface Meal {
   protein_g: number
   carbs_g: number
   fat_g: number
+  ingredients?: string[]
+  completed?: boolean
   notes?: string | null
   tags?: string[]
 }

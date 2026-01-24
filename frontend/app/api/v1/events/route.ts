@@ -65,7 +65,7 @@ export async function GET(_req: NextRequest) {
     const meta = (profile.meta && typeof profile.meta === "object" ? profile.meta : {}) as Record<string, unknown>
     const events = Array.isArray(meta.events) ? (meta.events as ProfileEvent[]) : []
 
-    return NextResponse.json({ events }, { status: 200 })
+    return NextResponse.json(events, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/events error:", error)
     return NextResponse.json(

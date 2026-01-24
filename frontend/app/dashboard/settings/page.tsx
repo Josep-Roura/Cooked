@@ -5,24 +5,21 @@ import { ProfilePreferences } from "@/components/dashboard/profile/profile-prefe
 import { TrainingPeaksCsvImport } from "@/components/dashboard/settings/trainingpeaks-csv-import"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useProfile } from "@/lib/db/hooks"
+import { useToast } from "@/components/ui/use-toast"
+import { usePreferences, useUpdatePreferences } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
 
 export default function SettingsPage() {
   const { user } = useSession()
-  const profileQuery = useProfile(user?.id)
+  const { toast } = useToast()
+  const preferencesQuery = usePreferences(user?.id)
+  const updatePreferences = useUpdatePreferences(user?.id)
 
-  if (profileQuery.isError) {
-    return <ErrorState onRetry={() => profileQuery.refetch()} />
+  if (preferencesQuery.isError) {
+    return <ErrorState onRetry={() => preferencesQuery.refetch()} />
   }
 
-  const preferences = profileQuery.data
-    ? {
-        darkMode: false,
-        units: profileQuery.data.units ?? "metric",
-        notifications: true,
-      }
-    : null
+  const preferences = preferencesQuery.data ?? null
 
   return (
     <main className="flex-1 p-8 overflow-auto">
@@ -38,13 +35,29 @@ export default function SettingsPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {profileQuery.isLoading && (
+          {preferencesQuery.isLoading && (
             <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
               <Skeleton className="h-6 w-40" />
               <Skeleton className="h-20 w-full" />
             </div>
           )}
-          {preferences && <ProfilePreferences preferences={preferences} />}
+          {preferences && (
+            <ProfilePreferences
+              preferences={preferences}
+              isSaving={updatePreferences.isPending}
+              onUpdate={(payload) =>
+                updatePreferences.mutate(payload, {
+                  onSuccess: () => toast({ title: "Preferences updated" }),
+                  onError: (error) =>
+                    toast({
+                      title: "Failed to save settings",
+                      description: error instanceof Error ? error.message : "Please try again.",
+                      variant: "destructive",
+                    }),
+                })
+              }
+            />
+          )}
           <TrainingPeaksCsvImport />
         </div>
       </div>
