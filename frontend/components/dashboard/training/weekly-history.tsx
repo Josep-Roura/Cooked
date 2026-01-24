@@ -86,28 +86,29 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
                     }`}
                   >
                     <div className="w-full relative h-40 flex items-end justify-center">
-                      <div
-                        className="w-full max-w-12 flex flex-col-reverse justify-start rounded-t-lg overflow-hidden"
-                        style={{ height: `${Math.max(dayHeight, 6)}%` }}
-                      >
-                        {tooltipEntries.length === 0 ? (
-                          <div
-                            className="w-full bg-muted"
-                            style={{ height: "100%" }}
-                          />
-                        ) : (
-                          tooltipEntries.map((entry, index) => {
-                            const height = day.totalMinutes > 0 ? (entry.value / day.totalMinutes) * 100 : 0
-                            const isTop = index === tooltipEntries.length - 1
-                            return (
-                              <div
-                                key={entry.type}
-                                className={`${typeColors[entry.type] || "bg-gray-400"} ${isTop ? "rounded-t-lg" : ""}`}
-                                style={{ height: `${height}%` }}
-                              />
-                            )
-                          })
-                        )}
+                      <div className="w-full max-w-12 h-full rounded-lg bg-muted/30 flex flex-col-reverse overflow-hidden">
+                        <div
+                          className="w-full flex flex-col-reverse"
+                          style={{ height: `${Math.max(dayHeight, 6)}%` }}
+                        >
+                          {tooltipEntries.length === 0 ? (
+                            <div className="w-full bg-muted" style={{ height: "100%" }} />
+                          ) : (
+                            tooltipEntries.map((entry, index) => {
+                              const height = day.totalMinutes > 0 ? (entry.value / day.totalMinutes) * 100 : 0
+                              const isTop = index === tooltipEntries.length - 1
+                              return (
+                                <div
+                                  key={entry.type}
+                                  className={`w-full ${typeColors[entry.type] || "bg-gray-400"} ${
+                                    isTop ? "rounded-t-lg" : ""
+                                  }`}
+                                  style={{ height: `${height}%` }}
+                                />
+                              )
+                            })
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="text-center">
