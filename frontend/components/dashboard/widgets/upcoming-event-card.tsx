@@ -31,7 +31,7 @@ export function UpcomingEventCard({ isLoading, events, onEdit }: UpcomingEventCa
       <div className="bg-card border border-border rounded-2xl p-6">
         <EmptyState
           icon={Calendar}
-          title="No upcoming event"
+          title="No upcoming events"
           description="Add your next race or milestone to stay on track."
           actionLabel="Edit events"
           onAction={onEdit}
@@ -45,9 +45,9 @@ export function UpcomingEventCard({ isLoading, events, onEdit }: UpcomingEventCa
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Upcoming event</h3>
+        <h3 className="text-lg font-semibold text-foreground">Upcoming events</h3>
         <Button variant="outline" className="rounded-full px-4 text-xs" onClick={onEdit}>
-          Edit
+          Edit events
         </Button>
       </div>
       <div className="space-y-3">
