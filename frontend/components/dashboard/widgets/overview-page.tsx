@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { addDays, format, parseISO } from "date-fns"
@@ -46,6 +46,7 @@ export function OverviewPage() {
   const ensureMealsMutation = useEnsureMealPlans()
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
+  const ensuredDateRef = useRef<string | null>(null)
 
   useEnsureNutritionPlan({ userId: user?.id, range })
 
@@ -96,6 +97,9 @@ export function OverviewPage() {
 
   useEffect(() => {
     if (!user?.id) return
+    const ensureKey = `${user.id}:${selectedDate}`
+    if (ensuredDateRef.current === ensureKey) return
+    ensuredDateRef.current = ensureKey
     ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
   }, [ensureMealsMutation, selectedDate, user?.id])
 
