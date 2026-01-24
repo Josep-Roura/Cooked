@@ -70,20 +70,19 @@ export function PlanCard({
             const checkboxId = `meal-${date}-${meal.slot}`
             return (
               <AccordionItem key={meal.slot} value={String(meal.slot)} className="border border-border rounded-xl px-4">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex flex-1 items-start gap-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id={checkboxId}
-                        checked={meal.completed ?? false}
-                        onCheckedChange={(checked) => onToggleMeal(meal.slot, Boolean(checked))}
-                        onClick={(event) => event.stopPropagation()}
-                        disabled={isUpdating}
-                      />
-                      <label htmlFor={checkboxId} className="text-xs text-muted-foreground" onClick={(event) => event.stopPropagation()}>
-                        I ate this
-                      </label>
-                    </div>
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center gap-2 pt-4">
+                    <Checkbox
+                      id={checkboxId}
+                      checked={meal.completed ?? false}
+                      onCheckedChange={(checked) => onToggleMeal(meal.slot, Boolean(checked))}
+                      disabled={isUpdating}
+                    />
+                    <label htmlFor={checkboxId} className="text-xs text-muted-foreground">
+                      I ate this
+                    </label>
+                  </div>
+                  <AccordionTrigger className="hover:no-underline flex-1">
                     <div className="flex flex-1 flex-col">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-foreground">{meal.name}</p>
@@ -98,8 +97,8 @@ export function PlanCard({
                         ))}
                       </div>
                     </div>
-                  </div>
-                </AccordionTrigger>
+                  </AccordionTrigger>
+                </div>
                 <AccordionContent>
                   <div className="pl-7 text-xs text-muted-foreground">
                     {meal.ingredients && meal.ingredients.length > 0 ? (
