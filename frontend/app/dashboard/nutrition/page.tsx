@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
 import { useQueryClient } from "@tanstack/react-query"
 import { NutritionOverview } from "@/components/dashboard/nutrition/nutrition-overview"
@@ -29,11 +29,15 @@ export default function NutritionPage() {
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const macrosQuery = useMacrosDay(user?.id, selectedDate)
   const ensureMealsMutation = useEnsureMealPlans()
+  const ensuredDateRef = useRef<string | null>(null)
 
   useEnsureNutritionPlan({ userId: user?.id, range })
 
   useEffect(() => {
     if (!user?.id) return
+    const ensureKey = `${user.id}:${selectedDate}`
+    if (ensuredDateRef.current === ensureKey) return
+    ensuredDateRef.current = ensureKey
     ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
   }, [ensureMealsMutation, selectedDate, user?.id])
 
