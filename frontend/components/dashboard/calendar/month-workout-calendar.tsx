@@ -22,8 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useMonthWorkouts } from "@/lib/db/hooks"
-import type { TpWorkout } from "@/lib/db/types"
+import { useMealSchedule, useMonthWorkouts } from "@/lib/db/hooks"
+import type { MealScheduleItem, TpWorkout } from "@/lib/db/types"
 
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -96,6 +96,11 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
   const monthEnd = endOfMonth(currentDate)
   const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 })
   const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 })
+  const scheduleQuery = useMealSchedule(
+    userId,
+    format(calendarStart, "yyyy-MM-dd"),
+    format(calendarEnd, "yyyy-MM-dd"),
+  )
 
   const days = useMemo(() => {
     const result: Date[] = []
@@ -119,6 +124,18 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     return map
   }, [workoutsQuery.data])
 
+  const mealsByDay = useMemo(() => {
+    const map = new Map<string, MealScheduleItem[]>()
+    scheduleQuery.data?.forEach((meal) => {
+      if (!map.has(meal.date)) {
+        map.set(meal.date, [])
+      }
+      map.get(meal.date)?.push(meal)
+    })
+    map.forEach((items) => items.sort((a, b) => a.slot - b.slot))
+    return map
+  }, [scheduleQuery.data])
+
   const handlePrevMonth = () => {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
   }
@@ -131,8 +148,11 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     setCurrentDate(new Date())
   }
 
-  if (workoutsQuery.isError) {
-    return <ErrorState onRetry={() => workoutsQuery.refetch()} />
+  if (workoutsQuery.isError || scheduleQuery.isError) {
+    return <ErrorState onRetry={() => {
+      workoutsQuery.refetch()
+      scheduleQuery.refetch()
+    }} />
   }
 
   return (
@@ -170,6 +190,8 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
             {days.map((date) => {
               const dateKey = format(date, "yyyy-MM-dd")
               const dayWorkouts = workoutsByDay.get(dateKey) ?? []
+              const dayMeals = mealsByDay.get(dateKey) ?? []
+              const visibleMeals = dayMeals.slice(0, 2)
               const inMonth = isSameMonth(date, currentDate)
               const isToday = isSameDay(date, new Date())
               return (
@@ -214,6 +236,23 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                         </button>
                       )
                     })}
+                    {visibleMeals.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {visibleMeals.map((meal) => (
+                          <span
+                            key={meal.id}
+                            className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600"
+                          >
+                            {meal.name}
+                          </span>
+                        ))}
+                        {dayMeals.length > visibleMeals.length && (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                            +{dayMeals.length - visibleMeals.length} more
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )

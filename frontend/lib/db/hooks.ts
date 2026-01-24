@@ -7,8 +7,12 @@ import type {
   DashboardOverviewData,
   DateRangeOption,
   EventCategory,
+  GroceryItem,
   MacroSummary,
   Meal,
+  MealLog,
+  MealPrepSession,
+  MealScheduleItem,
   NutritionDaySummary,
   NutritionDayType,
   NutritionMacros,
@@ -20,6 +24,9 @@ import type {
   PlanPreview,
   ProfileEvent,
   ProfileRow,
+  Recipe,
+  RecipeIngredient,
+  RecipeStep,
   TrainingIntensity,
   TrainingSessionSummary,
   TrainingSummary,
@@ -410,6 +417,32 @@ type MonthWorkoutsPayload = {
   workouts: TpWorkout[]
 }
 
+type RecipesPayload = {
+  recipes?: Recipe[]
+}
+
+type RecipePayload = {
+  recipe?: Recipe
+  ingredients?: RecipeIngredient[]
+  steps?: RecipeStep[]
+}
+
+type MealSchedulePayload = {
+  schedule?: MealScheduleItem[]
+}
+
+type GroceryPayload = {
+  items?: GroceryItem[]
+}
+
+type MealLogPayload = {
+  meal_log?: MealLog[]
+}
+
+type MealPrepPayload = {
+  sessions?: MealPrepSession[]
+}
+
 async function fetchPreferences() {
   const response = await fetch("/api/v1/settings/preferences")
   if (!response.ok) {
@@ -453,6 +486,80 @@ async function fetchNutritionDay(date: string) {
   }
   const data = (await response.json()) as NutritionDayPlan
   return { exists: true, plan: data }
+}
+
+async function fetchRecipes() {
+  const response = await fetch("/api/v1/food/recipes")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load recipes")
+  }
+  const data = (await response.json()) as RecipesPayload
+  return Array.isArray(data.recipes) ? data.recipes : []
+}
+
+async function fetchRecipe(recipeId: string) {
+  const response = await fetch(`/api/v1/food/recipes/${recipeId}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load recipe")
+  }
+  const data = (await response.json()) as RecipePayload
+  return {
+    recipe: data.recipe ?? null,
+    ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+    steps: Array.isArray(data.steps) ? data.steps : [],
+  }
+}
+
+async function fetchMealSchedule(start: string, end: string) {
+  const response = await fetch(`/api/v1/food/schedule?start=${start}&end=${end}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal schedule")
+  }
+  const data = (await response.json()) as MealSchedulePayload
+  return Array.isArray(data.schedule) ? data.schedule : []
+}
+
+async function fetchGrocery(start?: string, end?: string) {
+  const params = new URLSearchParams()
+  if (start && end) {
+    params.set("start", start)
+    params.set("end", end)
+  }
+  const response = await fetch(`/api/v1/food/grocery?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load grocery list")
+  }
+  const data = (await response.json()) as GroceryPayload
+  return Array.isArray(data.items) ? data.items : []
+}
+
+async function fetchMealLog(date: string) {
+  const response = await fetch(`/api/v1/food/meal-log?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal log")
+  }
+  const data = (await response.json()) as MealLogPayload
+  return Array.isArray(data.meal_log) ? data.meal_log : []
+}
+
+async function fetchMealPrep(start?: string, end?: string) {
+  const params = new URLSearchParams()
+  if (start && end) {
+    params.set("start", start)
+    params.set("end", end)
+  }
+  const response = await fetch(`/api/v1/food/prep-sessions?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal prep")
+  }
+  const data = (await response.json()) as MealPrepPayload
+  return Array.isArray(data.sessions) ? data.sessions : []
 }
 
 export function useProfile(userId: string | null | undefined) {
@@ -677,6 +784,60 @@ export function useNutritionDay(userId: string | null | undefined, date: string)
     queryFn: () => fetchNutritionDay(date),
     enabled: Boolean(userId) && Boolean(date),
     staleTime: 1000 * 30,
+  })
+}
+
+export function useRecipes(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "food-recipes", userId],
+    queryFn: fetchRecipes,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useRecipe(userId: string | null | undefined, recipeId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "food-recipe", userId, recipeId],
+    queryFn: () => fetchRecipe(recipeId as string),
+    enabled: Boolean(userId) && Boolean(recipeId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useMealSchedule(userId: string | null | undefined, start: string, end: string) {
+  return useQuery({
+    queryKey: ["db", "food-schedule", userId, start, end],
+    queryFn: () => fetchMealSchedule(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useGrocery(userId: string | null | undefined, start?: string, end?: string) {
+  return useQuery({
+    queryKey: ["db", "food-grocery", userId, start, end],
+    queryFn: () => fetchGrocery(start, end),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useMealLog(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "food-meal-log", userId, date],
+    queryFn: () => fetchMealLog(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useMealPrep(userId: string | null | undefined, start?: string, end?: string) {
+  return useQuery({
+    queryKey: ["db", "food-meal-prep", userId, start, end],
+    queryFn: () => fetchMealPrep(start, end),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
   })
 }
 
