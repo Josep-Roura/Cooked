@@ -62,6 +62,19 @@ function mapWorkoutType(value: string | null): TrainingType {
   return "other"
 }
 
+function getWorkoutDurationHours(workout: TpWorkout): number {
+  const actual = workout.actual_hours ?? null
+  const planned = workout.planned_hours ?? null
+  const type = mapWorkoutType(workout.workout_type)
+
+  if (type === "strength" && actual === null && (planned === null || planned === 0)) {
+    return 1
+  }
+
+  const hours = actual ?? planned ?? 0
+  return hours > 0 ? hours : 0
+}
+
 function mapIntensity(workout: TpWorkout): TrainingIntensity {
   const rpe = workout.rpe ?? null
   if (rpe !== null) {
@@ -102,7 +115,7 @@ function calculateEndTime(startTime: string, durationHours: number) {
 
 function buildTrainingSessions(workouts: TpWorkout[]): TrainingSessionSummary[] {
   return workouts.map((workout) => {
-    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 0
+    const durationHours = getWorkoutDurationHours(workout)
     const durationMinutes = Math.round(durationHours * 60)
     const calories = Math.round(workout.tss ?? 0)
 
@@ -126,7 +139,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   workouts.forEach((workout) => {
     const dayLabel = format(new Date(workout.workout_day), "EEE")
-    const durationMinutes = Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60)
+    const durationMinutes = Math.round(getWorkoutDurationHours(workout) * 60)
     const calories = Math.round(workout.tss ?? 0)
     const existing = summaryByDay.get(dayLabel)
 
@@ -147,7 +160,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   return {
     totalDurationMinutes: workouts.reduce(
-      (sum, workout) => sum + Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60),
+      (sum, workout) => sum + Math.round(getWorkoutDurationHours(workout) * 60),
       0,
     ),
     totalCalories: workouts.reduce((sum, workout) => sum + Math.round(workout.tss ?? 0), 0),
@@ -158,7 +171,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
   return workouts.map((workout) => {
     const type = mapWorkoutType(workout.workout_type)
-    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 1
+    const durationHours = getWorkoutDurationHours(workout) || 1
     const startTime = normalizeStartTime(workout.start_time)
     const endTime = calculateEndTime(startTime, durationHours)
 
@@ -678,6 +691,26 @@ export function useTrainingWorkouts(
       return fetchWorkoutsByDateRange(userId as string, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
     },
     enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useTrainingSessions(
+  userId: string | null | undefined,
+  startDate: string,
+  endDate: string,
+) {
+  return useQuery({
+    queryKey: ["db", "training-sessions", userId, startDate, endDate],
+    queryFn: async () => {
+      const workouts = await fetchWorkoutsByDateRange(
+        userId as string,
+        startDate,
+        endDate,
+      )
+      return buildTrainingSessions(workouts)
+    },
+    enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
     staleTime: 1000 * 30,
   })
 }
