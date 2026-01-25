@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Calendar, ListTodo, Plus, MoreHorizontal, Utensils, Dumbbell, User, Settings, Notebook } from "lucide-react"
+import { Home, Calendar, ListTodo, Plus, Utensils, Dumbbell, User, Settings, Notebook } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -17,7 +17,7 @@ const navItems = [
   { icon: Notebook, label: "Plans", href: "/dashboard/plans" },
   { icon: Settings, label: "Settings", href: "/dashboard/settings" },
   { icon: Calendar, label: "Calendar", href: "/dashboard/calendar" },
-  { icon: ListTodo, label: "Tasks", href: "/dashboard/tasks", badge: 2 },
+  { icon: ListTodo, label: "Food", href: "/dashboard/food" },
   { icon: User, label: "Profile", href: "/dashboard/profile" },
 ]
 

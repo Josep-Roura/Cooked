@@ -298,6 +298,8 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .eq("start_date", range.start)
       .eq("end_date", range.end)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     if (existingPlanError) {

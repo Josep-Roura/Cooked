@@ -1,17 +1,23 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { format } from "date-fns"
+import { useEffect, useRef, useState } from "react"
+import { addWeeks, format, isWithinInterval, parseISO, startOfWeek } from "date-fns"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { NutritionOverview } from "@/components/dashboard/nutrition/nutrition-overview"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
-import { MacroChart } from "@/components/dashboard/nutrition/macro-chart"
-import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
+import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
+import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-cards"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
-import { useNutritionDayPlan, useNutritionSummary, useProfile } from "@/lib/db/hooks"
-import type { DateRangeOption } from "@/lib/db/types"
+import {
+  useEnsureMealPlans,
+  useMealPlanDay,
+  useProfile,
+  useUpdateMealPlanItem,
+  useWeekRange,
+  useWeeklyNutrition,
+} from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
 import { ensureNutritionPlanRange, useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
@@ -19,50 +25,59 @@ export default function NutritionPage() {
   const { user } = useSession()
   const { toast } = useToast()
   const profileQuery = useProfile(user?.id)
-  const [range, setRange] = useState<DateRangeOption>("week")
   const [search, setSearch] = useState("")
+  const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
   const [isGenerating, setIsGenerating] = useState(false)
   const queryClient = useQueryClient()
 
-  const nutritionQuery = useNutritionSummary(user?.id, range)
-  const nutritionDayQuery = useNutritionDayPlan(user?.id, selectedDate)
+  const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(anchorDate)
+  const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const ensureMealsMutation = useEnsureMealPlans()
+  const updateMealMutation = useUpdateMealPlanItem()
+  const ensuredDateRef = useRef<string | null>(null)
 
-  useEnsureNutritionPlan({ userId: user?.id, range })
+  useEnsureNutritionPlan({ userId: user?.id, range: "week" })
 
-  if (nutritionQuery.isError) {
-    return <ErrorState onRetry={() => nutritionQuery.refetch()} />
+  useEffect(() => {
+    if (!user?.id) return
+    const ensureKey = `${user.id}:${selectedDate}`
+    if (ensuredDateRef.current === ensureKey) return
+    ensuredDateRef.current = ensureKey
+    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
+  }, [ensureMealsMutation, selectedDate, user?.id])
+
+  useEffect(() => {
+    if (!selectedDate) return
+    const selectedDateObj = parseISO(selectedDate)
+    if (!isWithinInterval(selectedDateObj, { start: weekStart, end: weekEnd })) {
+      setSelectedDate(format(weekStart, "yyyy-MM-dd"))
+    }
+  }, [selectedDate, weekStart, weekEnd])
+
+  if (weeklyNutritionQuery.isError) {
+    return <ErrorState onRetry={() => weeklyNutritionQuery.refetch()} />
   }
 
-  const filteredRows = useMemo(() => {
-    const rows = nutritionQuery.data?.rows ?? []
-    if (!search.trim()) {
-      return rows
-    }
-    const query = search.trim().toLowerCase()
-    return rows.filter((row) => row.day_type.toLowerCase().includes(query) || row.date.includes(query))
-  }, [nutritionQuery.data?.rows, search])
+  const selectedDay = (weeklyNutritionQuery.data ?? []).find((day) => day.date === selectedDate) ?? {
+    date: selectedDate,
+    consumed: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
+    target: null,
+  }
 
-  const summary = nutritionQuery.data?.summary
-  const chartData = summary
-    ? {
-        targetCalories: summary.targetCalories,
-        dailyData: summary.dailyData.map((day) => ({
-          dayLabel: day.dayLabel,
-          kcal: day.kcal,
-        })),
-      }
-    : null
+  const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
 
   const handleGenerate = async (regenerate: boolean) => {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
       await ensureNutritionPlanRange({ start: selectedDate, end: selectedDate, force: regenerate })
+      await ensureMealsMutation.mutateAsync({ start: selectedDate, end: selectedDate })
 
       await Promise.all([
-        nutritionQuery.refetch(),
-        nutritionDayQuery.refetch(),
+        weeklyNutritionQuery.refetch(),
+        mealPlanQuery.refetch(),
         profileQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
       ])
@@ -83,7 +98,22 @@ export default function NutritionPage() {
       <div className="max-w-6xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Nutrition</h1>
-          <DateRangeSelector value={range} onChange={setRange} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="icon" onClick={() => setAnchorDate(addWeeks(anchorDate, -1))}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => setAnchorDate(addWeeks(anchorDate, 1))}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full px-4 text-xs"
+              onClick={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+            >
+              This week
+            </Button>
+            <span className="text-sm text-muted-foreground">{weekLabel}</span>
+          </div>
         </div>
 
         {/* Training Link Banner */}
@@ -105,11 +135,13 @@ export default function NutritionPage() {
           </div>
         )}
 
-        {summary && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <NutritionOverview weeklyData={summary} />
-          </div>
-        )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <DailyMacroCards
+            consumed={selectedDay.consumed}
+            target={selectedDay.target}
+            isLoading={weeklyNutritionQuery.isLoading}
+          />
+        </div>
 
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Meals</h2>
@@ -147,12 +179,20 @@ export default function NutritionPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {chartData && <MacroChart weeklyData={chartData} />}
+          <WeeklyCaloriesChart
+            days={weeklyNutritionQuery.data ?? []}
+            selectedDate={selectedDate}
+            isLoading={weeklyNutritionQuery.isLoading}
+            onSelectDate={setSelectedDate}
+          />
           <MealCards
-            rows={filteredRows}
-            dayPlan={nutritionDayQuery.data?.plan ?? null}
+            mealPlan={mealPlanQuery.data ?? null}
+            target={selectedDay.target}
             selectedDate={selectedDate}
             search={search}
+            isLoading={mealPlanQuery.isLoading || weeklyNutritionQuery.isLoading}
+            isUpdating={updateMealMutation.isPending}
+            onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
           />
         </div>
       </div>

@@ -1,14 +1,20 @@
 "use client"
 
 import { Clock, Flame, Utensils } from "lucide-react"
+import { format, parseISO } from "date-fns"
+import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
-import type { Meal, NutritionDayPlan, NutritionPlanRow } from "@/lib/db/types"
+import { Skeleton } from "@/components/ui/skeleton"
+import type { MealPlanDay, MealPlanItem, NutritionMacros } from "@/lib/db/types"
 
 interface MealCardsProps {
-  rows: NutritionPlanRow[]
-  dayPlan?: NutritionDayPlan | null
+  mealPlan?: MealPlanDay | null
+  target?: NutritionMacros | null
   selectedDate: string
   search: string
+  isLoading: boolean
+  isUpdating: boolean
+  onToggleMeal: (mealId: string, eaten: boolean) => void
 }
 
 const dayTypeIcons: Record<string, string> = {
@@ -25,29 +31,53 @@ const dayTypeColors: Record<string, string> = {
   high: "bg-red-100 border-red-200",
 }
 
-function filterMeals(meals: Meal[], search: string) {
+function filterMeals(meals: MealPlanItem[], search: string) {
   if (!search.trim()) {
     return meals
   }
   const query = search.trim().toLowerCase()
-  return meals.filter((meal) => meal.name.toLowerCase().includes(query) || meal.time.includes(query))
+  return meals.filter((meal) => meal.name.toLowerCase().includes(query) || (meal.time ?? "").includes(query))
 }
 
-export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProps) {
-  const meals = dayPlan?.meals ?? []
+export function MealCards({
+  mealPlan,
+  target,
+  selectedDate,
+  search,
+  isLoading,
+  isUpdating,
+  onToggleMeal,
+}: MealCardsProps) {
+  const meals = mealPlan?.items ?? []
   const filteredMeals = filterMeals(meals, search)
   const hasMeals = meals.length > 0
-  const selectedRow = rows.find((row) => row.date === selectedDate)
-  const dayType = dayPlan?.day_type ?? selectedRow?.day_type ?? "training"
-  const calories = dayPlan?.macros.kcal ?? selectedRow?.kcal ?? 0
-  const protein = dayPlan?.macros.protein_g ?? selectedRow?.protein_g ?? 0
-  const carbs = dayPlan?.macros.carbs_g ?? selectedRow?.carbs_g ?? 0
-  const fat = dayPlan?.macros.fat_g ?? selectedRow?.fat_g ?? 0
+  const dayType = "training"
+  const calories = target?.kcal ?? 0
+  const protein = target?.protein_g ?? 0
+  const carbs = target?.carbs_g ?? 0
+  const fat = target?.fat_g ?? 0
+  const formattedDate = selectedDate ? format(parseISO(selectedDate), "EEE, MMM d") : ""
+
+  if (isLoading) {
+    return (
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-4 w-56" />
+        <div className="space-y-3">
+          {[0, 1, 2].map((index) => (
+            <Skeleton key={index} className="h-24 w-full rounded-xl" />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-foreground mb-4">Today's Meals</h3>
-      {(dayPlan || selectedRow) && (
+      <h3 className="text-lg font-semibold text-foreground mb-4">
+        {formattedDate ? `Meals for ${formattedDate}` : "Meals"}
+      </h3>
+      {(mealPlan || target) && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-4">
           <span className="capitalize">{dayType} day</span>
           <span>{calories} kcal</span>
@@ -62,7 +92,7 @@ export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProp
           title="No meals found"
           description="Try adjusting your search or generate a new plan."
         />
-      ) : !hasMeals && rows.length === 0 ? (
+      ) : !hasMeals ? (
         <EmptyState
           icon={Utensils}
           title="No meals yet"
@@ -72,24 +102,39 @@ export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProp
         <div className="space-y-3">
           {filteredMeals.map((meal) => (
             <div
-              key={`${selectedDate}-${meal.slot}`}
-              className={`p-4 rounded-xl border ${dayTypeColors[dayType] ?? "bg-green-100 border-green-200"} transition-all hover:shadow-sm`}
+              key={meal.id}
+              className={`p-4 rounded-xl border ${
+                meal.eaten ? "bg-emerald-50 border-emerald-200" : dayTypeColors[dayType] ?? "bg-green-100 border-green-200"
+              } transition-all hover:shadow-sm`}
             >
               <div className="flex items-start gap-3">
-                <div className="text-2xl">{dayTypeIcons[dayType] ?? "🥗"}</div>
+                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayType] ?? "🥗"}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="font-medium text-foreground">{meal.name}</h4>
+                    {meal.eaten && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Eaten
+                      </span>
+                    )}
                     {meal.notes && <span className="text-xs text-muted-foreground">{meal.notes}</span>}
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {meal.time}
+                      {meal.time ?? "Any time"}
                     </span>
                     <span className="flex items-center gap-1">
                       <Flame className="h-3 w-3" />
                       {meal.kcal} kcal
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <Checkbox
+                        checked={meal.eaten}
+                        onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
+                        disabled={isUpdating}
+                      />
+                      <span className="text-xs text-muted-foreground">I ate this</span>
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-2">
@@ -108,46 +153,7 @@ export function MealCards({ rows, dayPlan, selectedDate, search }: MealCardsProp
             </div>
           ))}
         </div>
-      ) : (
-        <div className="space-y-3">
-          {rows.map((row) => (
-            <div
-              key={row.id}
-              className={`p-4 rounded-xl border ${dayTypeColors[row.day_type] ?? "bg-green-100 border-green-200"} transition-all hover:shadow-sm`}
-            >
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">{dayTypeIcons[row.day_type] ?? "🥗"}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-foreground">{row.day_type} plan</h4>
-                  </div>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {row.date}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Flame className="h-3 w-3" />
-                      {row.kcal} kcal
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-xs px-2 py-1 bg-cyan-500/20 text-cyan-700 rounded-full">
-                      P: {row.protein_g}g
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-orange-500/20 text-orange-700 rounded-full">
-                      C: {row.carbs_g}g
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-purple-500/20 text-purple-700 rounded-full">
-                      F: {row.fat_g}g
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      ) : null}
     </div>
   )
 }

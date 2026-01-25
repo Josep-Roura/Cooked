@@ -147,8 +147,76 @@ export interface Meal {
   protein_g: number
   carbs_g: number
   fat_g: number
+  ingredients?: string[]
+  completed?: boolean
   notes?: string | null
   tags?: string[]
+}
+
+export interface UserEvent {
+  id: string
+  user_id: string
+  title: string
+  date: string
+  time: string | null
+  category: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPlan {
+  id: string
+  user_id: string
+  date: string
+  plan_row_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPlanItem {
+  id: string
+  meal_plan_id: string
+  slot: number
+  name: string
+  time: string | null
+  emoji: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  eaten: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+  ingredients?: MealPlanIngredient[]
+}
+
+export interface MealPlanIngredient {
+  id: string
+  meal_item_id: string
+  name: string
+  quantity: string | null
+  checked: boolean
+  created_at: string
+}
+
+export interface MealPlanDay {
+  plan: MealPlan | null
+  items: MealPlanItem[]
+}
+
+export interface MacrosDaySummary {
+  date: string
+  target: NutritionMacros | null
+  consumed: NutritionMacros
+  percent: number
+}
+
+export interface WeeklyNutritionDay {
+  date: string
+  consumed: NutritionMacros
+  target: NutritionMacros | null
 }
 
 export interface NutritionDayPlan {
@@ -158,6 +226,120 @@ export interface NutritionDayPlan {
   meals_per_day: number
   meals: Meal[]
   plan_id: string | null
+}
+
+export type RecipeCategory =
+  | "breakfast"
+  | "lunch"
+  | "dinner"
+  | "snack"
+  | "preworkout"
+  | "postworkout"
+  | "other"
+
+export interface Recipe {
+  id: string
+  user_id: string
+  title: string
+  description: string | null
+  servings: number
+  cook_time_min: number | null
+  tags: string[]
+  category: RecipeCategory | null
+  macros_kcal: number
+  macros_protein_g: number
+  macros_carbs_g: number
+  macros_fat_g: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RecipeIngredient {
+  id: string
+  recipe_id: string
+  user_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  category: string | null
+  optional: boolean
+  created_at: string
+}
+
+export interface RecipeStep {
+  id: string
+  recipe_id: string
+  user_id: string
+  step_number: number
+  instruction: string
+  timer_seconds: number | null
+  created_at: string
+}
+
+export interface MealScheduleItem {
+  id: string
+  user_id: string
+  date: string
+  slot: number
+  name: string
+  recipe_id: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  ingredients: unknown | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealLog {
+  id: string
+  user_id: string
+  date: string
+  slot: number
+  is_eaten: boolean
+  eaten_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GroceryItem {
+  id: string
+  user_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  category: string | null
+  is_bought: boolean
+  source: string | null
+  recipe_id: string | null
+  date_range_start: string | null
+  date_range_end: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MealPrepSession {
+  id: string
+  user_id: string
+  title: string
+  session_date: string | null
+  duration_min: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  items?: MealPrepItem[]
+}
+
+export interface MealPrepItem {
+  id: string
+  session_id: string
+  user_id: string
+  label: string
+  linked_recipe_id: string | null
+  linked_dates: string[] | null
+  is_done: boolean
+  created_at: string
 }
 
 export interface MacroSummary {

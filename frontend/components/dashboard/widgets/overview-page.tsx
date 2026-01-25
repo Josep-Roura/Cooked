@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
+import { addDays, format, parseISO } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
@@ -13,21 +13,40 @@ import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-traini
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
-import { useDashboardOverview, useCalendarEvents, useProfile } from "@/lib/db/hooks"
+import {
+  useDashboardOverview,
+  useEnsureMealPlans,
+  useMacrosDay,
+  useMealPlanDay,
+  useUpdateMealIngredient,
+  useUpdateMealPlanItem,
+  useUserEvents,
+  useProfile,
+} from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
-  const router = useRouter()
   const { toast } = useToast()
   const { user } = useSession()
   const profileQuery = useProfile(user?.id)
   const [range, setRange] = useState<DateRangeOption>("today")
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
   const [eventsOpen, setEventsOpen] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  const eventsQuery = useCalendarEvents(user?.id)
+  const eventsQuery = useUserEvents(
+    user?.id,
+    format(new Date(), "yyyy-MM-dd"),
+    format(addDays(new Date(), 365), "yyyy-MM-dd"),
+  )
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const macrosQuery = useMacrosDay(user?.id, selectedDate)
+  const ensureMealsMutation = useEnsureMealPlans()
+  const updateMealItemMutation = useUpdateMealPlanItem()
+  const updateMealIngredientMutation = useUpdateMealIngredient()
+  const ensuredDateRef = useRef<string | null>(null)
 
   useEnsureNutritionPlan({ userId: user?.id, range })
 
@@ -51,7 +70,12 @@ export function OverviewPage() {
       }
 
   const handleRefresh = async () => {
-    await overviewQuery.refetch()
+    await Promise.all([
+      overviewQuery.refetch(),
+      eventsQuery.refetch(),
+      mealPlanQuery.refetch(),
+      macrosQuery.refetch(),
+    ])
     toast({ title: "Dashboard refreshed", description: "Latest data has been loaded." })
   }
 
@@ -65,14 +89,28 @@ export function OverviewPage() {
     }
   }, [eventsQuery.isError, toast])
 
+  useEffect(() => {
+    if (mealPlanQuery.isError) {
+      toast({ title: "Unable to load meal plan", description: "Please try again later.", variant: "destructive" })
+    }
+  }, [mealPlanQuery.isError, toast])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const ensureKey = `${user.id}:${selectedDate}`
+    if (ensuredDateRef.current === ensureKey) return
+    ensuredDateRef.current = ensureKey
+    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
+  }, [ensureMealsMutation, selectedDate, user?.id])
+
   if (overviewQuery.isError) {
     return <ErrorState onRetry={() => overviewQuery.refetch()} />
   }
 
-  // ✅ Normalize eventsQuery.data into a guaranteed array
-  const events = Array.isArray(eventsQuery.data)
-    ? eventsQuery.data
-    : (eventsQuery.data as any)?.events ?? []
+  const events = eventsQuery.data ?? []
+  const mealPlanDay = mealPlanQuery.data ?? { plan: null, items: [] }
+  const consumedMacros = macrosQuery.data?.consumed ?? null
+  const targetMacros = macrosQuery.data?.target ?? null
 
   const now = new Date()
 
@@ -102,13 +140,18 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
-        <motion.div {...hoverProps}>
-          <TodaysMacrosCard data={overviewQuery.data?.macros} isLoading={overviewQuery.isLoading} />
-        </motion.div>
+        <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
+          <motion.div {...hoverProps}>
+            <TodaysMacrosCard
+              consumed={consumedMacros}
+              target={targetMacros}
+              isLoading={macrosQuery.isLoading}
+              label={selectedDate === format(new Date(), "yyyy-MM-dd") ? "Today's macros" : "Consumed macros"}
+            />
+          </motion.div>
         <motion.div {...hoverProps}>
           <UpcomingEventCard
-            isLoading={overviewQuery.isLoading}
+            isLoading={eventsQuery.isLoading}
             events={upcomingEvents}
             onEdit={() => setEventsOpen(true)}
           />
@@ -125,9 +168,18 @@ export function OverviewPage() {
         </motion.div>
         <motion.div {...hoverProps}>
           <PlanCard
-            plan={overviewQuery.data?.planPreview ?? null}
-            isLoading={overviewQuery.isLoading}
-            onOpenDetails={() => router.push("/dashboard/plans")}
+            date={selectedDate}
+            onPreviousDay={() =>
+              setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))
+            }
+            onNextDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
+            plan={mealPlanDay}
+            isLoading={mealPlanQuery.isLoading}
+            isUpdating={updateMealItemMutation.isPending || updateMealIngredientMutation.isPending}
+            onToggleMeal={(itemId, eaten) => updateMealItemMutation.mutate({ id: itemId, payload: { eaten } })}
+            onToggleIngredient={(ingredientId, checked) =>
+              updateMealIngredientMutation.mutate({ id: ingredientId, checked })
+            }
           />
         </motion.div>
       </motion.div>
