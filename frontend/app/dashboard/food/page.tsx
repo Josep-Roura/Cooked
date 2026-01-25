@@ -37,7 +37,7 @@ export default function FoodPage() {
     tags: "",
   })
 
-  const today = new Date()
+  const [today] = useState(() => new Date())
   const weekStart = startOfWeek(today, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(today, { weekStartsOn: 1 })
   const startDate = format(weekStart, "yyyy-MM-dd")

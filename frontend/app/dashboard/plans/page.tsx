@@ -24,6 +24,7 @@ export default function PlansPage() {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<PlanWeekMeal | null>(null)
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const weekStart = startOfWeek(anchorDate, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(anchorDate, { weekStartsOn: 1 })
@@ -32,9 +33,9 @@ export default function PlansPage() {
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
 
   const weekMealsQuery = usePlanWeek(user?.id, weekStartKey, weekEndKey)
-  const chatQuery = usePlanChat(user?.id, weekStartKey)
-  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey)
-  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey)
+  const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
+  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
+  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
 
@@ -76,6 +77,30 @@ export default function PlansPage() {
         description: error instanceof Error ? error.message : "Unable to send message.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleGenerateWeek = async () => {
+    setIsGenerating(true)
+    try {
+      const response = await fetch("/api/ai/plan/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weekStart: weekStartKey, weekEnd: weekEndKey }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to generate plan")
+      }
+      await weekMealsQuery.refetch()
+    } catch (error) {
+      toast({
+        title: "Plan generation failed",
+        description: error instanceof Error ? error.message : "Unable to generate plan.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsGenerating(false)
     }
   }
 
@@ -132,7 +157,14 @@ export default function PlansPage() {
         ) : (weekMealsQuery.data ?? []).length === 0 ? (
           <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
             <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
-            <Button variant="outline" className="rounded-full text-xs">Generate plan</Button>
+            <Button
+              variant="outline"
+              className="rounded-full text-xs"
+              onClick={handleGenerateWeek}
+              disabled={isGenerating}
+            >
+              Generate plan
+            </Button>
           </div>
         ) : (
           <div className="bg-card border border-border/60 rounded-3xl p-4">

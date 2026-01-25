@@ -23,6 +23,7 @@ import type {
   NutritionDaySummary,
   NutritionDayType,
   NutritionMacros,
+  NutritionMeal,
   NutritionPlan,
   NutritionPlanRow,
   NutritionDayPlan,
@@ -616,9 +617,9 @@ async function fetchPlanWeek(start: string, end: string) {
   return Array.isArray(data.meals) ? data.meals : []
 }
 
-async function fetchPlanChat(weekStart: string) {
-  const params = new URLSearchParams({ week_start: weekStart })
-  const response = await fetch(`/api/v1/plans/chat?${params.toString()}`)
+async function fetchPlanChat(weekStart: string, weekEnd: string) {
+  const params = new URLSearchParams({ weekStart, weekEnd })
+  const response = await fetch(`/api/ai/chat?${params.toString()}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load plan chat")
@@ -672,6 +673,17 @@ async function fetchWeeklyNutrition(start: string, end: string) {
   }
   const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
   return Array.isArray(data.days) ? data.days : []
+}
+
+async function fetchNutritionMealsRange(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/nutrition/range?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load nutrition meals")
+  }
+  const data = (await response.json()) as { meals?: NutritionMeal[] }
+  return Array.isArray(data.meals) ? data.meals : []
 }
 
 export function useWeekRange(anchorDate: Date) {
@@ -770,6 +782,19 @@ export function useMonthWorkouts(userId: string | null | undefined, year: number
     queryKey: ["db", "month-workouts", userId, year, month],
     queryFn: () => fetchMonthWorkouts(year, month),
     enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useNutritionMealsRange(
+  userId: string | null | undefined,
+  start: string,
+  end: string,
+) {
+  return useQuery({
+    queryKey: ["db", "nutrition-meals-range", userId, start, end],
+    queryFn: () => fetchNutritionMealsRange(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
     staleTime: 1000 * 30,
   })
 }
@@ -982,16 +1007,21 @@ export function useUpdateMealPlanItem() {
       id: string
       payload: Partial<Pick<MealPlanItem, "eaten" | "name" | "time" | "notes">>
     }) => {
-      const response = await fetch(`/api/v1/meals/item/${id}`, {
-        method: "PATCH",
+      const [date, slotValue] = id.split(":")
+      const slot = Number(slotValue)
+      if (!date || Number.isNaN(slot)) {
+        throw new Error("Invalid meal identifier")
+      }
+      const response = await fetch(`/api/v1/nutrition/meal/toggle`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ date, slot, eaten: Boolean(payload.eaten) }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
         throw new Error(errorBody?.error ?? "Failed to update meal")
       }
-      return (await response.json()) as { item: MealPlanItem }
+      return (await response.json()) as { meal: MealPlanItem }
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
@@ -1087,24 +1117,24 @@ export function usePlanWeek(userId: string | null | undefined, start: string, en
   })
 }
 
-export function usePlanChat(userId: string | null | undefined, weekStart: string) {
+export function usePlanChat(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   return useQuery({
-    queryKey: ["db", "plan-chat", userId, weekStart],
-    queryFn: () => fetchPlanChat(weekStart),
-    enabled: Boolean(userId) && Boolean(weekStart),
+    queryKey: ["db", "plan-chat", userId, weekStart, weekEnd],
+    queryFn: () => fetchPlanChat(weekStart, weekEnd),
+    enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
     staleTime: 1000 * 10,
   })
 }
 
-export function useSendPlanChatMessage(userId: string | null | undefined, weekStart: string) {
+export function useSendPlanChatMessage(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (content: string) => {
-      const response = await fetch("/api/v1/plans/chat", {
+      const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ week_start: weekStart, content }),
+        body: JSON.stringify({ weekStart, weekEnd, message: content }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
@@ -1113,18 +1143,18 @@ export function useSendPlanChatMessage(userId: string | null | undefined, weekSt
       return (await response.json()) as PlanChatPayload
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart, weekEnd] })
     },
   })
 }
 
-export function useResetPlanChat(userId: string | null | undefined, weekStart: string) {
+export function useResetPlanChat(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (threadId: string) => {
-      const params = new URLSearchParams({ thread_id: threadId })
-      const response = await fetch(`/api/v1/plans/chat?${params.toString()}`, { method: "DELETE" })
+      const params = new URLSearchParams({ threadId })
+      const response = await fetch(`/api/ai/chat?${params.toString()}`, { method: "DELETE" })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
         throw new Error(errorBody?.error ?? "Failed to reset chat")
@@ -1132,7 +1162,7 @@ export function useResetPlanChat(userId: string | null | undefined, weekStart: s
       return response.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart, weekEnd] })
     },
   })
 }
@@ -1146,17 +1176,17 @@ export async function updateMealCompletion({
   slot: number
   completed: boolean
 }) {
-  const response = await fetch("/api/v1/nutrition/meal", {
-    method: "PATCH",
+  const response = await fetch("/api/v1/nutrition/meal/toggle", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date, slot, completed }),
+    body: JSON.stringify({ date, slot, eaten: completed }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to update meal")
   }
-  const data = (await response.json()) as { meals?: Meal[] }
-  return Array.isArray(data.meals) ? data.meals : []
+  const data = (await response.json()) as { meal?: Meal }
+  return data.meal ? [data.meal] : []
 }
 
 export function useCalendarEvents(

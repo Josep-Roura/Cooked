@@ -27,59 +27,39 @@ export async function GET(req: NextRequest) {
     }
 
     const { data: meals, error } = await supabase
-      .from("meal_plan_items")
-      .select(
-        "id, meal_plan_id, slot, meal_type, sort_order, name, time, emoji, kcal, protein_g, carbs_g, fat_g, notes, recipe_id, created_at, updated_at, meal_plans!inner(date, user_id)",
-      )
-      .eq("meal_plans.user_id", user.id)
-      .gte("meal_plans.date", start)
-      .lte("meal_plans.date", end)
-      .order("date", { ascending: true, foreignTable: "meal_plans" })
-      .order("sort_order", { ascending: true })
+      .from("nutrition_meals")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, created_at, updated_at")
+      .eq("user_id", user.id)
+      .gte("date", start)
+      .lte("date", end)
+      .order("date", { ascending: true })
       .order("slot", { ascending: true })
 
     if (error) {
       return NextResponse.json({ error: "Failed to load plan meals", details: error.message }, { status: 400 })
     }
 
-    const recipeIds = Array.from(new Set((meals ?? []).map((meal) => meal.recipe_id).filter(Boolean)))
-    let recipes: Record<string, any> = {}
-    let ingredientsByRecipe = new Map<string, any[]>()
-
-    if (recipeIds.length > 0) {
-      const { data: recipeRows } = await supabase
-        .from("recipes")
-        .select("id, title, description, servings, macros_kcal, macros_protein_g, macros_carbs_g, macros_fat_g")
-        .in("id", recipeIds)
-
-      recipes = (recipeRows ?? []).reduce((acc, recipe) => {
-        acc[recipe.id] = recipe
-        return acc
-      }, {} as Record<string, any>)
-
-      const { data: ingredientRows } = await supabase
-        .from("recipe_ingredients")
-        .select("id, recipe_id, name, quantity, unit, optional")
-        .in("recipe_id", recipeIds)
-
-      ingredientsByRecipe = (ingredientRows ?? []).reduce((map, ingredient) => {
-        if (!map.has(ingredient.recipe_id)) {
-          map.set(ingredient.recipe_id, [])
-        }
-        map.get(ingredient.recipe_id)?.push(ingredient)
-        return map
-      }, new Map<string, any[]>())
-    }
-
-    const hydratedMeals = (meals ?? []).map((meal) => {
-      const { meal_plans, ...rest } = meal
-      return {
-        ...rest,
-        date: meal_plans?.date ?? "",
-        recipe: meal.recipe_id ? recipes[meal.recipe_id] ?? null : null,
-        recipe_ingredients: meal.recipe_id ? ingredientsByRecipe.get(meal.recipe_id) ?? [] : [],
-      }
-    })
+    const hydratedMeals = (meals ?? []).map((meal) => ({
+      id: `${meal.date}:${meal.slot}`,
+      meal_plan_id: meal.id,
+      date: meal.date,
+      slot: meal.slot,
+      meal_type: null,
+      sort_order: meal.slot,
+      name: meal.name,
+      time: meal.time,
+      emoji: null,
+      kcal: meal.kcal ?? 0,
+      protein_g: meal.protein_g ?? 0,
+      carbs_g: meal.carbs_g ?? 0,
+      fat_g: meal.fat_g ?? 0,
+      notes: null,
+      recipe_id: null,
+      created_at: meal.created_at,
+      updated_at: meal.updated_at,
+      recipe: null,
+      recipe_ingredients: [],
+    }))
 
     return NextResponse.json({ meals: hydratedMeals }, { status: 200 })
   } catch (error) {

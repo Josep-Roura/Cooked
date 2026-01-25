@@ -36,11 +36,11 @@ export async function ensureNutritionPlanRange({
   end: string
   force?: boolean
 }) {
-  const params = new URLSearchParams({ start, end })
-  if (force) {
-    params.set("force", "true")
-  }
-  const response = await fetch(`/api/v1/nutrition/ensure?${params.toString()}`, { method: "POST" })
+  const response = await fetch(`/api/ai/plan/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ weekStart: start, weekEnd: end, force }),
+  })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to ensure nutrition plan")

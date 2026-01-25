@@ -23,8 +23,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useMonthWorkouts } from "@/lib/db/hooks"
-import type { TpWorkout } from "@/lib/db/types"
+import { useMonthWorkouts, useNutritionMealsRange } from "@/lib/db/hooks"
+import type { NutritionMeal, TpWorkout } from "@/lib/db/types"
 
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -87,11 +87,15 @@ interface MonthWorkoutCalendarProps {
 
 export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
+  const [today] = useState(() => new Date())
   const [selectedWorkout, setSelectedWorkout] = useState<TpWorkout | null>(null)
 
   const year = currentDate.getFullYear()
   const monthIndex = currentDate.getMonth() + 1
   const workoutsQuery = useMonthWorkouts(userId, year, monthIndex)
+  const rangeStartKey = format(startOfWeek(startOfMonth(currentDate), { weekStartsOn: 0 }), "yyyy-MM-dd")
+  const rangeEndKey = format(endOfWeek(endOfMonth(currentDate), { weekStartsOn: 0 }), "yyyy-MM-dd")
+  const mealsQuery = useNutritionMealsRange(userId, rangeStartKey, rangeEndKey)
 
   const monthStart = startOfMonth(currentDate)
   const monthEnd = endOfMonth(currentDate)
@@ -119,6 +123,19 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     return map
   }, [workoutsQuery.data])
 
+  const mealsByDay = useMemo(() => {
+    const map = new Map<string, NutritionMeal[]>()
+    mealsQuery.data?.forEach((meal) => {
+      const dateKey = meal.date
+      if (!map.has(dateKey)) {
+        map.set(dateKey, [])
+      }
+      map.get(dateKey)?.push(meal)
+    })
+    map.forEach((items) => items.sort((a, b) => a.slot - b.slot))
+    return map
+  }, [mealsQuery.data])
+
 
   const handlePrevMonth = () => {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
@@ -132,9 +149,10 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     setCurrentDate(new Date())
   }
 
-  if (workoutsQuery.isError) {
+  if (workoutsQuery.isError || mealsQuery.isError) {
     return <ErrorState onRetry={() => {
       workoutsQuery.refetch()
+      mealsQuery.refetch()
     }} />
   }
 
@@ -155,7 +173,7 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
         </Button>
       </div>
 
-      {workoutsQuery.isLoading ? (
+      {workoutsQuery.isLoading || mealsQuery.isLoading ? (
         <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-80 w-full" />
@@ -175,8 +193,10 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
               const dateKey = format(date, "yyyy-MM-dd")
               const dayWorkouts = workoutsByDay.get(dateKey) ?? []
               const visibleWorkouts = dayWorkouts.slice(0, 2)
+              const dayMeals = mealsByDay.get(dateKey) ?? []
+              const visibleMeals = dayMeals.slice(0, 2)
               const inMonth = isSameMonth(date, currentDate)
-              const isToday = isSameDay(date, new Date())
+              const isToday = isSameDay(date, today)
               return (
                 <div
                   key={dateKey}
@@ -192,8 +212,10 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                     >
                       {format(date, "d")}
                     </span>
-                    {dayWorkouts.length > 0 && (
-                      <span className="text-xs text-muted-foreground">{dayWorkouts.length} workouts</span>
+                    {(dayWorkouts.length > 0 || dayMeals.length > 0) && (
+                      <span className="text-xs text-muted-foreground">
+                        {dayWorkouts.length} workouts · {dayMeals.length} meals
+                      </span>
                     )}
                   </div>
                   <div className="flex flex-col gap-2 overflow-y-auto pr-1 max-h-[130px]">
@@ -229,6 +251,25 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                     {dayWorkouts.length > visibleWorkouts.length && (
                       <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground w-fit">
                         +{dayWorkouts.length - visibleWorkouts.length} more
+                      </span>
+                    )}
+                    {visibleMeals.map((meal) => (
+                      <div
+                        key={`${meal.date}-${meal.slot}`}
+                        className="w-full rounded-lg border border-emerald-200/70 bg-emerald-50 px-3 py-2 text-left"
+                      >
+                        <div className="flex items-center justify-between text-xs font-semibold text-emerald-700">
+                          <span className="truncate">🥗 {meal.name}</span>
+                          <span>{meal.kcal} kcal</span>
+                        </div>
+                        <div className="text-[10px] text-emerald-700/80 mt-1">
+                          {meal.time ? `Time: ${meal.time}` : "Meal planned"}
+                        </div>
+                      </div>
+                    ))}
+                    {dayMeals.length > visibleMeals.length && (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700 w-fit">
+                        +{dayMeals.length - visibleMeals.length} meals
                       </span>
                     )}
                   </div>
