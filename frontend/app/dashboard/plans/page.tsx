@@ -124,30 +124,32 @@ export default function PlansPage() {
         {weekMealsQuery.isLoading ? (
           <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
             {days.map((day) => (
-              <Skeleton key={day.toISOString()} className="h-60 w-full" />
+              <Skeleton key={day.toISOString()} className="h-72 w-full" />
             ))}
           </div>
         ) : (weekMealsQuery.data ?? []).length === 0 ? (
-          <div className="bg-card border border-border rounded-2xl p-8 text-center space-y-3">
+          <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
             <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
             <Button variant="outline" className="rounded-full text-xs">Generate plan</Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
-            {days.map((day) => {
-              const dateKey = format(day, "yyyy-MM-dd")
-              const meals = mealsByDate.get(dateKey) ?? []
-              return (
-                <DayPlanCard
-                  key={dateKey}
-                  date={day}
-                  meals={meals}
-                  maxMeals={3}
-                  onSelectMeal={openMealDetails}
-                  onSelectDay={openDayDetails}
-                />
-              )
-            })}
+          <div className="bg-card border border-border/60 rounded-3xl p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+              {days.map((day) => {
+                const dateKey = format(day, "yyyy-MM-dd")
+                const meals = mealsByDate.get(dateKey) ?? []
+                return (
+                  <DayPlanCard
+                    key={dateKey}
+                    date={day}
+                    meals={meals}
+                    maxMeals={3}
+                    onSelectMeal={openMealDetails}
+                    onSelectDay={openDayDetails}
+                  />
+                )
+              })}
+            </div>
           </div>
         )}
       </div>

@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       thread_id: thread.id,
       user_id: user.id,
       role: "assistant",
-      content: "Got it — I’ll review your request and propose plan changes shortly.",
+      content: "(Assistant is not connected yet)",
       meta: { type: "plan_patch", changes: [] },
     })
 
