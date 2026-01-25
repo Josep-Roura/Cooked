@@ -9,9 +9,9 @@ async function ensureThread(supabase: Awaited<ReturnType<typeof createServerClie
     .upsert(
       {
         user_id: userId,
-        week_start: weekStart,
+        week_start_date: weekStart,
       },
-      { onConflict: "user_id,week_start" },
+      { onConflict: "user_id,week_start_date" },
     )
     .select("*")
     .single()
