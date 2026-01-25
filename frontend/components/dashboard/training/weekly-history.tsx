@@ -50,19 +50,19 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
 
   return (
     <TooltipProvider>
-      <div className="bg-card border border-border rounded-2xl p-6">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 text-slate-900">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-foreground">Weekly Training History</h3>
+          <h3 className="text-lg font-semibold text-slate-900">Weekly Training History</h3>
           <div className="flex items-center gap-6 text-sm">
             <div>
-              <span className="text-muted-foreground">Total duration: </span>
-              <span className="font-semibold text-foreground">
+              <span className="text-slate-600">Total duration: </span>
+              <span className="font-semibold text-slate-900">
                 {formatDurationMinutes(weeklyData.totalDurationMinutes)}
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Calories burned: </span>
-              <span className="font-semibold text-foreground">{weeklyData.totalCalories.toLocaleString()}</span>
+              <span className="text-slate-600">Calories burned: </span>
+              <span className="font-semibold text-slate-900">{weeklyData.totalCalories.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -112,18 +112,18 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
                       </div>
                     </div>
                     <div className="text-center">
-                      <span className={`text-xs ${day.isToday ? "font-bold text-emerald-600" : "text-muted-foreground"}`}>
+                      <span className={`text-xs ${day.isToday ? "font-bold text-emerald-600" : "text-slate-600"}`}>
                         {day.label}
                       </span>
                       {day.totalMinutes > 0 && (
-                        <p className="text-xs text-muted-foreground">{formatDurationMinutes(day.totalMinutes)}</p>
+                        <p className="text-xs text-slate-600">{formatDurationMinutes(day.totalMinutes)}</p>
                       )}
                     </div>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <div className="text-xs font-semibold text-foreground">{day.displayLabel}</div>
-                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                <TooltipContent side="top" className="max-w-xs bg-white border border-slate-200 text-slate-900">
+                  <div className="text-xs font-semibold text-slate-900">{day.displayLabel}</div>
+                  <div className="mt-2 space-y-1 text-xs text-slate-600">
                     {tooltipEntries.length === 0 ? (
                       <p>No sessions</p>
                     ) : (
@@ -133,12 +133,12 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
                             <span className={`h-2 w-2 rounded-full ${typeColors[entry.type]}`} />
                             {typeLabels[entry.type] ?? entry.type}
                           </span>
-                          <span className="text-foreground">{formatDurationMinutes(entry.value)}</span>
+                          <span className="text-slate-900">{formatDurationMinutes(entry.value)}</span>
                         </div>
                       ))
                     )}
                     {day.totalMinutes > 0 && (
-                      <div className="flex items-center justify-between border-t border-border pt-1 mt-1 text-foreground">
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-1 mt-1 text-slate-900">
                         <span>Total</span>
                         <span>{formatDurationMinutes(day.totalMinutes)}</span>
                       </div>
@@ -150,11 +150,11 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
           })}
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-4 pt-4 border-t border-border">
+        <div className="flex flex-wrap items-center justify-center gap-4 pt-4 border-t border-slate-200">
           {Object.entries(typeColors).map(([type, color]) => (
             <div key={type} className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded ${color}`} />
-              <span className="text-xs text-muted-foreground capitalize">{type}</span>
+              <span className="text-xs text-slate-600 capitalize">{type}</span>
             </div>
           ))}
         </div>

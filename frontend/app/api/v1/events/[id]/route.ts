@@ -3,8 +3,9 @@ import { createServerClient } from "@/lib/supabase/server"
 
 const TIME_REGEX = /^\d{2}:\d{2}$/
 
-export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params
     const supabase = await createServerClient()
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== "object") {
@@ -41,7 +42,7 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     const { data, error } = await supabase
       .from("user_events")
       .update(updates)
-      .eq("id", context.params.id)
+      .eq("id", id)
       .eq("user_id", user.id)
       .select("*")
       .single()
@@ -60,8 +61,9 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
   }
 }
 
-export async function DELETE(_req: NextRequest, context: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params
     const supabase = await createServerClient()
     const {
       data: { user },
@@ -78,7 +80,7 @@ export async function DELETE(_req: NextRequest, context: { params: { id: string 
     const { error } = await supabase
       .from("user_events")
       .delete()
-      .eq("id", context.params.id)
+      .eq("id", id)
       .eq("user_id", user.id)
 
     if (error) {

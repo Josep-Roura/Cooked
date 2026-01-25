@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
-export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params
     const supabase = await createServerClient()
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== "object") {
@@ -32,7 +33,7 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     const { data, error } = await supabase
       .from("meal_plan_items")
       .update(updates)
-      .eq("id", context.params.id)
+      .eq("id", id)
       .select("*")
       .single()
 

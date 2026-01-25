@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { addWeeks, endOfWeek, format, isAfter, isWithinInterval, startOfWeek } from "date-fns"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
@@ -9,9 +9,10 @@ import { TrainingList } from "@/components/dashboard/widgets/training-list"
 import { WeeklyHistory } from "@/components/dashboard/training/weekly-history"
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
-import { useTrainingSessions } from "@/lib/db/hooks"
+import { useEnsureMealPlans, useTrainingSessions } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
+import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 const PAGE_SIZE = 3
 
@@ -23,6 +24,7 @@ export default function TrainingPage() {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(0)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
+  const ensuredRangeRef = useRef<string | null>(null)
 
   useEffect(() => {
     setPage(0)
@@ -38,6 +40,32 @@ export default function TrainingPage() {
   }, [range])
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
+  const ensureMealsMutation = useEnsureMealPlans()
+
+  useEffect(() => {
+    if (!user?.id || trainingQuery.isLoading) return
+    const sessions = trainingQuery.data ?? []
+    if (sessions.length === 0) return
+    const ensureKey = `${user.id}:${weekStartKey}:${weekEndKey}`
+    if (ensuredRangeRef.current === ensureKey) return
+    ensuredRangeRef.current = ensureKey
+
+    const ensurePlans = async () => {
+      try {
+        await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey })
+        await ensureMealsMutation.mutateAsync({ start: weekStartKey, end: weekEndKey })
+      } catch (error) {
+        console.error("Failed to ensure nutrition plan for training days", error)
+        toast({
+          title: "Nutrition plan update failed",
+          description: error instanceof Error ? error.message : "Unable to update nutrition plans.",
+          variant: "destructive",
+        })
+      }
+    }
+
+    void ensurePlans()
+  }, [ensureMealsMutation, toast, trainingQuery.data, trainingQuery.isLoading, user?.id, weekEndKey, weekStartKey])
 
   const filteredSessions = useMemo(() => {
     const sessions = trainingQuery.data ?? []
