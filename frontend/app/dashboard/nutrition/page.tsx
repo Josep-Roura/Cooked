@@ -21,7 +21,8 @@ import {
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { ensureNutritionPlanRange, useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
+import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
+import { generatePlanWithOpenAI } from "@/lib/ai/generatePlanWithOpenAI"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -114,7 +115,7 @@ export default function NutritionPage() {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
-      await ensureNutritionPlanRange({ start: selectedDate, end: selectedDate, force: regenerate })
+      await generatePlanWithOpenAI({ date: selectedDate, force: regenerate })
       await ensureMealsMutation.mutateAsync({ start: selectedDate, end: selectedDate })
 
       await Promise.all([
