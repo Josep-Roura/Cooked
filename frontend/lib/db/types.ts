@@ -304,6 +304,27 @@ export interface MealLog {
   updated_at: string
 }
 
+export interface PlanChatThread {
+  id: string
+  user_id: string
+  week_start: string
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type PlanChatRole = "user" | "assistant" | "system"
+
+export interface PlanChatMessage {
+  id: string
+  thread_id: string
+  user_id: string
+  role: PlanChatRole
+  content: string
+  meta: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface GroceryItem {
   id: string
   user_id: string
