@@ -42,6 +42,7 @@ export default function NutritionPage() {
   const ensureMealsMutation = useEnsureMealPlans()
   const updateMealMutation = useUpdateMealPlanItem()
   const ensuredDateRef = useRef<string | null>(null)
+  const lastSyncedRef = useRef<string | null>(null)
 
   useEnsureNutritionPlan({ userId: user?.id, range: "week" })
 
@@ -79,7 +80,12 @@ export default function NutritionPage() {
     const params = new URLSearchParams(searchParams.toString())
     params.set("date", selectedDate)
     params.set("weekStart", format(weekStart, "yyyy-MM-dd"))
-    router.replace(`/dashboard/nutrition?${params.toString()}`)
+    const nextQuery = params.toString()
+    if (lastSyncedRef.current === nextQuery) return
+    lastSyncedRef.current = nextQuery
+    if (nextQuery !== searchParams.toString()) {
+      router.replace(`/dashboard/nutrition?${nextQuery}`)
+    }
   }, [router, searchParams, selectedDate, weekStart])
 
   if (weeklyNutritionQuery.isError) {
