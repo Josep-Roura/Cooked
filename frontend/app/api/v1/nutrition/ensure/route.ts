@@ -361,6 +361,7 @@ export async function POST(req: NextRequest) {
 
     const rowsToInsert: Array<{
       plan_id: string
+      user_id: string
       date: string
       day_type: NutritionDayType
       kcal: number
@@ -388,6 +389,7 @@ export async function POST(req: NextRequest) {
 
       rowsToInsert.push({
         plan_id: planId,
+        user_id: user.id,
         date: dateKey,
         day_type: dayType,
         kcal: macros.kcal,
