@@ -70,20 +70,56 @@ export async function POST(req: NextRequest) {
         plan_row_id: row.id,
       }))
 
-    if (newPlans.length === 0) {
-      return NextResponse.json({ created: 0 }, { status: 200 })
+    let createdPlansCount = 0
+
+    if (newPlans.length > 0) {
+      const { data: insertedPlans, error: insertError } = await supabase
+        .from("meal_plans")
+        .upsert(newPlans, { onConflict: "user_id,date", ignoreDuplicates: true })
+        .select("id, date")
+
+      if (insertError) {
+        return NextResponse.json(
+          { error: "Failed to create meal plans", details: insertError.message },
+          { status: 400 },
+        )
+      }
+
+      createdPlansCount = insertedPlans?.length ?? 0
     }
 
-    const { data: insertedPlans, error: insertError } = await supabase
+    const { data: allPlans, error: plansError } = await supabase
       .from("meal_plans")
-      .insert(newPlans)
-      .select("*")
+      .select("id, date")
+      .eq("user_id", user.id)
+      .gte("date", start)
+      .lte("date", end)
 
-    if (insertError) {
-      return NextResponse.json({ error: "Failed to create meal plans", details: insertError.message }, { status: 400 })
+    if (plansError) {
+      return NextResponse.json({ error: "Failed to load meal plans", details: plansError.message }, { status: 400 })
     }
 
-    const itemsPayload = (insertedPlans ?? []).flatMap((plan) => {
+    const planIds = (allPlans ?? []).map((plan) => plan.id)
+    if (planIds.length === 0) {
+      return NextResponse.json({ created: createdPlansCount }, { status: 200 })
+    }
+
+    const { data: existingItems, error: existingItemsError } = await supabase
+      .from("meal_plan_items")
+      .select("meal_plan_id")
+      .in("meal_plan_id", planIds)
+
+    if (existingItemsError) {
+      return NextResponse.json(
+        { error: "Failed to load meal items", details: existingItemsError.message },
+        { status: 400 },
+      )
+    }
+
+    const planIdsWithItems = new Set((existingItems ?? []).map((item) => item.meal_plan_id))
+    const plansMissingItems = (allPlans ?? []).filter((plan) => !planIdsWithItems.has(plan.id))
+
+    const itemsPayload = plansMissingItems.flatMap((plan) => {
       const row = rowsByDate.get(plan.date)
       if (!row) return []
       const slots = buildSlots(mealsPerDay)
@@ -105,6 +141,10 @@ export async function POST(req: NextRequest) {
         fat_g: index === slots.length - 1 ? row.fat_g - perMeal.fat_g * (slots.length - 1) : perMeal.fat_g,
       }))
     })
+
+    if (itemsPayload.length === 0) {
+      return NextResponse.json({ created: createdPlansCount }, { status: 200 })
+    }
 
     const { data: insertedItems, error: itemsError } = await supabase
       .from("meal_plan_items")
@@ -128,7 +168,7 @@ export async function POST(req: NextRequest) {
       await supabase.from("meal_plan_ingredients").insert(ingredientPayload)
     }
 
-    return NextResponse.json({ created: insertedPlans?.length ?? 0 }, { status: 200 })
+    return NextResponse.json({ created: createdPlansCount }, { status: 200 })
   } catch (error) {
     console.error("POST /api/v1/meals/ensure error:", error)
     return NextResponse.json(
