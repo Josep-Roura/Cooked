@@ -1,41 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
-import { randomUUID } from "crypto"
 import { createServerClient } from "@/lib/supabase/server"
-import type { EventCategory, ProfileEvent } from "@/lib/db/types"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_REGEX = /^\d{2}:\d{2}$/
 
-function isCategory(value: string): value is EventCategory {
-  return value === "race" || value === "test" || value === "other"
+function parseDate(value: string | null) {
+  return value && DATE_REGEX.test(value) ? value : null
 }
 
-function normalizeEventInput(body: Record<string, unknown>) {
-  const title = typeof body.title === "string" ? body.title.trim() : ""
-  const category = typeof body.category === "string" && isCategory(body.category) ? body.category : "other"
-  const goal = typeof body.goal === "string" ? body.goal.trim() : null
-  const date = typeof body.date === "string" ? body.date : ""
-  const time = typeof body.time === "string" ? body.time : null
-  const notes = typeof body.notes === "string" ? body.notes.trim() : null
-
-  return { title, category, goal, date, time, notes }
-}
-
-function validateEventInput(input: ReturnType<typeof normalizeEventInput>) {
-  if (input.title.length < 2) {
-    return "Title must be at least 2 characters."
-  }
-  if (!DATE_REGEX.test(input.date)) {
-    return "Date is required and must be YYYY-MM-DD."
-  }
-  if (input.time && !TIME_REGEX.test(input.time)) {
-    return "Time must be HH:MM."
-  }
-  return null
-}
-
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url)
+    const fromParam = parseDate(searchParams.get("from"))
+    const toParam = parseDate(searchParams.get("to"))
+    const today = new Date()
+    const defaultFrom = today.toISOString().slice(0, 10)
+    const defaultTo = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate()).toISOString().slice(0, 10)
+
+    const from = fromParam ?? defaultFrom
+    const to = toParam ?? defaultTo
+
     const supabase = await createServerClient()
     const {
       data: { user },
@@ -49,23 +33,20 @@ export async function GET(_req: NextRequest) {
       )
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, meta")
-      .eq("id", user.id)
-      .single()
+    const { data, error } = await supabase
+      .from("user_events")
+      .select("*")
+      .eq("user_id", user.id)
+      .gte("date", from)
+      .lte("date", to)
+      .order("date", { ascending: true })
+      .order("time", { ascending: true })
 
-    if (profileError) {
-      return NextResponse.json(
-        { error: "Profile lookup failed", details: profileError.message, code: profileError.code },
-        { status: 400 },
-      )
+    if (error) {
+      return NextResponse.json({ error: "Failed to load events", details: error.message }, { status: 400 })
     }
 
-    const meta = (profile.meta && typeof profile.meta === "object" ? profile.meta : {}) as Record<string, unknown>
-    const events = Array.isArray(meta.events) ? (meta.events as ProfileEvent[]) : []
-
-    return NextResponse.json({ events }, { status: 200 })
+    return NextResponse.json({ events: data ?? [] }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/events error:", error)
     return NextResponse.json(
@@ -95,59 +76,35 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const input = normalizeEventInput(body as Record<string, unknown>)
-    const validationError = validateEventInput(input)
-    if (validationError) {
-      return NextResponse.json({ error: validationError }, { status: 400 })
+    const title = typeof body.title === "string" ? body.title.trim() : ""
+    const date = typeof body.date === "string" ? body.date : ""
+    const time = typeof body.time === "string" ? body.time : null
+    const category = typeof body.category === "string" ? body.category : null
+    const notes = typeof body.notes === "string" ? body.notes.trim() : null
+
+    if (!title || !DATE_REGEX.test(date)) {
+      return NextResponse.json({ error: "Title and date are required." }, { status: 400 })
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, meta")
-      .eq("id", user.id)
-      .single()
-
-    if (profileError) {
-      return NextResponse.json(
-        { error: "Profile lookup failed", details: profileError.message, code: profileError.code },
-        { status: 400 },
-      )
+    if (time && !TIME_REGEX.test(time)) {
+      return NextResponse.json({ error: "Time must be HH:MM." }, { status: 400 })
     }
 
-    const nowIso = new Date().toISOString()
-    const event: ProfileEvent = {
-      id: randomUUID(),
-      title: input.title,
-      category: input.category,
-      goal: input.goal || null,
-      date: input.date,
-      time: input.time || null,
-      notes: input.notes || null,
-      created_at: nowIso,
-      updated_at: nowIso,
+    const payload = {
+      user_id: user.id,
+      title,
+      date,
+      time,
+      category,
+      notes,
     }
 
-    const existingMeta = (profile.meta && typeof profile.meta === "object" ? profile.meta : {}) as Record<string, unknown>
-    const existingEvents = Array.isArray(existingMeta.events) ? (existingMeta.events as ProfileEvent[]) : []
-
-    const updatedMeta = {
-      ...existingMeta,
-      events: [...existingEvents, event],
+    const { data, error } = await supabase.from("user_events").insert(payload).select("*").single()
+    if (error) {
+      return NextResponse.json({ error: "Failed to create event", details: error.message }, { status: 400 })
     }
 
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ meta: updatedMeta, updated_at: nowIso })
-      .eq("id", user.id)
-
-    if (updateError) {
-      return NextResponse.json(
-        { error: "Failed to save event", details: updateError.message, code: updateError.code },
-        { status: 400 },
-      )
-    }
-
-    return NextResponse.json(event, { status: 201 })
+    return NextResponse.json({ event: data }, { status: 201 })
   } catch (error) {
     console.error("POST /api/v1/events error:", error)
     return NextResponse.json(

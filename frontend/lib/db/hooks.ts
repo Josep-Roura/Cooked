@@ -1,13 +1,22 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
-import { format } from "date-fns"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { endOfWeek, format, startOfWeek } from "date-fns"
 import type {
   CalendarEvent,
   DashboardOverviewData,
   DateRangeOption,
+  GroceryItem,
   MacroSummary,
   Meal,
+  MealLog,
+  MealPrepSession,
+  MealScheduleItem,
+  MealPlanDay,
+  MealPlanIngredient,
+  MealPlanItem,
+  WeeklyNutritionDay,
+  MacrosDaySummary,
   NutritionDaySummary,
   NutritionDayType,
   NutritionMacros,
@@ -17,14 +26,17 @@ import type {
   NutritionSummary,
   OnboardingProfileInput,
   PlanPreview,
-  ProfileEvent,
   ProfileRow,
+  Recipe,
+  RecipeIngredient,
+  RecipeStep,
   TrainingIntensity,
   TrainingSessionSummary,
   TrainingSummary,
   TrainingType,
   TpWorkout,
   UpcomingEvent,
+  UserEvent,
 } from "@/lib/db/types"
 import {
   fetchActivePlanByDate,
@@ -52,6 +64,23 @@ function mapWorkoutType(value: string | null): TrainingType {
   if (normalized.includes("strength") || normalized.includes("gym")) return "strength"
   if (normalized.includes("rest")) return "rest"
   return "other"
+}
+
+function getWorkoutDurationHours(workout: TpWorkout): number {
+  const actual = workout.actual_hours ?? null
+  const planned = workout.planned_hours ?? null
+  const type = mapWorkoutType(workout.workout_type)
+
+  if (type === "strength" && actual === null && (planned === null || planned === 0)) {
+    return 1
+  }
+
+  const hours = actual ?? planned ?? 0
+  return hours > 0 ? hours : 0
+}
+
+function getWorkoutDurationMinutes(workout: TpWorkout): number {
+  return Math.round(getWorkoutDurationHours(workout) * 60)
 }
 
 function mapIntensity(workout: TpWorkout): TrainingIntensity {
@@ -94,8 +123,7 @@ function calculateEndTime(startTime: string, durationHours: number) {
 
 function buildTrainingSessions(workouts: TpWorkout[]): TrainingSessionSummary[] {
   return workouts.map((workout) => {
-    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 0
-    const durationMinutes = Math.round(durationHours * 60)
+    const durationMinutes = getWorkoutDurationMinutes(workout)
     const calories = Math.round(workout.tss ?? 0)
 
     return {
@@ -118,7 +146,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   workouts.forEach((workout) => {
     const dayLabel = format(new Date(workout.workout_day), "EEE")
-    const durationMinutes = Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60)
+    const durationMinutes = getWorkoutDurationMinutes(workout)
     const calories = Math.round(workout.tss ?? 0)
     const existing = summaryByDay.get(dayLabel)
 
@@ -139,7 +167,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 
   return {
     totalDurationMinutes: workouts.reduce(
-      (sum, workout) => sum + Math.round((workout.actual_hours ?? workout.planned_hours ?? 0) * 60),
+      (sum, workout) => sum + getWorkoutDurationMinutes(workout),
       0,
     ),
     totalCalories: workouts.reduce((sum, workout) => sum + Math.round(workout.tss ?? 0), 0),
@@ -150,7 +178,7 @@ function buildTrainingSummary(workouts: TpWorkout[]): TrainingSummary {
 function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
   return workouts.map((workout) => {
     const type = mapWorkoutType(workout.workout_type)
-    const durationHours = workout.actual_hours ?? workout.planned_hours ?? 1
+    const durationHours = getWorkoutDurationHours(workout) || 1
     const startTime = normalizeStartTime(workout.start_time)
     const endTime = calculateEndTime(startTime, durationHours)
 
@@ -399,12 +427,313 @@ function buildUpcomingEvent(profile: ProfileRow | null): UpcomingEvent | null {
   }
 }
 
+type PreferencesPayload = {
+  units: "metric" | "imperial"
+  theme: "light" | "dark"
+  notifications_enabled: boolean
+}
+
+type MonthWorkoutsPayload = {
+  workouts: TpWorkout[]
+}
+
+type RecipesPayload = {
+  recipes?: Recipe[]
+}
+
+type RecipePayload = {
+  recipe?: Recipe
+  ingredients?: RecipeIngredient[]
+  steps?: RecipeStep[]
+}
+
+type MealSchedulePayload = {
+  schedule?: MealScheduleItem[]
+}
+
+type GroceryPayload = {
+  items?: GroceryItem[]
+}
+
+type MealLogPayload = {
+  meal_log?: MealLog[]
+}
+
+type MealPrepPayload = {
+  sessions?: MealPrepSession[]
+}
+
+type UserEventsPayload = {
+  events?: UserEvent[]
+}
+
+type MealPlanDayPayload = {
+  plan?: MealPlanDay
+  items?: MealPlanItem[]
+}
+
+type MacrosDayPayload = MacrosDaySummary
+
+async function fetchPreferences() {
+  const response = await fetch("/api/v1/settings/preferences")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load preferences")
+  }
+  return (await response.json()) as PreferencesPayload
+}
+
+async function patchPreferences(payload: Partial<PreferencesPayload>) {
+  const response = await fetch("/api/v1/settings/preferences", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to update preferences")
+  }
+  return (await response.json()) as PreferencesPayload
+}
+
+async function fetchMonthWorkouts(year: number, month: number) {
+  const response = await fetch(`/api/v1/workouts/month?year=${year}&month=${month}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load workouts")
+  }
+  const data = (await response.json()) as MonthWorkoutsPayload
+  return data.workouts ?? []
+}
+
+async function fetchNutritionDay(date: string) {
+  const response = await fetch(`/api/v1/nutrition/day?date=${date}`)
+  if (response.status === 404) {
+    return { exists: false, plan: null }
+  }
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load nutrition day")
+  }
+  const data = (await response.json()) as NutritionDayPlan
+  return { exists: true, plan: data }
+}
+
+async function fetchRecipes() {
+  const response = await fetch("/api/v1/food/recipes")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load recipes")
+  }
+  const data = (await response.json()) as RecipesPayload
+  return Array.isArray(data.recipes) ? data.recipes : []
+}
+
+async function fetchRecipe(recipeId: string) {
+  const response = await fetch(`/api/v1/food/recipes/${recipeId}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load recipe")
+  }
+  const data = (await response.json()) as RecipePayload
+  return {
+    recipe: data.recipe ?? null,
+    ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+    steps: Array.isArray(data.steps) ? data.steps : [],
+  }
+}
+
+async function fetchMealSchedule(start: string, end: string) {
+  const response = await fetch(`/api/v1/food/schedule?start=${start}&end=${end}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal schedule")
+  }
+  const data = (await response.json()) as MealSchedulePayload
+  return Array.isArray(data.schedule) ? data.schedule : []
+}
+
+async function fetchGrocery(start?: string, end?: string) {
+  const params = new URLSearchParams()
+  if (start && end) {
+    params.set("start", start)
+    params.set("end", end)
+  }
+  const response = await fetch(`/api/v1/food/grocery?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load grocery list")
+  }
+  const data = (await response.json()) as GroceryPayload
+  return Array.isArray(data.items) ? data.items : []
+}
+
+async function fetchMealLog(date: string) {
+  const response = await fetch(`/api/v1/food/meal-log?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal log")
+  }
+  const data = (await response.json()) as MealLogPayload
+  return Array.isArray(data.meal_log) ? data.meal_log : []
+}
+
+async function fetchMealPrep(start?: string, end?: string) {
+  const params = new URLSearchParams()
+  if (start && end) {
+    params.set("start", start)
+    params.set("end", end)
+  }
+  const response = await fetch(`/api/v1/food/prep-sessions?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal prep")
+  }
+  const data = (await response.json()) as MealPrepPayload
+  return Array.isArray(data.sessions) ? data.sessions : []
+}
+
+async function fetchUserEvents(from: string, to: string) {
+  const params = new URLSearchParams({ from, to })
+  const response = await fetch(`/api/v1/events?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load events")
+  }
+  const data = (await response.json()) as UserEventsPayload
+  return Array.isArray(data.events) ? data.events : []
+}
+
+async function fetchMealPlanDay(date: string) {
+  const response = await fetch(`/api/v1/meals/day?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal plan")
+  }
+  const data = (await response.json()) as MealPlanDayPayload
+  if (data.plan && Array.isArray(data.items)) {
+    return { plan: data.plan, items: data.items }
+  }
+  return { plan: null, items: [] }
+}
+
+async function fetchMacrosDay(date: string) {
+  const response = await fetch(`/api/v1/macros/day?date=${date}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load macros")
+  }
+  return (await response.json()) as MacrosDayPayload
+}
+
+async function fetchWeeklyNutrition(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/nutrition/week?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load weekly nutrition")
+  }
+  const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
+  return Array.isArray(data.days) ? data.days : []
+}
+
+export function useWeekRange(anchorDate: Date) {
+  const start = startOfWeek(anchorDate, { weekStartsOn: 1 })
+  const end = endOfWeek(anchorDate, { weekStartsOn: 1 })
+  return {
+    start,
+    end,
+    startKey: format(start, "yyyy-MM-dd"),
+    endKey: format(end, "yyyy-MM-dd"),
+  }
+}
+
+export function useWeeklyNutrition(userId: string | null | undefined, weekStart: string, weekEnd: string) {
+  return useQuery({
+    queryKey: ["db", "nutrition-week", userId, weekStart, weekEnd],
+    queryFn: () => fetchWeeklyNutrition(weekStart, weekEnd),
+    enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
+    staleTime: 1000 * 30,
+  })
+}
+
 export function useProfile(userId: string | null | undefined) {
   return useQuery({
     queryKey: ["db", "profile", userId],
     queryFn: () => fetchProfile(userId as string),
     enabled: Boolean(userId),
     staleTime: 1000 * 60,
+  })
+}
+
+export function usePreferences(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "preferences", userId],
+    queryFn: fetchPreferences,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useUpdatePreferences(userId: string | null | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: patchPreferences,
+    onMutate: async (nextPayload) => {
+      await queryClient.cancelQueries({ queryKey: ["db", "preferences", userId] })
+      const previous = queryClient.getQueryData<PreferencesPayload>(["db", "preferences", userId])
+
+      if (previous) {
+        const updated = { ...previous, ...nextPayload }
+        queryClient.setQueryData(["db", "preferences", userId], updated)
+        queryClient.setQueryData<ProfileRow | null | undefined>(["db", "profile", userId], (current) =>
+          current
+            ? {
+                ...current,
+                units: updated.units,
+                meta: {
+                  ...(typeof current.meta === "object" && current.meta ? current.meta : {}),
+                  theme: updated.theme,
+                  notifications_enabled: updated.notifications_enabled,
+                },
+              }
+            : current,
+        )
+      }
+
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["db", "preferences", userId], context.previous)
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["db", "preferences", userId], data)
+      queryClient.setQueryData<ProfileRow | null | undefined>(["db", "profile", userId], (current) =>
+        current
+          ? {
+              ...current,
+              units: data.units,
+              meta: {
+                ...(typeof current.meta === "object" && current.meta ? current.meta : {}),
+                theme: data.theme,
+                notifications_enabled: data.notifications_enabled,
+              },
+            }
+          : current,
+      )
+    },
+  })
+}
+
+export function useMonthWorkouts(userId: string | null | undefined, year: number, month: number) {
+  return useQuery({
+    queryKey: ["db", "month-workouts", userId, year, month],
+    queryFn: () => fetchMonthWorkouts(year, month),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
   })
 }
 
@@ -444,6 +773,26 @@ export function useTrainingWorkouts(
       return fetchWorkoutsByDateRange(userId as string, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
     },
     enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useTrainingSessions(
+  userId: string | null | undefined,
+  startDate: string,
+  endDate: string,
+) {
+  return useQuery({
+    queryKey: ["db", "training-sessions", userId, startDate, endDate],
+    queryFn: async () => {
+      const workouts = await fetchWorkoutsByDateRange(
+        userId as string,
+        startDate,
+        endDate,
+      )
+      return buildTrainingSessions(workouts)
+    },
+    enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
     staleTime: 1000 * 30,
   })
 }
@@ -538,21 +887,180 @@ export function useNutritionDayPlan(
 ) {
   return useQuery({
     queryKey: ["db", "nutrition-day", userId, date],
-    queryFn: async () => {
-      const response = await fetch(`/api/v1/nutrition/day?date=${date}`)
-      if (response.status === 404) {
-        return { exists: false, plan: null }
-      }
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to load nutrition day")
-      }
-      const data = (await response.json()) as NutritionDayPlan
-      return { exists: true, plan: data }
-    },
+    queryFn: () => fetchNutritionDay(date),
     enabled: Boolean(userId) && Boolean(date),
     staleTime: 1000 * 30,
   })
+}
+
+export function useNutritionDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "nutrition-day", userId, date],
+    queryFn: () => fetchNutritionDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useMealPlanDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "meal-plan-day", userId, date],
+    queryFn: () => fetchMealPlanDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useMacrosDay(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "macros-day", userId, date],
+    queryFn: () => fetchMacrosDay(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useEnsureMealPlans() {
+  return useMutation({
+    mutationFn: async ({ start, end }: { start: string; end: string }) => {
+      const params = new URLSearchParams({ start, end })
+      const response = await fetch(`/api/v1/meals/ensure?${params.toString()}`, { method: "POST" })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to ensure meals")
+      }
+      return response.json()
+    },
+  })
+}
+
+export function useUpdateMealPlanItem() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Partial<Pick<MealPlanItem, "eaten" | "name" | "time" | "notes">>
+    }) => {
+      const response = await fetch(`/api/v1/meals/item/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update meal")
+      }
+      return (await response.json()) as { item: MealPlanItem }
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "macros-day"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-item", variables.id] })
+    },
+  })
+}
+
+export function useUpdateMealIngredient() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
+      const response = await fetch(`/api/v1/meals/ingredient/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checked }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update ingredient")
+      }
+      return (await response.json()) as { ingredient: MealPlanIngredient }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
+    },
+  })
+}
+
+export function useRecipes(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "food-recipes", userId],
+    queryFn: fetchRecipes,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useRecipe(userId: string | null | undefined, recipeId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "food-recipe", userId, recipeId],
+    queryFn: () => fetchRecipe(recipeId as string),
+    enabled: Boolean(userId) && Boolean(recipeId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export function useMealSchedule(userId: string | null | undefined, start: string, end: string) {
+  return useQuery({
+    queryKey: ["db", "food-schedule", userId, start, end],
+    queryFn: () => fetchMealSchedule(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useGrocery(userId: string | null | undefined, start?: string, end?: string) {
+  return useQuery({
+    queryKey: ["db", "food-grocery", userId, start, end],
+    queryFn: () => fetchGrocery(start, end),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useMealLog(userId: string | null | undefined, date: string) {
+  return useQuery({
+    queryKey: ["db", "food-meal-log", userId, date],
+    queryFn: () => fetchMealLog(date),
+    enabled: Boolean(userId) && Boolean(date),
+    staleTime: 1000 * 15,
+  })
+}
+
+export function useMealPrep(userId: string | null | undefined, start?: string, end?: string) {
+  return useQuery({
+    queryKey: ["db", "food-meal-prep", userId, start, end],
+    queryFn: () => fetchMealPrep(start, end),
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+  })
+}
+
+export async function updateMealCompletion({
+  date,
+  slot,
+  completed,
+}: {
+  date: string
+  slot: number
+  completed: boolean
+}) {
+  const response = await fetch("/api/v1/nutrition/meal", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, slot, completed }),
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to update meal")
+  }
+  const data = (await response.json()) as { meals?: Meal[] }
+  return Array.isArray(data.meals) ? data.meals : []
 }
 
 export function useCalendarEvents(
@@ -591,5 +1099,86 @@ export function useCalendarEvents(
     },
     enabled: Boolean(userId),
     staleTime: 1000 * 30,
+  })
+}
+
+export function useUserEvents(
+  userId: string | null | undefined,
+  from: string,
+  to: string,
+) {
+  return useQuery({
+    queryKey: ["db", "events", userId, from, to],
+    queryFn: () => fetchUserEvents(from, to),
+    enabled: Boolean(userId) && Boolean(from) && Boolean(to),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useCreateEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (payload: Omit<UserEvent, "id" | "user_id" | "created_at" | "updated_at">) => {
+      const response = await fetch("/api/v1/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to create event")
+      }
+      return (await response.json()) as { event: UserEvent }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
+  })
+}
+
+export function useUpdateEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Partial<Omit<UserEvent, "id" | "user_id" | "created_at" | "updated_at">>
+    }) => {
+      const response = await fetch(`/api/v1/events/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to update event")
+      }
+      return (await response.json()) as { event: UserEvent }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
+  })
+}
+
+export function useDeleteEvent() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/v1/events/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to delete event")
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "events"] })
+    },
   })
 }
