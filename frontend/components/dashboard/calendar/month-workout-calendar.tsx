@@ -16,14 +16,15 @@ import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { useMealSchedule, useMonthWorkouts } from "@/lib/db/hooks"
-import type { MealScheduleItem, TpWorkout } from "@/lib/db/types"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useMonthWorkouts } from "@/lib/db/hooks"
+import type { TpWorkout } from "@/lib/db/types"
 
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -96,12 +97,6 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
   const monthEnd = endOfMonth(currentDate)
   const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 })
   const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 })
-  const scheduleQuery = useMealSchedule(
-    userId,
-    format(calendarStart, "yyyy-MM-dd"),
-    format(calendarEnd, "yyyy-MM-dd"),
-  )
-
   const days = useMemo(() => {
     const result: Date[] = []
     let cursor = calendarStart
@@ -124,17 +119,6 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     return map
   }, [workoutsQuery.data])
 
-  const mealsByDay = useMemo(() => {
-    const map = new Map<string, MealScheduleItem[]>()
-    scheduleQuery.data?.forEach((meal) => {
-      if (!map.has(meal.date)) {
-        map.set(meal.date, [])
-      }
-      map.get(meal.date)?.push(meal)
-    })
-    map.forEach((items) => items.sort((a, b) => a.slot - b.slot))
-    return map
-  }, [scheduleQuery.data])
 
   const handlePrevMonth = () => {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
@@ -148,16 +132,15 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     setCurrentDate(new Date())
   }
 
-  if (workoutsQuery.isError || scheduleQuery.isError) {
+  if (workoutsQuery.isError) {
     return <ErrorState onRetry={() => {
       workoutsQuery.refetch()
-      scheduleQuery.refetch()
     }} />
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sticky top-0 z-10 bg-background/95 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={handlePrevMonth} type="button">
             <ChevronLeft className="h-5 w-5" />
@@ -186,18 +169,18 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 auto-rows-fr">
+          <TooltipProvider>
+            <div className="grid grid-cols-7 auto-rows-[minmax(180px,1fr)]">
             {days.map((date) => {
               const dateKey = format(date, "yyyy-MM-dd")
               const dayWorkouts = workoutsByDay.get(dateKey) ?? []
-              const dayMeals = mealsByDay.get(dateKey) ?? []
-              const visibleMeals = dayMeals.slice(0, 2)
+              const visibleWorkouts = dayWorkouts.slice(0, 2)
               const inMonth = isSameMonth(date, currentDate)
               const isToday = isSameDay(date, new Date())
               return (
                 <div
                   key={dateKey}
-                  className={`border-b border-border/50 border-r border-border/50 p-3 min-h-[160px] flex flex-col gap-2 ${
+                  className={`border-b border-border/50 border-r border-border/50 p-3 min-h-[180px] flex flex-col gap-2 ${
                     inMonth ? "bg-background" : "bg-muted/20"
                   } ${isToday ? "bg-primary/10" : ""}`}
                 >
@@ -213,66 +196,62 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                       <span className="text-xs text-muted-foreground">{dayWorkouts.length} workouts</span>
                     )}
                   </div>
-                  <div className="flex flex-col gap-2 overflow-y-auto pr-1 max-h-[120px]">
-                    {dayWorkouts.map((workout) => {
+                  <div className="flex flex-col gap-2 overflow-y-auto pr-1 max-h-[130px]">
+                    {visibleWorkouts.map((workout) => {
                       const type = normalizeWorkoutType(workout.workout_type)
                       const duration = formatDuration(workout.actual_hours ?? workout.planned_hours ?? null)
                       const distance = formatDistance(workout.actual_km ?? workout.planned_km ?? null)
                       const metrics = [duration, distance].filter(Boolean).join(" • ")
                       return (
-                        <button
-                          key={workout.id}
-                          type="button"
-                          onClick={() => setSelectedWorkout(workout)}
-                          className="w-full text-left rounded-lg border border-border bg-background px-3 py-2 hover:bg-muted transition"
-                        >
-                          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                            <span className={`rounded-full p-1 ${workoutColors[type]}`}>
-                              <WorkoutIcon type={type} />
-                            </span>
-                            <span className="truncate">{workout.title ?? workout.workout_type ?? "Workout"}</span>
-                          </div>
-                          {metrics && <div className="text-xs text-muted-foreground mt-1">{metrics}</div>}
-                        </button>
+                        <Tooltip key={workout.id}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedWorkout(workout)}
+                              className="w-full text-left rounded-lg border border-border bg-background px-3 py-2 hover:bg-muted transition"
+                            >
+                              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                                <span className={`rounded-full p-1 ${workoutColors[type]}`}>
+                                  <WorkoutIcon type={type} />
+                                </span>
+                                <span className="truncate">{workout.title ?? workout.workout_type ?? "Workout"}</span>
+                              </div>
+                              {metrics && <div className="text-xs text-muted-foreground mt-1">{metrics}</div>}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            <div className="font-semibold">{workout.title ?? workout.workout_type ?? "Workout"}</div>
+                            {metrics && <div className="text-muted-foreground">{metrics}</div>}
+                          </TooltipContent>
+                        </Tooltip>
                       )
                     })}
-                    {visibleMeals.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {visibleMeals.map((meal) => (
-                          <span
-                            key={meal.id}
-                            className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600"
-                          >
-                            {meal.name}
-                          </span>
-                        ))}
-                        {dayMeals.length > visibleMeals.length && (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                            +{dayMeals.length - visibleMeals.length} more
-                          </span>
-                        )}
-                      </div>
+                    {dayWorkouts.length > visibleWorkouts.length && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground w-fit">
+                        +{dayWorkouts.length - visibleWorkouts.length} more
+                      </span>
                     )}
                   </div>
                 </div>
               )
             })}
           </div>
+          </TooltipProvider>
         </div>
       )}
 
-      <Dialog open={Boolean(selectedWorkout)} onOpenChange={(open) => !open && setSelectedWorkout(null)}>
-        <DialogContent>
+      <Sheet open={Boolean(selectedWorkout)} onOpenChange={(open) => !open && setSelectedWorkout(null)}>
+        <SheetContent>
           {selectedWorkout && (
             <>
-              <DialogHeader>
-                <DialogTitle>{selectedWorkout.title ?? selectedWorkout.workout_type ?? "Workout"}</DialogTitle>
-                <DialogDescription>
+              <SheetHeader>
+                <SheetTitle>{selectedWorkout.title ?? selectedWorkout.workout_type ?? "Workout"}</SheetTitle>
+                <SheetDescription>
                   {format(new Date(selectedWorkout.workout_day), "EEEE, MMM d")}{" "}
                   {selectedWorkout.start_time ? `· ${selectedWorkout.start_time}` : ""}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-3 text-sm text-foreground">
+                </SheetDescription>
+              </SheetHeader>
+              <div className="grid gap-3 text-sm text-foreground mt-6">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Type:</span>
                   <span>{selectedWorkout.workout_type ?? "Training"}</span>
@@ -293,11 +272,17 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                 {selectedWorkout.description && (
                   <p className="text-sm text-muted-foreground">{selectedWorkout.description}</p>
                 )}
+                {selectedWorkout.coach_comments && (
+                  <p className="text-sm text-muted-foreground">{selectedWorkout.coach_comments}</p>
+                )}
+                {selectedWorkout.athlete_comments && (
+                  <p className="text-sm text-muted-foreground">{selectedWorkout.athlete_comments}</p>
+                )}
               </div>
             </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -3,21 +3,39 @@
 import { useMemo, useState } from "react"
 import { endOfWeek, format, startOfWeek, eachDayOfInterval, isSameDay } from "date-fns"
 import { useQueryClient } from "@tanstack/react-query"
-import { Check, ChefHat, ListChecks, ShoppingBasket } from "lucide-react"
+import { Check, ChefHat, ListChecks, ShoppingBasket, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useSession } from "@/hooks/use-session"
-import { useGrocery, useMealLog, useMealPrep, useMealSchedule, useRecipes } from "@/lib/db/hooks"
-import type { GroceryItem, MealScheduleItem } from "@/lib/db/types"
+import { useGrocery, useMealLog, useMealPrep, useMealSchedule, useRecipe, useRecipes } from "@/lib/db/hooks"
+import type { GroceryItem, MealScheduleItem, Recipe } from "@/lib/db/types"
 
 export default function FoodPage() {
   const { user } = useSession()
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [isGenerating, setIsGenerating] = useState(false)
+  const [recipeDialogOpen, setRecipeDialogOpen] = useState(false)
+  const [viewRecipeId, setViewRecipeId] = useState<string | null>(null)
+  const [recipeForm, setRecipeForm] = useState({
+    title: "",
+    emoji: "",
+    servings: 1,
+    kcal: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+    ingredients: "",
+    steps: "",
+    tags: "",
+  })
 
   const today = new Date()
   const weekStart = startOfWeek(today, { weekStartsOn: 1 })
@@ -26,6 +44,7 @@ export default function FoodPage() {
   const endDate = format(weekEnd, "yyyy-MM-dd")
 
   const recipesQuery = useRecipes(user?.id)
+  const recipeDetailsQuery = useRecipe(user?.id, viewRecipeId)
   const scheduleQuery = useMealSchedule(user?.id, startDate, endDate)
   const groceryQuery = useGrocery(user?.id, startDate, endDate)
   const mealPrepQuery = useMealPrep(user?.id, startDate, endDate)
@@ -57,6 +76,19 @@ export default function FoodPage() {
     () => eachDayOfInterval({ start: weekStart, end: weekEnd }),
     [weekStart, weekEnd],
   )
+
+  const mealSlots = [
+    { slot: 1, label: "Breakfast" },
+    { slot: 2, label: "Lunch" },
+    { slot: 3, label: "Dinner" },
+    { slot: 4, label: "Snack" },
+  ]
+
+  const recipesById = useMemo(() => {
+    const map = new Map<string, Recipe>()
+    recipesQuery.data?.forEach((recipe) => map.set(recipe.id, recipe))
+    return map
+  }, [recipesQuery.data])
 
   const handleGenerateGrocery = async () => {
     setIsGenerating(true)
@@ -101,6 +133,96 @@ export default function FoodPage() {
     await queryClient.invalidateQueries({ queryKey: ["db", "food-grocery"] })
   }
 
+  const handleCreateRecipe = async () => {
+    try {
+      const ingredients = recipeForm.ingredients
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((name) => ({ name }))
+      const steps = recipeForm.steps
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((instruction, index) => ({ step_number: index + 1, instruction }))
+      const tags = recipeForm.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+      const response = await fetch("/api/v1/food/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: recipeForm.title,
+          emoji: recipeForm.emoji,
+          servings: recipeForm.servings,
+          macros_kcal: recipeForm.kcal,
+          macros_protein_g: recipeForm.protein,
+          macros_carbs_g: recipeForm.carbs,
+          macros_fat_g: recipeForm.fat,
+          ingredients,
+          steps,
+          tags,
+        }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Unable to create recipe.")
+      }
+      await recipesQuery.refetch()
+      setRecipeForm({
+        title: "",
+        emoji: "",
+        servings: 1,
+        kcal: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        ingredients: "",
+        steps: "",
+        tags: "",
+      })
+      setRecipeDialogOpen(false)
+      toast({ title: "Recipe created", description: "Your recipe is ready to use." })
+    } catch (error) {
+      toast({
+        title: "Recipe failed",
+        description: error instanceof Error ? error.message : "Unable to create recipe.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleAssignRecipe = async (dateKey: string, slot: number, recipeId: string | null) => {
+    const recipe = recipeId ? recipesById.get(recipeId) : null
+    const response = await fetch("/api/v1/food/schedule", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date: dateKey,
+        slot,
+        name: recipe?.title ?? mealSlots.find((meal) => meal.slot === slot)?.label ?? "Meal",
+        recipe_id: recipe?.id ?? null,
+        kcal: recipe?.macros_kcal ?? 0,
+        protein_g: recipe?.macros_protein_g ?? 0,
+        carbs_g: recipe?.macros_carbs_g ?? 0,
+        fat_g: recipe?.macros_fat_g ?? 0,
+        ingredients: null,
+      }),
+    })
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}))
+      toast({
+        title: "Planner update failed",
+        description: errorBody?.error ?? "Unable to update meal plan.",
+        variant: "destructive",
+      })
+      return
+    }
+    await queryClient.invalidateQueries({ queryKey: ["db", "food-schedule"] })
+    toast({ title: "Planner updated", description: "Meal plan saved." })
+  }
+
   if (recipesQuery.isError || scheduleQuery.isError || groceryQuery.isError || mealPrepQuery.isError) {
     return (
       <main className="flex-1 p-8 overflow-auto">
@@ -133,9 +255,12 @@ export default function FoodPage() {
                 <ChefHat className="h-4 w-4 text-primary" />
                 Recipes
               </CardTitle>
-              <span className="text-xs text-muted-foreground">
-                {recipesQuery.data?.length ?? 0} total
-              </span>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{recipesQuery.data?.length ?? 0} total</span>
+                <Button variant="outline" size="icon" onClick={() => setRecipeDialogOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {recipesQuery.isLoading ? (
@@ -146,7 +271,12 @@ export default function FoodPage() {
                 </div>
               ) : recipesQuery.data && recipesQuery.data.length > 0 ? (
                 recipesQuery.data.slice(0, 4).map((recipe) => (
-                  <div key={recipe.id} className="flex items-center justify-between text-sm">
+                  <button
+                    key={recipe.id}
+                    className="flex items-center justify-between text-sm text-left w-full"
+                    onClick={() => setViewRecipeId(recipe.id)}
+                    type="button"
+                  >
                     <div>
                       <p className="font-medium text-foreground">{recipe.title}</p>
                       <p className="text-xs text-muted-foreground">
@@ -154,7 +284,7 @@ export default function FoodPage() {
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">{recipe.macros_kcal} kcal</span>
-                  </div>
+                  </button>
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">No recipes yet. Start with a favorite meal.</p>
@@ -184,7 +314,7 @@ export default function FoodPage() {
                     const dateKey = format(day, "yyyy-MM-dd")
                     const items = scheduleByDate.get(dateKey) ?? []
                     return (
-                      <div key={dateKey} className="rounded-xl border border-border p-3 space-y-2">
+                      <div key={dateKey} className="rounded-xl border border-border p-3 space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold text-foreground">
                             {format(day, "EEE, MMM d")}
@@ -193,29 +323,44 @@ export default function FoodPage() {
                             <span className="text-xs text-primary">Today</span>
                           )}
                         </div>
-                        {items.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No meals planned.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {items.map((meal) => (
-                              <div key={meal.id} className="flex items-center justify-between text-xs">
-                                <div>
-                                  <p className="font-medium text-foreground">
-                                    {meal.name}
+                        <div className="space-y-3">
+                          {mealSlots.map((slot) => {
+                            const assigned = items.find((item) => item.slot === slot.slot)
+                            return (
+                              <div key={slot.slot} className="space-y-1">
+                                <p className="text-xs text-muted-foreground">{slot.label}</p>
+                                <Select
+                                  value={assigned?.recipe_id ?? "none"}
+                                  onValueChange={(value) =>
+                                    handleAssignRecipe(dateKey, slot.slot, value === "none" ? null : value)
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 text-xs">
+                                    <SelectValue placeholder="Pick a recipe" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">No recipe</SelectItem>
+                                    {(recipesQuery.data ?? []).map((recipe) => (
+                                      <SelectItem key={recipe.id} value={recipe.id}>
+                                        {recipe.title}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {assigned && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {assigned.kcal} kcal · P{assigned.protein_g} C{assigned.carbs_g} F{assigned.fat_g}
+                                    {isSameDay(day, today) && loggedSlots.has(assigned.slot) && (
+                                      <span className="inline-flex items-center gap-1 text-primary ml-2">
+                                        <Check className="h-3 w-3" /> Logged
+                                      </span>
+                                    )}
                                   </p>
-                                  <p className="text-muted-foreground">
-                                    {meal.kcal} kcal · P{meal.protein_g} C{meal.carbs_g} F{meal.fat_g}
-                                  </p>
-                                </div>
-                                {isSameDay(day, today) && loggedSlots.has(meal.slot) && (
-                                  <span className="inline-flex items-center gap-1 text-primary">
-                                    <Check className="h-3 w-3" /> Logged
-                                  </span>
                                 )}
                               </div>
-                            ))}
-                          </div>
-                        )}
+                            )
+                          })}
+                        </div>
                       </div>
                     )
                   })}
@@ -314,6 +459,116 @@ export default function FoodPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={recipeDialogOpen} onOpenChange={setRecipeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New recipe</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input
+                placeholder="Emoji"
+                value={recipeForm.emoji}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, emoji: event.target.value }))}
+              />
+              <Input
+                placeholder="Recipe title"
+                value={recipeForm.title}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, title: event.target.value }))}
+              />
+              <Input
+                type="number"
+                min={1}
+                placeholder="Servings"
+                value={recipeForm.servings}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, servings: Number(event.target.value) }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Input
+                type="number"
+                placeholder="kcal"
+                value={recipeForm.kcal}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, kcal: Number(event.target.value) }))}
+              />
+              <Input
+                type="number"
+                placeholder="Protein g"
+                value={recipeForm.protein}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, protein: Number(event.target.value) }))}
+              />
+              <Input
+                type="number"
+                placeholder="Carbs g"
+                value={recipeForm.carbs}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, carbs: Number(event.target.value) }))}
+              />
+              <Input
+                type="number"
+                placeholder="Fat g"
+                value={recipeForm.fat}
+                onChange={(event) => setRecipeForm((prev) => ({ ...prev, fat: Number(event.target.value) }))}
+              />
+            </div>
+            <Textarea
+              placeholder="Ingredients (one per line)"
+              value={recipeForm.ingredients}
+              onChange={(event) => setRecipeForm((prev) => ({ ...prev, ingredients: event.target.value }))}
+            />
+            <Textarea
+              placeholder="Steps (one per line)"
+              value={recipeForm.steps}
+              onChange={(event) => setRecipeForm((prev) => ({ ...prev, steps: event.target.value }))}
+            />
+            <Input
+              placeholder="Tags (comma-separated)"
+              value={recipeForm.tags}
+              onChange={(event) => setRecipeForm((prev) => ({ ...prev, tags: event.target.value }))}
+            />
+            <Button onClick={handleCreateRecipe} className="w-full rounded-full text-xs" type="button">
+              Save recipe
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(viewRecipeId)} onOpenChange={(open) => !open && setViewRecipeId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{recipeDetailsQuery.data?.recipe?.title ?? "Recipe"}</DialogTitle>
+          </DialogHeader>
+          {recipeDetailsQuery.isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <div className="flex flex-wrap gap-3 text-xs">
+                <span>{recipeDetailsQuery.data?.recipe?.servings ?? 1} servings</span>
+                <span>{recipeDetailsQuery.data?.recipe?.macros_kcal ?? 0} kcal</span>
+                <span>P{recipeDetailsQuery.data?.recipe?.macros_protein_g ?? 0}</span>
+                <span>C{recipeDetailsQuery.data?.recipe?.macros_carbs_g ?? 0}</span>
+                <span>F{recipeDetailsQuery.data?.recipe?.macros_fat_g ?? 0}</span>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground mb-1">Ingredients</p>
+                <ul className="list-disc list-inside space-y-1">
+                  {(recipeDetailsQuery.data?.ingredients ?? []).map((ingredient) => (
+                    <li key={ingredient.id}>{ingredient.name}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground mb-1">Steps</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  {(recipeDetailsQuery.data?.steps ?? []).map((step) => (
+                    <li key={step.id}>{step.instruction}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
