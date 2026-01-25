@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
-export async function GET(_req: NextRequest, context: { params: { id: string } }) {
+export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const recipeId = context.params.id
+    const { id: recipeId } = await context.params
     const supabase = await createServerClient()
     const {
       data: { user },
@@ -52,9 +52,9 @@ export async function GET(_req: NextRequest, context: { params: { id: string } }
   }
 }
 
-export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const recipeId = context.params.id
+    const { id: recipeId } = await context.params
     const supabase = await createServerClient()
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== "object") {
@@ -140,9 +140,9 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
   }
 }
 
-export async function DELETE(_req: NextRequest, context: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const recipeId = context.params.id
+    const { id: recipeId } = await context.params
     const supabase = await createServerClient()
     const {
       data: { user },
