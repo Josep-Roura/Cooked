@@ -351,7 +351,7 @@ export async function POST(req: NextRequest) {
     const { error: deleteError } = await supabase
       .from("nutrition_plan_rows")
       .delete()
-      .eq("user_id", user.id)
+      .eq("plan_id", planId)
       .gte("date", range.start)
       .lte("date", range.end)
 
@@ -360,7 +360,6 @@ export async function POST(req: NextRequest) {
     }
 
     const rowsToInsert: Array<{
-      user_id: string
       plan_id: string
       date: string
       day_type: NutritionDayType
@@ -388,7 +387,6 @@ export async function POST(req: NextRequest) {
       const meals = alignMealTimes(mealsWithMacros, dailyWorkouts)
 
       rowsToInsert.push({
-        user_id: user.id,
         plan_id: planId,
         date: dateKey,
         day_type: dayType,
