@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
     const { data: targetRows, error: targetError } = await supabase
       .from("nutrition_plan_rows")
-      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at")
+      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, day_type")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -80,75 +80,47 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    const { data: plans, error: plansError } = await supabase
-      .from("meal_plans")
-      .select("id, date")
-      .eq("user_id", user.id)
-      .gte("date", start)
-      .lte("date", end)
-
-    if (plansError) {
-      return NextResponse.json({ error: "Failed to load meal plans", details: plansError.message }, { status: 400 })
-    }
-
-    const planDateMap = new Map<string, string>()
-    ;(plans ?? []).forEach((plan) => {
-      planDateMap.set(plan.id, plan.date)
-    })
-
-    const planIds = (plans ?? []).map((plan) => plan.id)
     const consumedMap = new Map<
       string,
       { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number }
     >()
 
-    if (planIds.length > 0) {
-      const { data: mealLog } = await supabase
-        .from("meal_log")
-        .select("date, slot, is_eaten")
-        .eq("user_id", user.id)
-        .gte("date", start)
-        .lte("date", end)
+    const { data: meals, error: mealsError } = await supabase
+      .from("nutrition_meals")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten")
+      .eq("user_id", user.id)
+      .gte("date", start)
+      .lte("date", end)
 
-      const eatenSlotsByDate = (mealLog ?? []).reduce((map, entry) => {
-        if (!entry.is_eaten) return map
-        if (!map.has(entry.date)) {
-          map.set(entry.date, new Set<number>())
-        }
-        map.get(entry.date)?.add(entry.slot)
-        return map
-      }, new Map<string, Set<number>>())
-
-      const { data: eatenItems, error: itemsError } = await supabase
-        .from("meal_plan_items")
-        .select("meal_plan_id, kcal, protein_g, carbs_g, fat_g, slot")
-        .in("meal_plan_id", planIds)
-
-      if (itemsError) {
-        return NextResponse.json({ error: "Failed to load meals", details: itemsError.message }, { status: 400 })
-      }
-
-      ;(eatenItems ?? []).forEach((item) => {
-        const date = planDateMap.get(item.meal_plan_id)
-        if (!date) return
-        const eatenSlots = eatenSlotsByDate.get(date)
-        if (!eatenSlots || !eatenSlots.has(item.slot)) return
-        const current = consumedMap.get(date) ?? {
-          kcal: 0,
-          protein_g: 0,
-          carbs_g: 0,
-          fat_g: 0,
-          intra_cho_g_per_h: 0,
-        }
-        consumedMap.set(date, {
-          kcal: current.kcal + (item.kcal ?? 0),
-          protein_g: current.protein_g + (item.protein_g ?? 0),
-          carbs_g: current.carbs_g + (item.carbs_g ?? 0),
-          fat_g: current.fat_g + (item.fat_g ?? 0),
-          intra_cho_g_per_h: 0,
-        })
-      })
+    if (mealsError) {
+      return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
     }
+
+    const mealsByDate = (meals ?? []).reduce((map, meal) => {
+      if (!map.has(meal.date)) {
+        map.set(meal.date, [])
+      }
+      map.get(meal.date)?.push(meal)
+      return map
+    }, new Map<string, typeof meals[number][]>())
+
+    ;(meals ?? []).forEach((meal) => {
+      if (!meal.eaten) return
+      const current = consumedMap.get(meal.date) ?? {
+        kcal: 0,
+        protein_g: 0,
+        carbs_g: 0,
+        fat_g: 0,
+        intra_cho_g_per_h: 0,
+      }
+      consumedMap.set(meal.date, {
+        kcal: current.kcal + (meal.kcal ?? 0),
+        protein_g: current.protein_g + (meal.protein_g ?? 0),
+        carbs_g: current.carbs_g + (meal.carbs_g ?? 0),
+        fat_g: current.fat_g + (meal.fat_g ?? 0),
+        intra_cho_g_per_h: 0,
+      })
+    })
 
     const days = Array.from({ length: range.days }, (_value, index) => {
       const date = new Date(range.startDate)
@@ -164,6 +136,7 @@ export async function GET(req: NextRequest) {
           intra_cho_g_per_h: 0,
         },
         target: targetMap.get(dateKey) ?? null,
+        meals: mealsByDate.get(dateKey) ?? [],
       }
     })
 

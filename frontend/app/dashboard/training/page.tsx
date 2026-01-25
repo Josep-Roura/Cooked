@@ -9,16 +9,16 @@ import { TrainingList } from "@/components/dashboard/widgets/training-list"
 import { WeeklyHistory } from "@/components/dashboard/training/weekly-history"
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
-import { useEnsureMealPlans, useTrainingSessions } from "@/lib/db/hooks"
+import { useTrainingSessions } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
-import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 const PAGE_SIZE = 3
 
 export default function TrainingPage() {
   const { toast } = useToast()
   const { user } = useSession()
+  const [now] = useState(() => new Date())
   const [range, setRange] = useState<DateRangeOption>("week")
   const [filter, setFilter] = useState<TrainingType | "all">("all")
   const [search, setSearch] = useState("")
@@ -33,21 +33,19 @@ export default function TrainingPage() {
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
   const weekStartKey = format(weekStart, "yyyy-MM-dd")
   const weekEndKey = format(weekEnd, "yyyy-MM-dd")
-  const todayKey = format(new Date(), "yyyy-MM-dd")
+  const todayKey = format(now, "yyyy-MM-dd")
 
   useEffect(() => {
     setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
   }, [range])
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
-  const listStart = isWithinInterval(new Date(), { start: weekStart, end: weekEnd })
-    ? new Date()
+  const listStart = isWithinInterval(now, { start: weekStart, end: weekEnd })
+    ? now
     : weekStart
   const listStartKey = format(listStart, "yyyy-MM-dd")
   const listEndKey = format(endOfWeek(addWeeks(weekStart, page), { weekStartsOn: 1 }), "yyyy-MM-dd")
   const listQuery = useTrainingSessions(user?.id, listStartKey, listEndKey)
-  const ensureMealsMutation = useEnsureMealPlans()
-
   useEffect(() => {
     if (!user?.id || trainingQuery.isLoading) return
     const sessions = trainingQuery.data ?? []
@@ -55,23 +53,7 @@ export default function TrainingPage() {
     const ensureKey = `${user.id}:${weekStartKey}:${weekEndKey}`
     if (ensuredRangeRef.current === ensureKey) return
     ensuredRangeRef.current = ensureKey
-
-    const ensurePlans = async () => {
-      try {
-        await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey })
-        await ensureMealsMutation.mutateAsync({ start: weekStartKey, end: weekEndKey })
-      } catch (error) {
-        console.error("Failed to ensure nutrition plan for training days", error)
-        toast({
-          title: "Nutrition plan update failed",
-          description: error instanceof Error ? error.message : "Unable to update nutrition plans.",
-          variant: "destructive",
-        })
-      }
-    }
-
-    void ensurePlans()
-  }, [ensureMealsMutation, toast, trainingQuery.data, trainingQuery.isLoading, user?.id, weekEndKey, weekStartKey])
+  }, [trainingQuery.data, trainingQuery.isLoading, user?.id, weekEndKey, weekStartKey])
 
   const filteredSessions = useMemo(() => {
     const sessions = listQuery.data ?? []
