@@ -293,6 +293,31 @@ export interface MealScheduleItem {
   updated_at: string
 }
 
+export interface PlanRecipeSummary {
+  id: string
+  title: string
+  description: string | null
+  servings: number
+  macros_kcal: number
+  macros_protein_g: number
+  macros_carbs_g: number
+  macros_fat_g: number
+}
+
+export interface PlanRecipeIngredient {
+  id: string
+  recipe_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  optional: boolean
+}
+
+export interface PlanWeekMeal extends MealScheduleItem {
+  recipe: PlanRecipeSummary | null
+  recipe_ingredients: PlanRecipeIngredient[]
+}
+
 export interface MealLog {
   id: string
   user_id: string
@@ -307,7 +332,7 @@ export interface MealLog {
 export interface PlanChatThread {
   id: string
   user_id: string
-  week_start: string
+  week_start_date: string
   title: string | null
   created_at: string
   updated_at: string

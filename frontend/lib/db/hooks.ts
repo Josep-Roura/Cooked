@@ -15,6 +15,7 @@ import type {
   MealPlanDay,
   MealPlanIngredient,
   MealPlanItem,
+  PlanWeekMeal,
   PlanChatMessage,
   PlanChatThread,
   WeeklyNutritionDay,
@@ -475,7 +476,7 @@ type MealPlanDayPayload = {
 }
 
 type PlanWeekPayload = {
-  meals?: MealScheduleItem[]
+  meals?: PlanWeekMeal[]
 }
 
 type PlanChatPayload = {
