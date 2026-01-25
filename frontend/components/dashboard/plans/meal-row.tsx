@@ -13,15 +13,15 @@ export function MealRow({ meal, onSelect }: MealRowProps) {
     <button
       type="button"
       onClick={() => onSelect(meal)}
-      className="w-full text-left rounded-xl border border-border/60 px-3 py-2 hover:bg-muted/40 transition"
+      className="w-full text-left rounded-lg border border-border/40 bg-background px-3 py-2 hover:bg-muted/30 transition"
     >
       <div className="flex items-center gap-2">
-        <span className="text-lg">{meal.recipe?.title ? "🍽️" : "🥗"}</span>
+        <span className="text-base">{meal.recipe?.title ? "🍽️" : "🥗"}</span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{meal.recipe?.title ?? meal.name}</p>
-          <p className="text-xs text-muted-foreground">Any time</p>
+          <p className="text-[11px] text-muted-foreground">Any time</p>
         </div>
-        <span className="text-xs text-muted-foreground">{meal.kcal} kcal</span>
+        <span className="text-[11px] text-muted-foreground">{meal.kcal} kcal</span>
       </div>
       <div className="flex flex-wrap gap-1 mt-2">
         <Badge variant="secondary" className="text-[10px]">P {meal.protein_g}g</Badge>

@@ -18,11 +18,11 @@ export function DayPlanCard({ date, meals, maxMeals = 4, onSelectMeal, onSelectD
   const extraCount = meals.length - visibleMeals.length
 
   return (
-    <Card className="h-full">
+    <Card className="h-full border-border/60 shadow-none">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center justify-between">
-          <span>{format(date, "EEE")}</span>
-          <span className="text-xs text-muted-foreground">{format(date, "MMM d")}</span>
+        <CardTitle className="text-sm flex items-center justify-between">
+          <span className="font-semibold text-foreground">{format(date, "EEE")}</span>
+          <span className="text-[11px] text-muted-foreground">{format(date, "MMM d")}</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -36,7 +36,7 @@ export function DayPlanCard({ date, meals, maxMeals = 4, onSelectMeal, onSelectD
             {extraCount > 0 && (
               <button
                 type="button"
-                className="text-xs text-primary"
+                className="text-xs text-primary hover:text-primary/80"
                 onClick={() => onSelectDay(date)}
               >
                 + {extraCount} more
