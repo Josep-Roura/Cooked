@@ -1100,19 +1100,19 @@ export function useSendPlanChatMessage(userId: string | null | undefined, weekSt
 
   return useMutation({
     mutationFn: async (content: string) => {
-      const response = await fetch(\"/api/v1/plans/chat\", {
-        method: \"POST\",
-        headers: { \"Content-Type\": \"application/json\" },
+      const response = await fetch("/api/v1/plans/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ week_start: weekStart, content }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? \"Failed to send message\")
+        throw new Error(errorBody?.error ?? "Failed to send message")
       }
       return (await response.json()) as PlanChatPayload
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [\"db\", \"plan-chat\", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
     },
   })
 }
@@ -1123,15 +1123,15 @@ export function useResetPlanChat(userId: string | null | undefined, weekStart: s
   return useMutation({
     mutationFn: async (threadId: string) => {
       const params = new URLSearchParams({ thread_id: threadId })
-      const response = await fetch(`/api/v1/plans/chat?${params.toString()}`, { method: \"DELETE\" })
+      const response = await fetch(`/api/v1/plans/chat?${params.toString()}`, { method: "DELETE" })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? \"Failed to reset chat\")
+        throw new Error(errorBody?.error ?? "Failed to reset chat")
       }
       return response.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [\"db\", \"plan-chat\", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
     },
   })
 }
