@@ -170,6 +170,14 @@ export interface MealPlan {
   user_id: string
   date: string
   plan_row_id: string | null
+  target_kcal: number | null
+  target_protein_g: number | null
+  target_carbs_g: number | null
+  target_fat_g: number | null
+  training_day_type: string | null
+  status: string | null
+  locked: boolean
+  rationale: string | null
   created_at: string
   updated_at: string
 }
@@ -178,6 +186,8 @@ export interface MealPlanItem {
   id: string
   meal_plan_id: string
   slot: number
+  meal_type: string | null
+  sort_order: number | null
   name: string
   time: string | null
   emoji: string | null
@@ -187,6 +197,7 @@ export interface MealPlanItem {
   fat_g: number
   eaten: boolean
   notes: string | null
+  recipe_id: string | null
   created_at: string
   updated_at: string
   ingredients?: MealPlanIngredient[]
@@ -241,6 +252,7 @@ export interface Recipe {
   id: string
   user_id: string
   title: string
+  emoji?: string | null
   description: string | null
   servings: number
   cook_time_min: number | null
@@ -292,6 +304,48 @@ export interface MealScheduleItem {
   updated_at: string
 }
 
+export interface PlanRecipeSummary {
+  id: string
+  title: string
+  description: string | null
+  servings: number
+  macros_kcal: number
+  macros_protein_g: number
+  macros_carbs_g: number
+  macros_fat_g: number
+}
+
+export interface PlanRecipeIngredient {
+  id: string
+  recipe_id: string
+  name: string
+  quantity: number | null
+  unit: string | null
+  optional: boolean
+}
+
+export interface PlanWeekMeal {
+  id: string
+  meal_plan_id: string
+  date: string
+  slot: number
+  meal_type: string | null
+  sort_order: number | null
+  name: string
+  time: string | null
+  emoji: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  notes: string | null
+  recipe_id: string | null
+  created_at: string
+  updated_at: string
+  recipe: PlanRecipeSummary | null
+  recipe_ingredients: PlanRecipeIngredient[]
+}
+
 export interface MealLog {
   id: string
   user_id: string
@@ -301,6 +355,27 @@ export interface MealLog {
   eaten_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface PlanChatThread {
+  id: string
+  user_id: string
+  week_start_date: string
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type PlanChatRole = "user" | "assistant" | "system"
+
+export interface PlanChatMessage {
+  id: string
+  thread_id: string
+  user_id: string
+  role: PlanChatRole
+  content: string
+  meta: Record<string, unknown> | null
+  created_at: string
 }
 
 export interface GroceryItem {

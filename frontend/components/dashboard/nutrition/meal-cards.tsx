@@ -14,6 +14,8 @@ interface MealCardsProps {
   search: string
   isLoading: boolean
   isUpdating: boolean
+  dayTypeLabel?: string
+  dayTypeNote?: string
   onToggleMeal: (mealId: string, eaten: boolean) => void
 }
 
@@ -46,12 +48,16 @@ export function MealCards({
   search,
   isLoading,
   isUpdating,
+  dayTypeLabel,
+  dayTypeNote,
   onToggleMeal,
 }: MealCardsProps) {
   const meals = mealPlan?.items ?? []
   const filteredMeals = filterMeals(meals, search)
   const hasMeals = meals.length > 0
-  const dayType = "training"
+  const dayType = dayTypeLabel ?? "Training day"
+  const dayTypeKey =
+    dayTypeLabel && dayTypeLabel.toLowerCase().includes("rest") ? "rest" : "training"
   const calories = target?.kcal ?? 0
   const protein = target?.protein_g ?? 0
   const carbs = target?.carbs_g ?? 0
@@ -79,13 +85,14 @@ export function MealCards({
       </h3>
       {(mealPlan || target) && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-4">
-          <span className="capitalize">{dayType} day</span>
+          <span className="capitalize">{dayType}</span>
           <span>{calories} kcal</span>
           <span>P: {protein}g</span>
           <span>C: {carbs}g</span>
           <span>F: {fat}g</span>
         </div>
       )}
+      {dayTypeNote && <p className="text-xs text-muted-foreground mb-4">{dayTypeNote}</p>}
       {hasMeals && filteredMeals.length === 0 ? (
         <EmptyState
           icon={Utensils}
@@ -104,11 +111,13 @@ export function MealCards({
             <div
               key={meal.id}
               className={`p-4 rounded-xl border ${
-                meal.eaten ? "bg-emerald-50 border-emerald-200" : dayTypeColors[dayType] ?? "bg-green-100 border-green-200"
+                meal.eaten
+                  ? "bg-emerald-50 border-emerald-200"
+                  : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
               } transition-all hover:shadow-sm`}
             >
               <div className="flex items-start gap-3">
-                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayType] ?? "🥗"}</div>
+                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayTypeKey] ?? "🥗"}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="font-medium text-foreground">{meal.name}</h4>

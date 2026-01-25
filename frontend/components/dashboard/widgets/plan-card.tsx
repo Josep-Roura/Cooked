@@ -14,9 +14,11 @@ interface PlanCardProps {
   date: string
   onPreviousDay: () => void
   onNextDay: () => void
+  onToday?: () => void
   plan: MealPlanDay | null
   isLoading: boolean
   isUpdating: boolean
+  highlightUnchecked?: boolean
   onToggleMeal: (itemId: string, eaten: boolean) => void
   onToggleIngredient: (ingredientId: string, checked: boolean) => void
 }
@@ -34,9 +36,11 @@ export function PlanCard({
   date,
   onPreviousDay,
   onNextDay,
+  onToday,
   plan,
   isLoading,
   isUpdating,
+  highlightUnchecked = false,
   onToggleMeal,
   onToggleIngredient,
 }: PlanCardProps) {
@@ -56,6 +60,11 @@ export function PlanCard({
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Daily meal plan</h3>
         <div className="flex items-center gap-2">
+          {onToday && (
+            <Button variant="ghost" className="rounded-full h-8 px-3 text-xs" onClick={onToday}>
+              Today
+            </Button>
+          )}
           <Button variant="outline" className="rounded-full h-8 w-8 p-0" onClick={onPreviousDay}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -72,7 +81,13 @@ export function PlanCard({
             const checkboxId = `meal-${date}-${meal.slot}`
             const ingredients = meal.ingredients ?? []
             return (
-              <AccordionItem key={meal.slot} value={String(meal.slot)} className="border border-border rounded-xl px-4">
+              <AccordionItem
+                key={meal.slot}
+                value={String(meal.slot)}
+                className={`border border-border rounded-xl px-4 ${
+                  highlightUnchecked && !meal.eaten ? "ring-2 ring-primary/30" : ""
+                }`}
+              >
                 <div className="flex items-start gap-3">
                   <div className="flex items-center gap-2 pt-4">
                     <Checkbox

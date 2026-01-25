@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { addWeeks, endOfWeek, format, isAfter, isWithinInterval, startOfWeek } from "date-fns"
+import { addWeeks, endOfWeek, format, isWithinInterval, startOfWeek } from "date-fns"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
@@ -40,6 +40,12 @@ export default function TrainingPage() {
   }, [range])
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
+  const listStart = isWithinInterval(new Date(), { start: weekStart, end: weekEnd })
+    ? new Date()
+    : weekStart
+  const listStartKey = format(listStart, "yyyy-MM-dd")
+  const listEndKey = format(endOfWeek(addWeeks(weekStart, page), { weekStartsOn: 1 }), "yyyy-MM-dd")
+  const listQuery = useTrainingSessions(user?.id, listStartKey, listEndKey)
   const ensureMealsMutation = useEnsureMealPlans()
 
   useEffect(() => {
@@ -68,18 +74,9 @@ export default function TrainingPage() {
   }, [ensureMealsMutation, toast, trainingQuery.data, trainingQuery.isLoading, user?.id, weekEndKey, weekStartKey])
 
   const filteredSessions = useMemo(() => {
-    const sessions = trainingQuery.data ?? []
-    const isCurrentWeek = isWithinInterval(new Date(), { start: weekStart, end: weekEnd })
-    const isFutureWeek = isAfter(weekStart, new Date())
-
+    const sessions = listQuery.data ?? []
     const visibleSessions = sessions.filter((session) => {
-      if (isCurrentWeek && session.date < todayKey) {
-        return false
-      }
-      if (isFutureWeek && (session.date < weekStartKey || session.date > weekEndKey)) {
-        return false
-      }
-      if (!isCurrentWeek && !isFutureWeek) {
+      if (session.date < listStartKey) {
         return false
       }
       if (filter !== "all" && session.type !== filter) {
@@ -100,10 +97,10 @@ export default function TrainingPage() {
       if (!b.time) return -1
       return a.time.localeCompare(b.time)
     })
-  }, [filter, search, todayKey, trainingQuery.data, weekEnd, weekEndKey, weekStart, weekStartKey])
+  }, [filter, listQuery.data, listStartKey, search])
 
-  const paginatedSessions = filteredSessions.slice(0, PAGE_SIZE * (page + 1))
-  const hasMore = paginatedSessions.length < filteredSessions.length
+  const paginatedSessions = filteredSessions
+  const hasMore = (listQuery.data?.length ?? 0) >= PAGE_SIZE * (page + 1)
 
   const handleLoadMore = () => {
     if (hasMore) {
@@ -178,7 +175,7 @@ export default function TrainingPage() {
             sessions={paginatedSessions}
             total={filteredSessions.length}
             hasMore={hasMore}
-            isLoading={trainingQuery.isLoading}
+            isLoading={trainingQuery.isLoading || listQuery.isLoading}
             onLoadMore={handleLoadMore}
             filter={filter}
             onFilterChange={setFilter}

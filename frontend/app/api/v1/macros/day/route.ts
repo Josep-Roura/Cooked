@@ -43,22 +43,36 @@ export async function GET(req: NextRequest) {
     let consumed = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
 
     if (planIds.length > 0) {
-      const { data: eatenItems } = await supabase
-        .from("meal_plan_items")
-        .select("kcal, protein_g, carbs_g, fat_g")
-        .in("meal_plan_id", planIds)
-        .eq("eaten", true)
+      const { data: mealLog } = await supabase
+        .from("meal_log")
+        .select("slot, is_eaten")
+        .eq("user_id", user.id)
+        .eq("date", date)
 
-      consumed = (eatenItems ?? []).reduce(
-        (acc, item) => {
-          acc.kcal += item.kcal ?? 0
-          acc.protein_g += item.protein_g ?? 0
-          acc.carbs_g += item.carbs_g ?? 0
-          acc.fat_g += item.fat_g ?? 0
-          return acc
-        },
-        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
+      const eatenSlots = new Set(
+        (mealLog ?? []).filter((entry) => entry.is_eaten).map((entry) => entry.slot),
       )
+
+      if (eatenSlots.size > 0) {
+        const { data: eatenItems } = await supabase
+          .from("meal_plan_items")
+          .select("kcal, protein_g, carbs_g, fat_g, slot")
+          .in("meal_plan_id", planIds)
+
+        consumed = (eatenItems ?? []).reduce(
+          (acc, item) => {
+            if (!eatenSlots.has(item.slot)) {
+              return acc
+            }
+            acc.kcal += item.kcal ?? 0
+            acc.protein_g += item.protein_g ?? 0
+            acc.carbs_g += item.carbs_g ?? 0
+            acc.fat_g += item.fat_g ?? 0
+            return acc
+          },
+          { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
+        )
+      }
     }
 
     const target = targetRow
