@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { format } from "date-fns"
+import { endOfWeek, format, startOfWeek } from "date-fns"
 import type {
   CalendarEvent,
   DashboardOverviewData,
@@ -15,6 +15,7 @@ import type {
   MealPlanDay,
   MealPlanIngredient,
   MealPlanItem,
+  WeeklyNutritionDay,
   MacrosDaySummary,
   NutritionDaySummary,
   NutritionDayType,
@@ -625,6 +626,37 @@ async function fetchMacrosDay(date: string) {
   return (await response.json()) as MacrosDayPayload
 }
 
+async function fetchWeeklyNutrition(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/nutrition/week?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load weekly nutrition")
+  }
+  const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
+  return Array.isArray(data.days) ? data.days : []
+}
+
+export function useWeekRange(anchorDate: Date) {
+  const start = startOfWeek(anchorDate, { weekStartsOn: 1 })
+  const end = endOfWeek(anchorDate, { weekStartsOn: 1 })
+  return {
+    start,
+    end,
+    startKey: format(start, "yyyy-MM-dd"),
+    endKey: format(end, "yyyy-MM-dd"),
+  }
+}
+
+export function useWeeklyNutrition(userId: string | null | undefined, weekStart: string, weekEnd: string) {
+  return useQuery({
+    queryKey: ["db", "nutrition-week", userId, weekStart, weekEnd],
+    queryFn: () => fetchWeeklyNutrition(weekStart, weekEnd),
+    enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
+    staleTime: 1000 * 30,
+  })
+}
+
 export function useProfile(userId: string | null | undefined) {
   return useQuery({
     queryKey: ["db", "profile", userId],
@@ -927,6 +959,7 @@ export function useUpdateMealPlanItem() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
       queryClient.invalidateQueries({ queryKey: ["db", "macros-day"] })
+      queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week"] })
       queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-item", variables.id] })
     },
   })
