@@ -286,53 +286,6 @@ export async function POST(req: NextRequest) {
       workoutMap.set(dayKey, list)
     })
 
-    const { data: existingRows, error: existingRowsError } = await supabase
-      .from("nutrition_plan_rows")
-      .select("date")
-      .eq("user_id", user.id)
-      .gte("date", range.start)
-      .lte("date", range.end)
-
-    if (existingRowsError) {
-      return NextResponse.json(
-        { error: "Failed to check existing plans", details: existingRowsError.message, code: existingRowsError.code },
-        { status: 400 },
-      )
-    }
-
-    const existingDates = new Set((existingRows ?? []).map((row) => row.date))
-    const generatedDates: string[] = []
-    const skippedDates: string[] = []
-    const rowsToInsert: Array<{
-      user_id: string
-      plan_id: string
-      date: string
-      day_type: NutritionDayType
-      kcal: number
-      protein_g: number
-      carbs_g: number
-      fat_g: number
-      intra_cho_g_per_h: number
-    }> = []
-    const metaUpdates: Record<string, NutritionMetaEntry> = {}
-    const nowIso = new Date().toISOString()
-
-    if (regenerate && existingDates.size > 0) {
-      const { error: deleteError } = await supabase
-        .from("nutrition_plan_rows")
-        .delete()
-        .eq("user_id", user.id)
-        .gte("date", range.start)
-        .lte("date", range.end)
-
-      if (deleteError) {
-        return NextResponse.json(
-          { error: "Failed to clear existing plan rows", details: deleteError.message, code: deleteError.code },
-          { status: 400 },
-        )
-      }
-    }
-
     const { data: plan, error: planError } = await supabase
       .from("nutrition_plans")
       .insert({
@@ -351,6 +304,53 @@ export async function POST(req: NextRequest) {
         { error: "Failed to create nutrition plan", details: planError?.message ?? null },
         { status: 400 },
       )
+    }
+
+    const { data: existingRows, error: existingRowsError } = await supabase
+      .from("nutrition_plan_rows")
+      .select("date")
+      .eq("plan_id", plan.id)
+      .gte("date", range.start)
+      .lte("date", range.end)
+
+    if (existingRowsError) {
+      return NextResponse.json(
+        { error: "Failed to check existing plans", details: existingRowsError.message, code: existingRowsError.code },
+        { status: 400 },
+      )
+    }
+
+    const existingDates = new Set((existingRows ?? []).map((row) => row.date))
+    const generatedDates: string[] = []
+    const skippedDates: string[] = []
+    const rowsToInsert: Array<{
+      plan_id: string
+      user_id: string
+      date: string
+      day_type: NutritionDayType
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      intra_cho_g_per_h: number
+    }> = []
+    const metaUpdates: Record<string, NutritionMetaEntry> = {}
+    const nowIso = new Date().toISOString()
+
+    if (regenerate && existingDates.size > 0) {
+      const { error: deleteError } = await supabase
+        .from("nutrition_plan_rows")
+        .delete()
+        .eq("plan_id", plan.id)
+        .gte("date", range.start)
+        .lte("date", range.end)
+
+      if (deleteError) {
+        return NextResponse.json(
+          { error: "Failed to clear existing plan rows", details: deleteError.message, code: deleteError.code },
+          { status: 400 },
+        )
+      }
     }
 
     const cursor = new Date(range.startDate)
@@ -372,8 +372,8 @@ export async function POST(req: NextRequest) {
       const meals = alignMealTimes(mealsWithMacros, dailyWorkouts)
 
       rowsToInsert.push({
-        user_id: user.id,
         plan_id: plan.id,
+        user_id: user.id,
         date: dateKey,
         day_type: dayType,
         kcal: macros.kcal,

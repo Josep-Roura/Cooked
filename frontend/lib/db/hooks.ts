@@ -15,6 +15,9 @@ import type {
   MealPlanDay,
   MealPlanIngredient,
   MealPlanItem,
+  PlanWeekMeal,
+  PlanChatMessage,
+  PlanChatThread,
   WeeklyNutritionDay,
   MacrosDaySummary,
   NutritionDaySummary,
@@ -472,6 +475,15 @@ type MealPlanDayPayload = {
   items?: MealPlanItem[]
 }
 
+type PlanWeekPayload = {
+  meals?: PlanWeekMeal[]
+}
+
+type PlanChatPayload = {
+  thread?: PlanChatThread
+  messages?: PlanChatMessage[]
+}
+
 type MacrosDayPayload = MacrosDaySummary
 
 async function fetchPreferences() {
@@ -591,6 +603,31 @@ async function fetchMealPrep(start?: string, end?: string) {
   }
   const data = (await response.json()) as MealPrepPayload
   return Array.isArray(data.sessions) ? data.sessions : []
+}
+
+async function fetchPlanWeek(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/plans/week?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load weekly plan")
+  }
+  const data = (await response.json()) as PlanWeekPayload
+  return Array.isArray(data.meals) ? data.meals : []
+}
+
+async function fetchPlanChat(weekStart: string) {
+  const params = new URLSearchParams({ week_start: weekStart })
+  const response = await fetch(`/api/v1/plans/chat?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load plan chat")
+  }
+  const data = (await response.json()) as PlanChatPayload
+  return {
+    thread: data.thread ?? null,
+    messages: Array.isArray(data.messages) ? data.messages : [],
+  }
 }
 
 async function fetchUserEvents(from: string, to: string) {
@@ -1038,6 +1075,65 @@ export function useMealPrep(userId: string | null | undefined, start?: string, e
     queryFn: () => fetchMealPrep(start, end),
     enabled: Boolean(userId),
     staleTime: 1000 * 60,
+  })
+}
+
+export function usePlanWeek(userId: string | null | undefined, start: string, end: string) {
+  return useQuery({
+    queryKey: ["db", "plan-week", userId, start, end],
+    queryFn: () => fetchPlanWeek(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function usePlanChat(userId: string | null | undefined, weekStart: string) {
+  return useQuery({
+    queryKey: ["db", "plan-chat", userId, weekStart],
+    queryFn: () => fetchPlanChat(weekStart),
+    enabled: Boolean(userId) && Boolean(weekStart),
+    staleTime: 1000 * 10,
+  })
+}
+
+export function useSendPlanChatMessage(userId: string | null | undefined, weekStart: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (content: string) => {
+      const response = await fetch("/api/v1/plans/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week_start: weekStart, content }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to send message")
+      }
+      return (await response.json()) as PlanChatPayload
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+    },
+  })
+}
+
+export function useResetPlanChat(userId: string | null | undefined, weekStart: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (threadId: string) => {
+      const params = new URLSearchParams({ thread_id: threadId })
+      const response = await fetch(`/api/v1/plans/chat?${params.toString()}`, { method: "DELETE" })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody?.error ?? "Failed to reset chat")
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+    },
   })
 }
 
