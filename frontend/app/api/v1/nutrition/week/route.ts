@@ -103,11 +103,26 @@ export async function GET(req: NextRequest) {
     >()
 
     if (planIds.length > 0) {
+      const { data: mealLog } = await supabase
+        .from("meal_log")
+        .select("date, slot, is_eaten")
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+
+      const eatenSlotsByDate = (mealLog ?? []).reduce((map, entry) => {
+        if (!entry.is_eaten) return map
+        if (!map.has(entry.date)) {
+          map.set(entry.date, new Set<number>())
+        }
+        map.get(entry.date)?.add(entry.slot)
+        return map
+      }, new Map<string, Set<number>>())
+
       const { data: eatenItems, error: itemsError } = await supabase
         .from("meal_plan_items")
-        .select("meal_plan_id, kcal, protein_g, carbs_g, fat_g")
+        .select("meal_plan_id, kcal, protein_g, carbs_g, fat_g, slot")
         .in("meal_plan_id", planIds)
-        .eq("eaten", true)
 
       if (itemsError) {
         return NextResponse.json({ error: "Failed to load meals", details: itemsError.message }, { status: 400 })
@@ -116,6 +131,8 @@ export async function GET(req: NextRequest) {
       ;(eatenItems ?? []).forEach((item) => {
         const date = planDateMap.get(item.meal_plan_id)
         if (!date) return
+        const eatenSlots = eatenSlotsByDate.get(date)
+        if (!eatenSlots || !eatenSlots.has(item.slot)) return
         const current = consumedMap.get(date) ?? {
           kcal: 0,
           protein_g: 0,

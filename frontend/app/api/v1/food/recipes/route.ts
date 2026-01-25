@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
     const payload = {
       user_id: user.id,
       title,
+      emoji: typeof body.emoji === "string" ? body.emoji.trim() : null,
       description: typeof body.description === "string" ? body.description.trim() : null,
       servings: typeof body.servings === "number" ? body.servings : 1,
       cook_time_min: typeof body.cook_time_min === "number" ? body.cook_time_min : null,

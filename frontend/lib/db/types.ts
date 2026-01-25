@@ -241,6 +241,7 @@ export interface Recipe {
   id: string
   user_id: string
   title: string
+  emoji?: string | null
   description: string | null
   servings: number
   cook_time_min: number | null

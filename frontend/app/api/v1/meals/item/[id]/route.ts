@@ -41,6 +41,27 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ error: "Failed to update meal item", details: error.message }, { status: 400 })
     }
 
+    if (typeof updates.eaten === "boolean") {
+      const { data: planItem } = await supabase
+        .from("meal_plan_items")
+        .select("slot, meal_plan_id, meal_plans ( date )")
+        .eq("id", id)
+        .single()
+
+      if (planItem?.meal_plans?.date && typeof planItem.slot === "number") {
+        await supabase.from("meal_log").upsert(
+          {
+            user_id: user.id,
+            date: planItem.meal_plans.date,
+            slot: planItem.slot,
+            is_eaten: updates.eaten,
+            eaten_at: updates.eaten ? new Date().toISOString() : null,
+          },
+          { onConflict: "user_id,date,slot" },
+        )
+      }
+    }
+
     return NextResponse.json({ item: data }, { status: 200 })
   } catch (error) {
     console.error("PATCH /api/v1/meals/item/:id error:", error)

@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { addWeeks, format, isWithinInterval, parseISO, startOfWeek } from "date-fns"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
@@ -14,6 +15,7 @@ import {
   useEnsureMealPlans,
   useMealPlanDay,
   useProfile,
+  useTrainingSessions,
   useUpdateMealPlanItem,
   useWeekRange,
   useWeeklyNutrition,
@@ -24,6 +26,8 @@ import { ensureNutritionPlanRange, useEnsureNutritionPlan } from "@/lib/nutritio
 export default function NutritionPage() {
   const { user } = useSession()
   const { toast } = useToast()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const profileQuery = useProfile(user?.id)
   const [search, setSearch] = useState("")
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
@@ -34,6 +38,7 @@ export default function NutritionPage() {
   const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(anchorDate)
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const ensureMealsMutation = useEnsureMealPlans()
   const updateMealMutation = useUpdateMealPlanItem()
   const ensuredDateRef = useRef<string | null>(null)
@@ -56,6 +61,27 @@ export default function NutritionPage() {
     }
   }, [selectedDate, weekStart, weekEnd])
 
+  useEffect(() => {
+    const urlDate = searchParams.get("date")
+    const urlWeek = searchParams.get("weekStart")
+    if (urlDate) {
+      setSelectedDate(urlDate)
+    }
+    if (urlWeek) {
+      const parsed = parseISO(urlWeek)
+      if (!Number.isNaN(parsed.getTime())) {
+        setAnchorDate(startOfWeek(parsed, { weekStartsOn: 1 }))
+      }
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("date", selectedDate)
+    params.set("weekStart", format(weekStart, "yyyy-MM-dd"))
+    router.replace(`/dashboard/nutrition?${params.toString()}`)
+  }, [router, searchParams, selectedDate, weekStart])
+
   if (weeklyNutritionQuery.isError) {
     return <ErrorState onRetry={() => weeklyNutritionQuery.refetch()} />
   }
@@ -67,6 +93,16 @@ export default function NutritionPage() {
   }
 
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
+
+  const dayType = useMemo(() => {
+    const sessions = trainingWeekQuery.data ?? []
+    const hasTraining = sessions.some((session) => session.date === selectedDate)
+    return hasTraining ? "Training day" : "Rest day"
+  }, [selectedDate, trainingWeekQuery.data])
+
+  const carbNote = dayType === "Training day"
+    ? "Carbs are higher today to fuel training sessions and recovery."
+    : "Carbs ease off to match recovery needs on rest days."
 
   const handleGenerate = async (regenerate: boolean) => {
     if (!selectedDate) return
@@ -99,11 +135,8 @@ export default function NutritionPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Nutrition</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setAnchorDate(addWeeks(anchorDate, -1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => setAnchorDate(addWeeks(anchorDate, 1))}>
-              <ChevronRight className="h-4 w-4" />
+            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={() => setAnchorDate(addWeeks(anchorDate, -1))}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Prev week
             </Button>
             <Button
               variant="outline"
@@ -111,6 +144,9 @@ export default function NutritionPage() {
               onClick={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
             >
               This week
+            </Button>
+            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={() => setAnchorDate(addWeeks(anchorDate, 1))}>
+              Next week <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
             <span className="text-sm text-muted-foreground">{weekLabel}</span>
           </div>
@@ -143,9 +179,9 @@ export default function NutritionPage() {
           />
         </div>
 
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Meals</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
               value={selectedDate}
@@ -192,6 +228,8 @@ export default function NutritionPage() {
             search={search}
             isLoading={mealPlanQuery.isLoading || weeklyNutritionQuery.isLoading}
             isUpdating={updateMealMutation.isPending}
+            dayTypeLabel={dayType}
+            dayTypeNote={carbNote}
             onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
           />
         </div>

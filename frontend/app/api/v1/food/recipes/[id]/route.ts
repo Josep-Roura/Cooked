@@ -75,6 +75,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     const updatePayload: Record<string, unknown> = {}
     if (typeof body.title === "string") updatePayload.title = body.title.trim()
+    if (typeof body.emoji === "string") updatePayload.emoji = body.emoji.trim()
+    if (body.emoji === null) updatePayload.emoji = null
     if (typeof body.description === "string") updatePayload.description = body.description.trim()
     if (body.description === null) updatePayload.description = null
     if (typeof body.servings === "number") updatePayload.servings = body.servings

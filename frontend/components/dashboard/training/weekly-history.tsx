@@ -36,6 +36,8 @@ const typeLabels: Record<TrainingType | "other", string> = {
   other: "Other",
 }
 
+const typeOrder: TrainingType[] = ["swim", "bike", "run", "strength", "rest", "other"]
+
 function formatDurationMinutes(totalMinutes: number) {
   if (totalMinutes <= 0) return "0m"
   const hours = Math.floor(totalMinutes / 60)
@@ -70,12 +72,9 @@ export function WeeklyHistory({ weeklyData }: WeeklyHistoryProps) {
         <div className="flex items-end gap-3 h-48 mb-4">
           {weeklyData.days.map((day) => {
             const dayHeight = day.totalMinutes > 0 ? (day.totalMinutes / maxDuration) * 100 : 4
-            const tooltipEntries = Object.entries(day.totalsByType)
-              .filter(([, value]) => value > 0)
-              .map(([type, value]) => ({
-                type: type as TrainingType,
-                value,
-              }))
+            const tooltipEntries = typeOrder
+              .map((type) => ({ type, value: day.totalsByType[type] ?? 0 }))
+              .filter((entry) => entry.value > 0)
 
             return (
               <Tooltip key={day.date}>
