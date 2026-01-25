@@ -213,6 +213,12 @@ export interface MacrosDaySummary {
   percent: number
 }
 
+export interface WeeklyNutritionDay {
+  date: string
+  consumed: NutritionMacros
+  target: NutritionMacros | null
+}
+
 export interface NutritionDayPlan {
   date: string
   day_type: NutritionDayType
