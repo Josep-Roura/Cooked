@@ -9,6 +9,9 @@ interface MealRowProps {
 }
 
 export function MealRow({ meal, onSelect }: MealRowProps) {
+  const emoji = meal.emoji ?? (meal.recipe?.title ? "🍽️" : "🥗")
+  const timeLabel = meal.time ? `Time: ${meal.time}` : "Any time"
+
   return (
     <button
       type="button"
@@ -16,10 +19,10 @@ export function MealRow({ meal, onSelect }: MealRowProps) {
       className="w-full text-left rounded-lg border border-border/40 bg-background px-3 py-2 hover:bg-muted/30 transition"
     >
       <div className="flex items-center gap-2">
-        <span className="text-base">{meal.recipe?.title ? "🍽️" : "🥗"}</span>
+        <span className="text-base">{emoji}</span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{meal.recipe?.title ?? meal.name}</p>
-          <p className="text-[11px] text-muted-foreground">Any time</p>
+          <p className="text-[11px] text-muted-foreground">{timeLabel}</p>
         </div>
         <span className="text-[11px] text-muted-foreground">{meal.kcal} kcal</span>
       </div>

@@ -41,7 +41,9 @@ export function PlanDetailsDrawer({
               <Badge variant="secondary">C {selectedMeal.carbs_g}g</Badge>
               <Badge variant="secondary">F {selectedMeal.fat_g}g</Badge>
             </div>
-            <p className="text-xs text-muted-foreground">Time: Any time</p>
+            <p className="text-xs text-muted-foreground">
+              Time: {selectedMeal.time ? selectedMeal.time : "Any time"}
+            </p>
             <div>
               <p className="text-xs font-semibold text-foreground mb-2">Ingredients</p>
               {selectedMeal.recipe_ingredients.length > 0 ? (
@@ -76,7 +78,9 @@ export function PlanDetailsDrawer({
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-foreground">{meal.recipe?.title ?? meal.name}</p>
-                      <p className="text-xs text-muted-foreground">Any time</p>
+                      <p className="text-xs text-muted-foreground">
+                        {meal.time ? `Time: ${meal.time}` : "Any time"}
+                      </p>
                     </div>
                     <span className="text-xs text-muted-foreground">{meal.kcal} kcal</span>
                   </div>

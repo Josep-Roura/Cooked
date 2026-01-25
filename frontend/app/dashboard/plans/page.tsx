@@ -46,7 +46,9 @@ export default function PlansPage() {
       }
       map.get(meal.date)?.push(meal)
     })
-    map.forEach((items) => items.sort((a, b) => a.slot - b.slot))
+    map.forEach((items) =>
+      items.sort((a, b) => (a.sort_order ?? a.slot) - (b.sort_order ?? b.slot)),
+    )
     return map
   }, [weekMealsQuery.data])
 

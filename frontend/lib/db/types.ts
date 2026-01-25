@@ -170,6 +170,14 @@ export interface MealPlan {
   user_id: string
   date: string
   plan_row_id: string | null
+  target_kcal: number | null
+  target_protein_g: number | null
+  target_carbs_g: number | null
+  target_fat_g: number | null
+  training_day_type: string | null
+  status: string | null
+  locked: boolean
+  rationale: string | null
   created_at: string
   updated_at: string
 }
@@ -178,6 +186,8 @@ export interface MealPlanItem {
   id: string
   meal_plan_id: string
   slot: number
+  meal_type: string | null
+  sort_order: number | null
   name: string
   time: string | null
   emoji: string | null
@@ -187,6 +197,7 @@ export interface MealPlanItem {
   fat_g: number
   eaten: boolean
   notes: string | null
+  recipe_id: string | null
   created_at: string
   updated_at: string
   ingredients?: MealPlanIngredient[]
@@ -313,7 +324,24 @@ export interface PlanRecipeIngredient {
   optional: boolean
 }
 
-export interface PlanWeekMeal extends MealScheduleItem {
+export interface PlanWeekMeal {
+  id: string
+  meal_plan_id: string
+  date: string
+  slot: number
+  meal_type: string | null
+  sort_order: number | null
+  name: string
+  time: string | null
+  emoji: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  notes: string | null
+  recipe_id: string | null
+  created_at: string
+  updated_at: string
   recipe: PlanRecipeSummary | null
   recipe_ingredients: PlanRecipeIngredient[]
 }

@@ -27,12 +27,15 @@ export async function GET(req: NextRequest) {
     }
 
     const { data: meals, error } = await supabase
-      .from("meal_schedule")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("date", start)
-      .lte("date", end)
-      .order("date", { ascending: true })
+      .from("meal_plan_items")
+      .select(
+        "id, meal_plan_id, slot, meal_type, sort_order, name, time, emoji, kcal, protein_g, carbs_g, fat_g, notes, recipe_id, created_at, updated_at, meal_plans!inner(date, user_id)",
+      )
+      .eq("meal_plans.user_id", user.id)
+      .gte("meal_plans.date", start)
+      .lte("meal_plans.date", end)
+      .order("date", { ascending: true, foreignTable: "meal_plans" })
+      .order("sort_order", { ascending: true })
       .order("slot", { ascending: true })
 
     if (error) {
@@ -68,11 +71,15 @@ export async function GET(req: NextRequest) {
       }, new Map<string, any[]>())
     }
 
-    const hydratedMeals = (meals ?? []).map((meal) => ({
-      ...meal,
-      recipe: meal.recipe_id ? recipes[meal.recipe_id] ?? null : null,
-      recipe_ingredients: meal.recipe_id ? ingredientsByRecipe.get(meal.recipe_id) ?? [] : [],
-    }))
+    const hydratedMeals = (meals ?? []).map((meal) => {
+      const { meal_plans, ...rest } = meal
+      return {
+        ...rest,
+        date: meal_plans?.date ?? "",
+        recipe: meal.recipe_id ? recipes[meal.recipe_id] ?? null : null,
+        recipe_ingredients: meal.recipe_id ? ingredientsByRecipe.get(meal.recipe_id) ?? [] : [],
+      }
+    })
 
     return NextResponse.json({ meals: hydratedMeals }, { status: 200 })
   } catch (error) {
