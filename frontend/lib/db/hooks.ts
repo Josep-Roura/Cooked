@@ -635,10 +635,10 @@ async function fetchMealPlanDay(date: string) {
     throw error
   }
   const data = (await response.json()) as MealPlanDayPayload
-  if (data.plan && Array.isArray(data.items)) {
-    return { plan: data.plan, items: data.items }
+  if (Array.isArray(data.items)) {
+    return { plan: data.plan ?? null, items: data.items }
   }
-  return { plan: null, items: [] }
+  return { plan: data.plan ?? null, items: [] }
 }
 
 async function fetchMacrosDay(date: string) {

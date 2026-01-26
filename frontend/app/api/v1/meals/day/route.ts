@@ -56,7 +56,13 @@ export async function GET(req: NextRequest) {
       ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
     }))
 
-    return NextResponse.json({ plan: null, items }, { status: 200 })
+    console.info("GET /api/v1/meals/day", {
+      userId: user.id,
+      date,
+      rowsCount: items.length,
+      source: "nutrition_meals",
+    })
+    return NextResponse.json({ plan: null, items, source: "nutrition_meals" }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/meals/day error:", error)
     return NextResponse.json(
