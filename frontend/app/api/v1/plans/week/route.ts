@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
       .gte("date", start)
       .lte("date", end)
       .order("date", { ascending: true })
+      .order("time", { ascending: true, nullsFirst: false })
       .order("slot", { ascending: true })
 
     if (error) {

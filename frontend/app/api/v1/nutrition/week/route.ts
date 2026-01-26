@@ -91,6 +91,8 @@ export async function GET(req: NextRequest) {
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
+      .order("time", { ascending: true, nullsFirst: false })
+      .order("slot", { ascending: true })
 
     if (mealsError) {
       return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })

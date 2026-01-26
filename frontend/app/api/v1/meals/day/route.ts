@@ -29,18 +29,28 @@ export async function GET(req: NextRequest) {
       .select("*")
       .eq("user_id", user.id)
       .eq("date", date)
+      .order("time", { ascending: true, nullsFirst: false })
       .order("slot", { ascending: true })
 
     if (mealsError) {
       return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
     }
 
-    const items = (meals ?? []).map((meal) => ({
+    const items = (meals ?? [])
+      .sort((a, b) => {
+        const timeA = a.time ?? ""
+        const timeB = b.time ?? ""
+        if (timeA && timeB && timeA !== timeB) return timeA.localeCompare(timeB)
+        if (timeA && !timeB) return -1
+        if (!timeA && timeB) return 1
+        return (a.slot ?? 0) - (b.slot ?? 0)
+      })
+      .map((meal, index) => ({
       id: `${meal.date}:${meal.slot}`,
       meal_plan_id: meal.id,
       slot: meal.slot,
       meal_type: null,
-      sort_order: meal.slot,
+      sort_order: index + 1,
       name: meal.name,
       time: meal.time,
       emoji: null,
