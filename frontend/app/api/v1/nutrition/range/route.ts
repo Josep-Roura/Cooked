@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error } = await supabase
       .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten")
+      .select("id, date, slot, name, time, macros, ingredients, eaten")
       .eq("user_id", user.id)
       .gte("date", range.start)
       .lte("date", range.end)
