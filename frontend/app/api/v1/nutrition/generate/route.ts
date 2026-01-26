@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
     const { data: workouts, error: workoutError } = await supabase
       .from("tp_workouts")
       .select("id, start_time, workout_type, planned_hours, actual_hours, tss, rpe, if")
-      .eq("athlete_id", `user:${user.id}`)
+      .eq("user_id", user.id)
       .eq("workout_day", date)
       .order("start_time", { ascending: true })
 
@@ -237,6 +237,12 @@ export async function POST(req: NextRequest) {
     const dayType = pickDayType(workouts ?? [])
     const macros = computeMacros(weightKg, dayType)
     macros.intra_cho_g_per_h = computeIntraCho(workouts ?? [], dayType)
+
+    console.info("POST /api/v1/nutrition/generate", {
+      userId: user.id,
+      date,
+      workoutCount: workouts?.length ?? 0,
+    })
 
     const templates = defaultMealTemplates(mealsPerDay)
     const mealsWithMacros = splitMacrosAcrossMeals(macros, templates)
