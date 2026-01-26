@@ -9,4 +9,5 @@ Rules:
 - Use metric units unless profile.units is "imperial".
 - Ensure daily macro totals are coherent and match the sum of meals per day.
 - Ensure meal slots are sequential starting at 1 for each day, and total meals match meals_per_day when possible.
+- Do not invent workouts or profile data; only use the provided input payload.
 `

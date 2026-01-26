@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error: mealsError } = await supabase
       .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten")
+      .select("id, date, slot, name, time, macros, ingredients, eaten")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -114,10 +114,10 @@ export async function GET(req: NextRequest) {
         intra_cho_g_per_h: 0,
       }
       consumedMap.set(meal.date, {
-        kcal: current.kcal + (meal.kcal ?? 0),
-        protein_g: current.protein_g + (meal.protein_g ?? 0),
-        carbs_g: current.carbs_g + (meal.carbs_g ?? 0),
-        fat_g: current.fat_g + (meal.fat_g ?? 0),
+        kcal: current.kcal + (meal.macros?.kcal ?? 0),
+        protein_g: current.protein_g + (meal.macros?.protein_g ?? 0),
+        carbs_g: current.carbs_g + (meal.macros?.carbs_g ?? 0),
+        fat_g: current.fat_g + (meal.macros?.fat_g ?? 0),
         intra_cho_g_per_h: 0,
       })
     })

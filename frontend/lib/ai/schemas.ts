@@ -9,47 +9,39 @@ export const macrosSchema = z.object({
 
 export const ingredientSchema = z.object({
   name: z.string().min(1),
-  qty: z.union([z.number().nonnegative(), z.string().min(1)]),
+  quantity: z.union([z.number().nonnegative(), z.string().min(1)]),
   unit: z.string().min(1),
-  notes: z.string().optional(),
 })
 
-export const recipeSchema = z
-  .object({
-    steps: z.array(z.string().min(1)).optional(),
-    url: z.string().url().optional(),
-    prep_time: z.string().optional(),
-  })
-  .optional()
-
-export const mealPlanSchema = z.object({
-  slot: z.number().int().nonnegative(),
+export const mealSchema = z.object({
+  slot: z.number().int().min(1),
   name: z.string().min(1),
   time: z.string().optional().nullable(),
-  macros: macrosSchema,
   ingredients: z.array(ingredientSchema),
-  recipe: recipeSchema,
+  macros: macrosSchema,
+  notes: z.string().optional().nullable(),
 })
 
 export const dayPlanSchema = z.object({
   date: z.string().min(1),
-  meals: z.array(mealPlanSchema),
-  totals: macrosSchema,
+  day_type: z.string().min(1),
+  macros: macrosSchema,
+  meals: z.array(mealSchema),
 })
 
-export const weeklyPlanSchema = z.object({
-  week_start: z.string().min(1),
-  week_end: z.string().min(1),
+export const weekPlanSchema = z.object({
+  start: z.string().min(1),
+  end: z.string().min(1),
   days: z.array(dayPlanSchema),
 })
 
 export const editResponseSchema = z.object({
-  updatedWeekPlan: weeklyPlanSchema,
+  updatedPlan: weekPlanSchema,
   diff: z.record(z.unknown()),
   warnings: z.array(z.string()).default([]),
 })
 
-export type WeeklyPlan = z.infer<typeof weeklyPlanSchema>
+export type WeekPlan = z.infer<typeof weekPlanSchema>
 export type DayPlan = z.infer<typeof dayPlanSchema>
-export type MealPlan = z.infer<typeof mealPlanSchema>
+export type MealPlan = z.infer<typeof mealSchema>
 export type EditResponse = z.infer<typeof editResponseSchema>

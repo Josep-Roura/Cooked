@@ -260,7 +260,7 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                       >
                         <div className="flex items-center justify-between text-xs font-semibold text-emerald-700">
                           <span className="truncate">🥗 {meal.name}</span>
-                          <span>{meal.kcal} kcal</span>
+                          <span>{meal.macros?.kcal ?? 0} kcal</span>
                         </div>
                         <div className="text-[10px] text-emerald-700/80 mt-1">
                           {meal.time ? `Time: ${meal.time}` : "Meal planned"}

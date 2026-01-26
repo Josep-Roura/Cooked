@@ -44,18 +44,21 @@ export interface NutritionPlanRow {
 export interface NutritionMeal {
   id: string
   user_id: string
+  plan_id: string
   date: string
   slot: number
   name: string
   time: string | null
-  kcal: number
-  protein_g: number
-  carbs_g: number
-  fat_g: number
+  macros: {
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+  }
   ingredients?: unknown
-  recipe?: unknown
   eaten: boolean
   eaten_at: string | null
+  notes?: string | null
   created_at: string
   updated_at: string
 }
