@@ -519,7 +519,9 @@ export async function POST(req: NextRequest) {
     if (mealError) {
       const isMissingColumn =
         mealError.code === "42703" ||
-        /column "(plan_id|macros)"/i.test(mealError.message)
+        mealError.code === "PGRST204" ||
+        /column "(plan_id|macros)"/i.test(mealError.message) ||
+        /macros.*schema cache/i.test(mealError.message)
 
       if (isMissingColumn) {
         ;({ error: mealError } = await supabase
