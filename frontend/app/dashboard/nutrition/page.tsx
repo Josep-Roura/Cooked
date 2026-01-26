@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
 import {
-  useEnsureMealPlans,
   useMealPlanDay,
   useProfile,
   useTrainingSessions,
@@ -21,7 +20,6 @@ import {
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 import { generatePlanWithOpenAI } from "@/lib/ai/generatePlanWithOpenAI"
 
 export default function NutritionPage() {
@@ -31,8 +29,9 @@ export default function NutritionPage() {
   const searchParams = useSearchParams()
   const profileQuery = useProfile(user?.id)
   const [search, setSearch] = useState("")
-  const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
-  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
+  const [now] = useState(() => new Date())
+  const [anchorDate, setAnchorDate] = useState(() => startOfWeek(now, { weekStartsOn: 1 }))
+  const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
   const [isGenerating, setIsGenerating] = useState(false)
   const queryClient = useQueryClient()
 
@@ -40,20 +39,8 @@ export default function NutritionPage() {
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
-  const ensureMealsMutation = useEnsureMealPlans()
   const updateMealMutation = useUpdateMealPlanItem()
-  const ensuredDateRef = useRef<string | null>(null)
   const lastSyncedRef = useRef<string | null>(null)
-
-  useEnsureNutritionPlan({ userId: user?.id, range: "week" })
-
-  useEffect(() => {
-    if (!user?.id) return
-    const ensureKey = `${user.id}:${selectedDate}`
-    if (ensuredDateRef.current === ensureKey) return
-    ensuredDateRef.current = ensureKey
-    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
-  }, [ensureMealsMutation, selectedDate, user?.id])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -116,8 +103,6 @@ export default function NutritionPage() {
     setIsGenerating(true)
     try {
       await generatePlanWithOpenAI({ date: selectedDate, force: regenerate })
-      await ensureMealsMutation.mutateAsync({ start: selectedDate, end: selectedDate })
-
       await Promise.all([
         weeklyNutritionQuery.refetch(),
         mealPlanQuery.refetch(),

@@ -124,7 +124,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
     }
 
     try {
-      const response = await fetch("/api/v1/profile", {
+      const response = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

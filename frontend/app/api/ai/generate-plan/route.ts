@@ -342,7 +342,7 @@ Only output JSON.`
         fat_g: targets.target_fat_g,
         intra_cho_g_per_h: 0,
       },
-      { onConflict: "plan_id,date" },
+      { onConflict: "user_id,date" },
     )
 
     if (rowError) {

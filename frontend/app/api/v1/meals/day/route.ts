@@ -24,47 +24,39 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const { data: plan, error: planError } = await supabase
-      .from("meal_plans")
+    const { data: meals, error: mealsError } = await supabase
+      .from("nutrition_meals")
       .select("*")
       .eq("user_id", user.id)
       .eq("date", date)
-      .single()
-
-    if (planError) {
-      return NextResponse.json({ plan: null, items: [] }, { status: 200 })
-    }
-
-    const { data: items, error: itemsError } = await supabase
-      .from("meal_plan_items")
-      .select("*")
-      .eq("meal_plan_id", plan.id)
       .order("slot", { ascending: true })
 
-    if (itemsError) {
-      return NextResponse.json({ error: "Failed to load meal items", details: itemsError.message }, { status: 400 })
+    if (mealsError) {
+      return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
     }
 
-    const itemIds = (items ?? []).map((item) => item.id)
-    const { data: ingredients } = await supabase
-      .from("meal_plan_ingredients")
-      .select("*")
-      .in("meal_item_id", itemIds)
-
-    const ingredientsByItem = (ingredients ?? []).reduce((map, ingredient) => {
-      if (!map.has(ingredient.meal_item_id)) {
-        map.set(ingredient.meal_item_id, [])
-      }
-      map.get(ingredient.meal_item_id)?.push(ingredient)
-      return map
-    }, new Map<string, any[]>())
-
-    const hydratedItems = (items ?? []).map((item) => ({
-      ...item,
-      ingredients: ingredientsByItem.get(item.id) ?? [],
+    const items = (meals ?? []).map((meal) => ({
+      id: `${meal.date}:${meal.slot}`,
+      meal_plan_id: meal.id,
+      slot: meal.slot,
+      meal_type: null,
+      sort_order: meal.slot,
+      name: meal.name,
+      time: meal.time,
+      emoji: null,
+      kcal: meal.macros?.kcal ?? 0,
+      protein_g: meal.macros?.protein_g ?? 0,
+      carbs_g: meal.macros?.carbs_g ?? 0,
+      fat_g: meal.macros?.fat_g ?? 0,
+      eaten: meal.eaten ?? false,
+      notes: null,
+      recipe_id: null,
+      created_at: meal.created_at,
+      updated_at: meal.updated_at,
+      ingredients: [],
     }))
 
-    return NextResponse.json({ plan, items: hydratedItems }, { status: 200 })
+    return NextResponse.json({ plan: null, items }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/meals/day error:", error)
     return NextResponse.json(

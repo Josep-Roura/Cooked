@@ -21,8 +21,7 @@ import type {
   WeeklyNutritionDay,
   MacrosDaySummary,
   NutritionDaySummary,
-  NutritionDayType,
-  NutritionMacros,
+  NutritionMeal,
   NutritionPlan,
   NutritionPlanRow,
   NutritionDayPlan,
@@ -207,24 +206,6 @@ function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
   })
 }
 
-type NutritionMetaEntry = {
-  meals?: Meal[]
-  macros?: NutritionMacros
-  day_type?: NutritionDayType
-  meals_per_day?: number
-}
-
-function parseNutritionMeta(meta: Record<string, unknown> | null | undefined): Record<string, NutritionMetaEntry> {
-  if (!meta || typeof meta !== "object") {
-    return {}
-  }
-  const raw = (meta as Record<string, unknown>)["nutrition_by_date"]
-  if (!raw || typeof raw !== "object") {
-    return {}
-  }
-  return raw as Record<string, NutritionMetaEntry>
-}
-
 function normalizeMealTime(value: string | undefined | null): string | null {
   if (!value) return null
   const match = value.match(/^(\d{1,2}):(\d{2})$/)
@@ -233,6 +214,7 @@ function normalizeMealTime(value: string | undefined | null): string | null {
 }
 
 function buildNutritionEvents(
+  meals: NutritionMeal[],
   rows: NutritionPlanRow[],
   profile: ProfileRow | null | undefined,
   range: DateRangeOption,
@@ -241,42 +223,24 @@ function buildNutritionEvents(
   const { start, end } = getDateRange(range, now)
   const startKey = format(start, "yyyy-MM-dd")
   const endKey = format(end, "yyyy-MM-dd")
-  const nutritionMeta = parseNutritionMeta(profile?.meta)
   const events: CalendarEvent[] = []
   const coveredDates = new Set<string>()
   const defaultMealsPerDay = profile?.meals_per_day ?? 3
 
-  Object.entries(nutritionMeta).forEach(([date, entry]) => {
-    if (date < startKey || date > endKey) return
-    const meals = Array.isArray(entry.meals) ? entry.meals : []
-    const dayMeals = meals.filter((meal) => Boolean(meal))
-    if (dayMeals.length > 0) {
-      dayMeals.forEach((meal) => {
-        const startTime = normalizeMealTime(meal.time) ?? "12:00"
-        events.push({
-          id: `nutrition-${date}-${meal.slot}`,
-          title: `Nutrition: ${meal.name}`,
-          type: "nutrition",
-          startTime,
-          endTime: calculateEndTime(startTime, 0.75),
-          date,
-          color: "bg-green-500",
-          description: `${meal.kcal} kcal`,
-        })
-      })
-    } else {
-      const mealsPerDay = entry.meals_per_day ?? defaultMealsPerDay
-      events.push({
-        id: `nutrition-${date}`,
-        title: `Meal plan (${mealsPerDay} meals)`,
-        type: "nutrition",
-        startTime: "12:00",
-        endTime: calculateEndTime("12:00", 0.5),
-        date,
-        color: "bg-green-500",
-      })
-    }
-    coveredDates.add(date)
+  meals.forEach((meal) => {
+    if (meal.date < startKey || meal.date > endKey) return
+    const startTime = normalizeMealTime(meal.time) ?? "12:00"
+    events.push({
+      id: `nutrition-${meal.date}-${meal.slot}`,
+      title: `Nutrition: ${meal.name}`,
+      type: "nutrition",
+      startTime,
+      endTime: calculateEndTime(startTime, 0.75),
+      date: meal.date,
+      color: "bg-green-500",
+      description: `${meal.macros?.kcal ?? 0} kcal`,
+    })
+    coveredDates.add(meal.date)
   })
 
   rows.forEach((row) => {
@@ -616,18 +580,37 @@ async function fetchPlanWeek(start: string, end: string) {
   return Array.isArray(data.meals) ? data.meals : []
 }
 
-async function fetchPlanChat(weekStart: string) {
-  const params = new URLSearchParams({ week_start: weekStart })
-  const response = await fetch(`/api/v1/plans/chat?${params.toString()}`)
+async function fetchPlanChat(weekStart: string, weekEnd: string) {
+  const params = new URLSearchParams({ start: weekStart, end: weekEnd })
+  const response = await fetch(`/api/ai/chat?${params.toString()}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load plan chat")
   }
   const data = (await response.json()) as PlanChatPayload
-  return {
-    thread: data.thread ?? null,
-    messages: Array.isArray(data.messages) ? data.messages : [],
-  }
+  const thread = data.thread
+    ? {
+        id: data.thread.id,
+        user_id: data.thread.user_id,
+        week_start_date: weekStart,
+        title: data.thread.title ?? null,
+        created_at: data.thread.created_at,
+        updated_at: data.thread.updated_at,
+      }
+    : null
+  const messages = Array.isArray(data.messages)
+    ? data.messages.map((message) => ({
+        id: message.id,
+        thread_id: message.thread_id,
+        user_id: message.user_id,
+        role: message.role,
+        content: message.content,
+        meta: message.meta ?? null,
+        created_at: message.created_at,
+      }))
+    : []
+
+  return { thread, messages }
 }
 
 async function fetchUserEvents(from: string, to: string) {
@@ -672,6 +655,17 @@ async function fetchWeeklyNutrition(start: string, end: string) {
   }
   const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
   return Array.isArray(data.days) ? data.days : []
+}
+
+async function fetchNutritionMealsRange(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/nutrition/range?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load nutrition meals")
+  }
+  const data = (await response.json()) as { meals?: NutritionMeal[] }
+  return Array.isArray(data.meals) ? data.meals : []
 }
 
 export function useWeekRange(anchorDate: Date) {
@@ -770,6 +764,19 @@ export function useMonthWorkouts(userId: string | null | undefined, year: number
     queryKey: ["db", "month-workouts", userId, year, month],
     queryFn: () => fetchMonthWorkouts(year, month),
     enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+  })
+}
+
+export function useNutritionMealsRange(
+  userId: string | null | undefined,
+  start: string,
+  end: string,
+) {
+  return useQuery({
+    queryKey: ["db", "nutrition-meals-range", userId, start, end],
+    queryFn: () => fetchNutritionMealsRange(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
     staleTime: 1000 * 30,
   })
 }
@@ -982,16 +989,21 @@ export function useUpdateMealPlanItem() {
       id: string
       payload: Partial<Pick<MealPlanItem, "eaten" | "name" | "time" | "notes">>
     }) => {
-      const response = await fetch(`/api/v1/meals/item/${id}`, {
-        method: "PATCH",
+      const [date, slotValue] = id.split(":")
+      const slot = Number(slotValue)
+      if (!date || Number.isNaN(slot)) {
+        throw new Error("Invalid meal identifier")
+      }
+      const response = await fetch(`/api/v1/nutrition/meal/toggle`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ date, slot, eaten: Boolean(payload.eaten) }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
         throw new Error(errorBody?.error ?? "Failed to update meal")
       }
-      return (await response.json()) as { item: MealPlanItem }
+      return (await response.json()) as { meal: MealPlanItem }
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day"] })
@@ -1087,24 +1099,24 @@ export function usePlanWeek(userId: string | null | undefined, start: string, en
   })
 }
 
-export function usePlanChat(userId: string | null | undefined, weekStart: string) {
+export function usePlanChat(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   return useQuery({
-    queryKey: ["db", "plan-chat", userId, weekStart],
-    queryFn: () => fetchPlanChat(weekStart),
-    enabled: Boolean(userId) && Boolean(weekStart),
+    queryKey: ["db", "plan-chat", userId, weekStart, weekEnd],
+    queryFn: () => fetchPlanChat(weekStart, weekEnd),
+    enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
     staleTime: 1000 * 10,
   })
 }
 
-export function useSendPlanChatMessage(userId: string | null | undefined, weekStart: string) {
+export function useSendPlanChatMessage(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (content: string) => {
-      const response = await fetch("/api/v1/plans/chat", {
+      const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ week_start: weekStart, content }),
+        body: JSON.stringify({ start: weekStart, end: weekEnd, message: content }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
@@ -1113,18 +1125,18 @@ export function useSendPlanChatMessage(userId: string | null | undefined, weekSt
       return (await response.json()) as PlanChatPayload
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart, weekEnd] })
     },
   })
 }
 
-export function useResetPlanChat(userId: string | null | undefined, weekStart: string) {
+export function useResetPlanChat(userId: string | null | undefined, weekStart: string, weekEnd: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (threadId: string) => {
-      const params = new URLSearchParams({ thread_id: threadId })
-      const response = await fetch(`/api/v1/plans/chat?${params.toString()}`, { method: "DELETE" })
+      const params = new URLSearchParams({ threadId })
+      const response = await fetch(`/api/ai/chat?${params.toString()}`, { method: "DELETE" })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
         throw new Error(errorBody?.error ?? "Failed to reset chat")
@@ -1132,7 +1144,7 @@ export function useResetPlanChat(userId: string | null | undefined, weekStart: s
       return response.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-chat", userId, weekStart, weekEnd] })
     },
   })
 }
@@ -1146,17 +1158,17 @@ export async function updateMealCompletion({
   slot: number
   completed: boolean
 }) {
-  const response = await fetch("/api/v1/nutrition/meal", {
-    method: "PATCH",
+  const response = await fetch("/api/v1/nutrition/meal/toggle", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date, slot, completed }),
+    body: JSON.stringify({ date, slot, eaten: completed }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to update meal")
   }
-  const data = (await response.json()) as { meals?: Meal[] }
-  return Array.isArray(data.meals) ? data.meals : []
+  const data = (await response.json()) as { meal?: Meal }
+  return data.meal ? [data.meal] : []
 }
 
 export function useCalendarEvents(
@@ -1183,9 +1195,13 @@ export function useCalendarEvents(
           format(end, "yyyy-MM-dd"),
         ),
       ])
+      const nutritionMeals = await fetchNutritionMealsRange(
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd"),
+      )
 
       const trainingCalendar = buildCalendarEvents(workouts)
-      const nutritionCalendar = buildNutritionEvents(nutritionRows, profile, range, now)
+      const nutritionCalendar = buildNutritionEvents(nutritionMeals, nutritionRows, profile, range, now)
 
       return {
         sessions: buildTrainingSessions(workouts),
