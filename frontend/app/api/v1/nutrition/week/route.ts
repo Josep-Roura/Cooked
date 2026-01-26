@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error: mealsError } = await supabase
       .from("nutrition_meals")
-      .select("id, date, slot, name, time, macros, ingredients, eaten")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, ingredients, eaten")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -96,15 +96,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
     }
 
-    const mealsByDate = (meals ?? []).reduce((map, meal) => {
+    const normalizedMeals = (meals ?? []).map((meal) => ({
+      ...meal,
+      kcal: meal.kcal ?? 0,
+      protein_g: meal.protein_g ?? 0,
+      carbs_g: meal.carbs_g ?? 0,
+      fat_g: meal.fat_g ?? 0,
+      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      macros: {
+        kcal: meal.kcal ?? 0,
+        protein_g: meal.protein_g ?? 0,
+        carbs_g: meal.carbs_g ?? 0,
+        fat_g: meal.fat_g ?? 0,
+      },
+    }))
+
+    const mealsByDate = normalizedMeals.reduce((map, meal) => {
       if (!map.has(meal.date)) {
         map.set(meal.date, [])
       }
       map.get(meal.date)?.push(meal)
       return map
-    }, new Map<string, typeof meals[number][]>())
+    }, new Map<string, typeof normalizedMeals[number][]>())
 
-    ;(meals ?? []).forEach((meal) => {
+    normalizedMeals.forEach((meal) => {
       if (!meal.eaten) return
       const current = consumedMap.get(meal.date) ?? {
         kcal: 0,
@@ -114,10 +129,10 @@ export async function GET(req: NextRequest) {
         intra_cho_g_per_h: 0,
       }
       consumedMap.set(meal.date, {
-        kcal: current.kcal + (meal.macros?.kcal ?? 0),
-        protein_g: current.protein_g + (meal.macros?.protein_g ?? 0),
-        carbs_g: current.carbs_g + (meal.macros?.carbs_g ?? 0),
-        fat_g: current.fat_g + (meal.macros?.fat_g ?? 0),
+        kcal: current.kcal + meal.kcal,
+        protein_g: current.protein_g + meal.protein_g,
+        carbs_g: current.carbs_g + meal.carbs_g,
+        fat_g: current.fat_g + meal.fat_g,
         intra_cho_g_per_h: 0,
       })
     })
@@ -138,6 +153,13 @@ export async function GET(req: NextRequest) {
         target: targetMap.get(dateKey) ?? null,
         meals: mealsByDate.get(dateKey) ?? [],
       }
+    })
+
+    console.info("GET /api/v1/nutrition/week", {
+      userId: user.id,
+      start,
+      end,
+      count: normalizedMeals.length,
     })
 
     return NextResponse.json({ days }, { status: 200 })

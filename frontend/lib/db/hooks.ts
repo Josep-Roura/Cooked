@@ -571,7 +571,9 @@ async function fetchMealPrep(start?: string, end?: string) {
 
 async function fetchPlanWeek(start: string, end: string) {
   const params = new URLSearchParams({ start, end })
-  const response = await fetch(`/api/v1/plans/week?${params.toString()}`)
+  const response = await fetch(`/api/v1/plans/week?${params.toString()}`, {
+    credentials: "include",
+  })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load weekly plan")
@@ -648,7 +650,9 @@ async function fetchMacrosDay(date: string) {
 
 async function fetchWeeklyNutrition(start: string, end: string) {
   const params = new URLSearchParams({ start, end })
-  const response = await fetch(`/api/v1/nutrition/week?${params.toString()}`)
+  const response = await fetch(`/api/v1/nutrition/week?${params.toString()}`, {
+    credentials: "include",
+  })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load weekly nutrition")
@@ -659,7 +663,9 @@ async function fetchWeeklyNutrition(start: string, end: string) {
 
 async function fetchNutritionMealsRange(start: string, end: string) {
   const params = new URLSearchParams({ start, end })
-  const response = await fetch(`/api/v1/nutrition/range?${params.toString()}`)
+  const response = await fetch(`/api/v1/nutrition/range?${params.toString()}`, {
+    credentials: "include",
+  })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load nutrition meals")
