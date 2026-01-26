@@ -16,10 +16,10 @@ function buildMeals(meals: any[]): Meal[] {
     slot: meal.slot,
     name: meal.name,
     time: meal.time ?? "",
-    kcal: meal.macros?.kcal ?? 0,
-    protein_g: meal.macros?.protein_g ?? 0,
-    carbs_g: meal.macros?.carbs_g ?? 0,
-    fat_g: meal.macros?.fat_g ?? 0,
+    kcal: meal.kcal ?? 0,
+    protein_g: meal.protein_g ?? 0,
+    carbs_g: meal.carbs_g ?? 0,
+    fat_g: meal.fat_g ?? 0,
     ingredients: Array.isArray(meal.ingredients) ? meal.ingredients.map((item: any) => item.name ?? "") : [],
     completed: meal.eaten ?? false,
   }))
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
         .limit(1),
       supabase
         .from("nutrition_meals")
-        .select("slot, name, time, macros, ingredients, eaten")
+        .select("slot, name, time, kcal, protein_g, carbs_g, fat_g, ingredients, eaten")
         .eq("user_id", user.id)
         .eq("date", date)
         .order("slot", { ascending: true }),
