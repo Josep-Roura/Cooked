@@ -266,7 +266,7 @@ export async function POST(req: NextRequest) {
     const { data: workouts, error: workoutError } = await supabase
       .from("tp_workouts")
       .select("workout_day, start_time, workout_type, planned_hours, actual_hours, tss, rpe, if")
-      .eq("athlete_id", `user:${user.id}`)
+      .eq("user_id", user.id)
       .gte("workout_day", range.start)
       .lte("workout_day", range.end)
       .order("workout_day", { ascending: true })
@@ -277,6 +277,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       )
     }
+
+    console.info("POST /api/v1/nutrition/generate-range", {
+      userId: user.id,
+      start: range.start,
+      end: range.end,
+      workoutCount: workouts?.length ?? 0,
+    })
 
     const workoutMap = new Map<string, WorkoutRow[]>()
     ;(workouts ?? []).forEach((workout) => {
