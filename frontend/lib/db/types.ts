@@ -76,8 +76,7 @@ export interface NutritionPlan {
 
 export interface TpWorkout {
   id: number
-  user_id: string | null
-  athlete_id: string
+  user_id: string
   workout_day: string
   start_time: string | null
   workout_type: string | null

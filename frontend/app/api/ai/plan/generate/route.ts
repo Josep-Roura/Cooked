@@ -185,6 +185,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load workouts", details: workoutError.message }, { status: 400 })
     }
 
+    console.info("POST /api/ai/plan/generate", {
+      userId: user.id,
+      start,
+      end,
+      workoutCount: workouts?.length ?? 0,
+    })
+
     const [{ data: existingMeals }, { data: existingRows }] = await Promise.all([
       supabase
         .from("nutrition_meals")
