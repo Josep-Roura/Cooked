@@ -630,7 +630,9 @@ async function fetchMealPlanDay(date: string) {
   const response = await fetch(`/api/v1/meals/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load meal plan")
+    const error = new Error(errorBody?.error ?? "Failed to load meal plan") as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
   const data = (await response.json()) as MealPlanDayPayload
   if (data.plan && Array.isArray(data.items)) {
@@ -643,7 +645,9 @@ async function fetchMacrosDay(date: string) {
   const response = await fetch(`/api/v1/macros/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load macros")
+    const error = new Error(errorBody?.error ?? "Failed to load macros") as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
   return (await response.json()) as MacrosDayPayload
 }
@@ -655,7 +659,9 @@ async function fetchWeeklyNutrition(start: string, end: string) {
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load weekly nutrition")
+    const error = new Error(errorBody?.error ?? "Failed to load weekly nutrition") as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
   const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
   return Array.isArray(data.days) ? data.days : []
@@ -690,6 +696,12 @@ export function useWeeklyNutrition(userId: string | null | undefined, weekStart:
     queryKey: ["db", "nutrition-week", userId, weekStart, weekEnd],
     queryFn: () => fetchWeeklyNutrition(weekStart, weekEnd),
     enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     staleTime: 1000 * 30,
   })
 }
@@ -957,6 +969,12 @@ export function useMealPlanDay(userId: string | null | undefined, date: string) 
     queryKey: ["db", "meal-plan-day", userId, date],
     queryFn: () => fetchMealPlanDay(date),
     enabled: Boolean(userId) && Boolean(date),
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     staleTime: 1000 * 15,
   })
 }
@@ -966,6 +984,12 @@ export function useMacrosDay(userId: string | null | undefined, date: string) {
     queryKey: ["db", "macros-day", userId, date],
     queryFn: () => fetchMacrosDay(date),
     enabled: Boolean(userId) && Boolean(date),
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     staleTime: 1000 * 15,
   })
 }

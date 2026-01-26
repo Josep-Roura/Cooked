@@ -8,6 +8,11 @@ const DEFAULT_MODEL = "gpt-4o-mini"
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const TIMEOUT_MS = 60000
 const MAX_RETRIES = 2
+const BASE_RETRY_DELAY_MS = 500
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 type GeneratePlanInput = {
   start: string
@@ -15,6 +20,7 @@ type GeneratePlanInput = {
   profile: Record<string, unknown>
   workouts: Record<string, unknown>[]
   currentPlan?: WeekPlan | null
+  requestId?: string
 }
 
 type EditPlanInput = GeneratePlanInput & {
@@ -44,10 +50,12 @@ async function callCookedAI<T>({
   model,
   userPayload,
   schema,
+  requestId,
 }: {
   model: string
   userPayload: Record<string, unknown>
   schema: JsonSchemaParser<T>
+  requestId?: string
 }): Promise<T> {
   const apiKey = getApiKey()
   let lastError: Error | null = null
@@ -58,7 +66,7 @@ async function callCookedAI<T>({
     const startedAt = Date.now()
 
     try {
-      console.info("[AI] openai request start", { model, attempt })
+      console.info("[AI] openai request start", { model, attempt, requestId })
       const response = await fetch(OPENAI_URL, {
         method: "POST",
         headers: {
@@ -80,7 +88,7 @@ async function callCookedAI<T>({
       const data = await response.json().catch(() => null)
       const latencyMs = Date.now() - startedAt
       const usage = data?.usage ?? null
-      console.info("[AI] openai request finished", { model, latencyMs, usage })
+      console.info("[AI] openai request finished", { model, latencyMs, usage, requestId })
       if (!response.ok || !data) {
         const message = data?.error?.message ?? "OpenAI request failed"
         throw new Error(message)
@@ -90,15 +98,23 @@ async function callCookedAI<T>({
       const parsed = JSON.parse(content)
       return schema.parse(parsed)
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Failed to parse AI response")
+      if (error instanceof Error && error.name === "AbortError") {
+        lastError = new Error("OpenAI request timed out")
+        lastError.name = "AbortError"
+      } else {
+        lastError = error instanceof Error ? error : new Error("Failed to parse AI response")
+      }
       console.warn("[AI] openai request failed", {
         model,
         attempt,
         error: lastError.message,
+        requestId,
       })
       if (attempt >= MAX_RETRIES) {
         throw lastError
       }
+      const delayMs = BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
+      await sleep(delayMs)
     } finally {
       clearTimeout(timeoutId)
     }
@@ -117,7 +133,12 @@ export async function generateWeeklyPlan(input: GeneratePlanInput): Promise<Week
     workouts: input.workouts,
     currentPlan: input.currentPlan ?? null,
   }
-  return callCookedAI({ model, userPayload: payload, schema: loosePlanSchema }) as Promise<WeekPlan>
+  return callCookedAI({
+    model,
+    userPayload: payload,
+    schema: loosePlanSchema,
+    requestId: input.requestId,
+  }) as Promise<WeekPlan>
 }
 
 export async function applyPlanEdits(input: EditPlanInput): Promise<EditResponse> {
@@ -131,5 +152,5 @@ export async function applyPlanEdits(input: EditPlanInput): Promise<EditResponse
     currentPlan: input.currentPlan ?? null,
     message: input.message,
   }
-  return callCookedAI({ model, userPayload: payload, schema: editResponseSchema })
+  return callCookedAI({ model, userPayload: payload, schema: editResponseSchema, requestId: input.requestId })
 }

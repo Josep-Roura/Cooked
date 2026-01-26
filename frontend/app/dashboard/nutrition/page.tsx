@@ -21,6 +21,7 @@ import {
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
 import { generatePlanWithOpenAI } from "@/lib/ai/generatePlanWithOpenAI"
+import { ensureMealPlanDay } from "@/lib/nutrition/ensure"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -102,7 +103,11 @@ export default function NutritionPage() {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
-      await generatePlanWithOpenAI({ date: selectedDate, force: regenerate })
+      if (regenerate) {
+        await generatePlanWithOpenAI({ date: selectedDate, force: true })
+      } else {
+        await ensureMealPlanDay(selectedDate)
+      }
       await Promise.all([
         weeklyNutritionQuery.refetch(),
         mealPlanQuery.refetch(),
