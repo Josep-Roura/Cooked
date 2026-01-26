@@ -33,47 +33,25 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .single()
 
-    const { data: plans } = await supabase
-      .from("meal_plans")
-      .select("id")
+    let consumed = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
+
+    const { data: meals } = await supabase
+      .from("nutrition_meals")
+      .select("macros, eaten")
       .eq("user_id", user.id)
       .eq("date", date)
 
-    const planIds = (plans ?? []).map((plan) => plan.id)
-    let consumed = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
-
-    if (planIds.length > 0) {
-      const { data: mealLog } = await supabase
-        .from("meal_log")
-        .select("slot, is_eaten")
-        .eq("user_id", user.id)
-        .eq("date", date)
-
-      const eatenSlots = new Set(
-        (mealLog ?? []).filter((entry) => entry.is_eaten).map((entry) => entry.slot),
-      )
-
-      if (eatenSlots.size > 0) {
-        const { data: eatenItems } = await supabase
-          .from("meal_plan_items")
-          .select("kcal, protein_g, carbs_g, fat_g, slot")
-          .in("meal_plan_id", planIds)
-
-        consumed = (eatenItems ?? []).reduce(
-          (acc, item) => {
-            if (!eatenSlots.has(item.slot)) {
-              return acc
-            }
-            acc.kcal += item.kcal ?? 0
-            acc.protein_g += item.protein_g ?? 0
-            acc.carbs_g += item.carbs_g ?? 0
-            acc.fat_g += item.fat_g ?? 0
-            return acc
-          },
-          { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
-        )
-      }
-    }
+    consumed = (meals ?? []).reduce(
+      (acc, meal) => {
+        if (!meal.eaten) return acc
+        acc.kcal += meal.macros?.kcal ?? 0
+        acc.protein_g += meal.macros?.protein_g ?? 0
+        acc.carbs_g += meal.macros?.carbs_g ?? 0
+        acc.fat_g += meal.macros?.fat_g ?? 0
+        return acc
+      },
+      { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
+    )
 
     const target = targetRow
       ? {

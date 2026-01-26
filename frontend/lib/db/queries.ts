@@ -35,7 +35,7 @@ export async function fetchProfile(userId: string): Promise<ProfileRow | null> {
     return null
   }
 
-  const response = await fetch("/api/v1/profile/me", { method: "GET" })
+  const response = await fetch("/api/profile", { method: "GET" })
   if (response.status === 404) {
     return null
   }

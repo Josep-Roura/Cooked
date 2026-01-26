@@ -17,7 +17,6 @@ import { EventManagementSheet } from "@/components/dashboard/widgets/event-manag
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
 import {
   useDashboardOverview,
-  useEnsureMealPlans,
   useMacrosDay,
   useMealPlanDay,
   useTrainingSessions,
@@ -28,36 +27,32 @@ import {
 } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
-import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const { user } = useSession()
   const profileQuery = useProfile(user?.id)
+  const [now] = useState(() => new Date())
   const [range, setRange] = useState<DateRangeOption>("today")
-  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
+  const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
   const [eventsOpen, setEventsOpen] = useState(false)
   const [highlightMeals, setHighlightMeals] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  const todayKey = format(new Date(), "yyyy-MM-dd")
+  const todayKey = format(now, "yyyy-MM-dd")
   const eventsQuery = useUserEvents(
     user?.id,
-    format(new Date(), "yyyy-MM-dd"),
-    format(addDays(new Date(), 365), "yyyy-MM-dd"),
+    format(now, "yyyy-MM-dd"),
+    format(addDays(now, 365), "yyyy-MM-dd"),
   )
   const todayMealPlanQuery = useMealPlanDay(user?.id, todayKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const todayMacrosQuery = useMacrosDay(user?.id, todayKey)
   const macrosQuery = useMacrosDay(user?.id, selectedDate)
   const todayTrainingQuery = useTrainingSessions(user?.id, todayKey, todayKey)
-  const ensureMealsMutation = useEnsureMealPlans()
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
-  const ensuredDateRef = useRef<string | null>(null)
   const planRef = useRef<HTMLDivElement | null>(null)
-
-  useEnsureNutritionPlan({ userId: user?.id, range })
 
   const animationProps = useMemo(
     () =>
@@ -104,13 +99,6 @@ export function OverviewPage() {
     }
   }, [mealPlanQuery.isError, toast])
 
-  useEffect(() => {
-    if (!user?.id) return
-    const ensureKey = `${user.id}:${selectedDate}`
-    if (ensuredDateRef.current === ensureKey) return
-    ensuredDateRef.current = ensureKey
-    ensureMealsMutation.mutate({ start: selectedDate, end: selectedDate })
-  }, [ensureMealsMutation, selectedDate, user?.id])
 
   if (overviewQuery.isError) {
     return <ErrorState onRetry={() => overviewQuery.refetch()} />
@@ -140,7 +128,6 @@ export function OverviewPage() {
     { sessions: 0, durationMinutes: 0 },
   )
 
-  const now = new Date()
   const isAfterCutoff = now.getHours() >= 18
   const completionPercent = totalMeals > 0 ? (completedMeals / totalMeals) * 100 : 0
 

@@ -41,6 +41,28 @@ export interface NutritionPlanRow {
   user_id: string | null
 }
 
+export interface NutritionMeal {
+  id: string
+  user_id: string
+  plan_id: string
+  date: string
+  slot: number
+  name: string
+  time: string | null
+  macros: {
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+  }
+  ingredients?: unknown
+  eaten: boolean
+  eaten_at: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface NutritionPlan {
   id: string
   user_key: string
