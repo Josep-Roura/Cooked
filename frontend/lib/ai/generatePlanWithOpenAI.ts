@@ -2,7 +2,10 @@
 
 type GeneratePlanResult = {
   ok: boolean
-  plan?: unknown
+  usedFallback?: boolean
+  start?: string
+  end?: string
+  days?: unknown[]
   error?: string
 }
 
@@ -26,5 +29,5 @@ export async function generatePlanWithOpenAI({
     throw new Error(data.error ?? "AI plan generation failed")
   }
 
-  return { usedFallback: false, plan: data.plan }
+  return { usedFallback: data.usedFallback ?? false, days: data.days ?? [] }
 }

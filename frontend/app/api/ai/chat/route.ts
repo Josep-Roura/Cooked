@@ -60,10 +60,10 @@ function buildWeeklyPlan({
         }
       : dayMeals.reduce(
           (acc, meal) => {
-            acc.kcal += meal.macros?.kcal ?? 0
-            acc.protein_g += meal.macros?.protein_g ?? 0
-            acc.carbs_g += meal.macros?.carbs_g ?? 0
-            acc.fat_g += meal.macros?.fat_g ?? 0
+            acc.kcal += meal.kcal ?? 0
+            acc.protein_g += meal.protein_g ?? 0
+            acc.carbs_g += meal.carbs_g ?? 0
+            acc.fat_g += meal.fat_g ?? 0
             return acc
           },
           { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
@@ -77,7 +77,12 @@ function buildWeeklyPlan({
         name: meal.name,
         time: meal.time ?? null,
         ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-        macros: meal.macros ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+        macros: {
+          kcal: meal.kcal ?? 0,
+          protein_g: meal.protein_g ?? 0,
+          carbs_g: meal.carbs_g ?? 0,
+          fat_g: meal.fat_g ?? 0,
+        },
         notes: meal.notes ?? null,
       })),
       macros: macroTotals,
@@ -112,12 +117,10 @@ function buildPlanRows(plan: WeekPlan, userId: string, planId: string, workoutMa
 function buildMealRows({
   plan,
   userId,
-  planId,
   existingMeals,
 }: {
   plan: WeekPlan
   userId: string
-  planId: string
   existingMeals: Map<string, { eaten: boolean; eaten_at: string | null }>
 }) {
   return plan.days.flatMap((day) =>
@@ -125,16 +128,17 @@ function buildMealRows({
       const existing = existingMeals.get(`${day.date}:${meal.slot}`)
       return {
         user_id: userId,
-        plan_id: planId,
         date: day.date,
         slot: meal.slot,
         name: meal.name,
         time: meal.time ?? null,
-        ingredients: meal.ingredients,
-        macros: meal.macros,
+        ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+        kcal: meal.macros.kcal,
+        protein_g: meal.macros.protein_g,
+        carbs_g: meal.macros.carbs_g,
+        fat_g: meal.macros.fat_g,
         eaten: existing?.eaten ?? false,
         eaten_at: existing?.eaten_at ?? null,
-        notes: meal.notes ?? null,
       }
     }),
   )
@@ -309,7 +313,6 @@ export async function POST(req: NextRequest) {
     const mealRows = buildMealRows({
       plan: editResponse.updatedPlan,
       userId: user.id,
-      planId,
       existingMeals: existingMealsMap,
     })
 
@@ -343,8 +346,8 @@ export async function POST(req: NextRequest) {
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
       user_id: user.id,
-      plan_id: planId,
-      source: "chat_edit",
+      week_start: start,
+      week_end: end,
       diff: editResponse.diff,
     })
 

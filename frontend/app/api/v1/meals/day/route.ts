@@ -44,16 +44,16 @@ export async function GET(req: NextRequest) {
       name: meal.name,
       time: meal.time,
       emoji: null,
-      kcal: meal.macros?.kcal ?? 0,
-      protein_g: meal.macros?.protein_g ?? 0,
-      carbs_g: meal.macros?.carbs_g ?? 0,
-      fat_g: meal.macros?.fat_g ?? 0,
+      kcal: meal.kcal ?? 0,
+      protein_g: meal.protein_g ?? 0,
+      carbs_g: meal.carbs_g ?? 0,
+      fat_g: meal.fat_g ?? 0,
       eaten: meal.eaten ?? false,
       notes: null,
       recipe_id: null,
       created_at: meal.created_at,
       updated_at: meal.updated_at,
-      ingredients: [],
+      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
     }))
 
     return NextResponse.json({ plan: null, items }, { status: 200 })

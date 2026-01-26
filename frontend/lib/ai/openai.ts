@@ -55,8 +55,10 @@ async function callCookedAI<T>({
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const startedAt = Date.now()
 
     try {
+      console.info("[AI] openai request start", { model, attempt })
       const response = await fetch(OPENAI_URL, {
         method: "POST",
         headers: {
@@ -76,6 +78,9 @@ async function callCookedAI<T>({
       })
 
       const data = await response.json().catch(() => null)
+      const latencyMs = Date.now() - startedAt
+      const usage = data?.usage ?? null
+      console.info("[AI] openai request finished", { model, latencyMs, usage })
       if (!response.ok || !data) {
         const message = data?.error?.message ?? "OpenAI request failed"
         throw new Error(message)
@@ -86,6 +91,11 @@ async function callCookedAI<T>({
       return schema.parse(parsed)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Failed to parse AI response")
+      console.warn("[AI] openai request failed", {
+        model,
+        attempt,
+        error: lastError.message,
+      })
       if (attempt >= MAX_RETRIES) {
         throw lastError
       }

@@ -9,15 +9,30 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const payloadSchema = z.object({
   start: dateSchema,
   end: dateSchema,
-  workoutCount: z.number().optional(),
   force: z.boolean().optional(),
-})
-const aiResponseSchema = z.object({
-  days: z.array(z.unknown()),
-  rationale: z.string().optional(),
 })
 const MAX_RANGE_DAYS = 62
 const DEFAULT_MEALS_PER_DAY = 3
+
+type PlanGenerateMeal = {
+  slot: number
+  name: string
+  time?: string | null
+  emoji?: string | null
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  ingredients?: Array<{ name: string; quantity?: string | number | null }>
+  notes?: string | null
+}
+
+type PlanGenerateDay = {
+  date: string
+  meals: PlanGenerateMeal[]
+  totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number }
+  rationale?: string | null
+}
 
 function buildDateRange(start: string, end: string) {
   const startDate = new Date(`${start}T00:00:00Z`)
@@ -265,15 +280,13 @@ function buildPlanRows(plan: WeekPlan, userId: string, planId: string, workoutMa
   }))
 }
 
-function buildMealRows({
+function buildNutritionMealRows({
   plan,
   userId,
-  planId,
   existingMeals,
 }: {
   plan: WeekPlan
   userId: string
-  planId: string
   existingMeals: Map<string, { eaten: boolean; eaten_at: string | null }>
 }) {
   return plan.days.flatMap((day) =>
@@ -281,22 +294,196 @@ function buildMealRows({
       const existing = existingMeals.get(`${day.date}:${meal.slot}`)
       return {
         user_id: userId,
-        plan_id: planId,
         date: day.date,
         slot: meal.slot,
         name: meal.name,
         time: meal.time ?? null,
-        ingredients: meal.ingredients,
+        ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
         kcal: meal.macros.kcal,
         protein_g: meal.macros.protein_g,
         carbs_g: meal.macros.carbs_g,
         fat_g: meal.macros.fat_g,
         eaten: existing?.eaten ?? false,
         eaten_at: existing?.eaten_at ?? null,
-        notes: meal.notes ?? null,
       }
     }),
   )
+}
+
+function coerceNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) {
+    return Number(value)
+  }
+  return fallback
+}
+
+function normalizeMacros(
+  raw: unknown,
+  fallback: { kcal: number; protein_g: number; carbs_g: number; fat_g: number },
+) {
+  if (raw && typeof raw === "object") {
+    const macros = raw as Record<string, unknown>
+    return {
+      kcal: Math.round(coerceNumber(macros.kcal, fallback.kcal)),
+      protein_g: Math.round(coerceNumber(macros.protein_g, fallback.protein_g)),
+      carbs_g: Math.round(coerceNumber(macros.carbs_g, fallback.carbs_g)),
+      fat_g: Math.round(coerceNumber(macros.fat_g, fallback.fat_g)),
+    }
+  }
+  return fallback
+}
+
+function normalizeIngredients(raw: unknown, fallback: Array<{ name: string; quantity?: string | number | null }>) {
+  if (!Array.isArray(raw)) return fallback
+  return raw
+    .map((ingredient) => {
+      if (!ingredient || typeof ingredient !== "object") return null
+      const data = ingredient as Record<string, unknown>
+      const name = typeof data.name === "string" ? data.name.trim() : ""
+      if (!name) return null
+      const quantity =
+        typeof data.quantity === "string" || typeof data.quantity === "number"
+          ? data.quantity
+          : typeof data.amount_g === "number"
+            ? data.amount_g
+            : null
+      return { name, quantity }
+    })
+    .filter((ingredient): ingredient is { name: string; quantity?: string | number | null } => Boolean(ingredient))
+}
+
+function normalizeMeal(
+  raw: unknown,
+  fallback: { slot: number; name: string; time?: string | null; ingredients: any[]; macros: any; notes?: string | null },
+  index: number,
+) {
+  const base = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
+  const slot = Math.max(1, Math.round(coerceNumber(base.slot, fallback.slot ?? index + 1)))
+  const name = typeof base.name === "string" && base.name.trim() ? base.name.trim() : fallback.name
+  const time = typeof base.time === "string" ? base.time : fallback.time ?? null
+  const rawMacros =
+    base.macros && typeof base.macros === "object"
+      ? base.macros
+      : {
+          kcal: base.kcal,
+          protein_g: base.protein_g,
+          carbs_g: base.carbs_g,
+          fat_g: base.fat_g,
+        }
+  const macros = normalizeMacros(rawMacros, fallback.macros)
+  const ingredients = normalizeIngredients(base.ingredients, fallback.ingredients ?? [])
+  const notes = typeof base.notes === "string" ? base.notes : fallback.notes ?? null
+
+  return {
+    slot,
+    name,
+    time,
+    ingredients,
+    macros,
+    notes,
+  }
+}
+
+function normalizeWeekPlan({
+  rawPlan,
+  fallbackPlan,
+  start,
+  end,
+}: {
+  rawPlan: WeekPlan | null
+  fallbackPlan: WeekPlan
+  start: string
+  end: string
+}) {
+  const range = buildDateRange(start, end)
+  if (!range) {
+    return { plan: fallbackPlan, usedFallback: true }
+  }
+
+  const rawDays = Array.isArray(rawPlan?.days) ? rawPlan?.days ?? [] : []
+  const rawByDate = new Map<string, WeekPlan["days"][number]>()
+  rawDays.forEach((day) => {
+    if (day?.date) rawByDate.set(day.date, day)
+  })
+
+  let usedFallback = rawDays.length === 0
+  const days = Array.from({ length: range.days }, (_value, index) => {
+    const cursor = new Date(`${start}T00:00:00Z`)
+    cursor.setUTCDate(cursor.getUTCDate() + index)
+    const date = cursor.toISOString().split("T")[0]
+    const fallbackDay = fallbackPlan.days[index]
+    const rawDay = rawByDate.get(date)
+    const dayType = rawDay?.day_type ?? fallbackDay?.day_type ?? "rest"
+    const macros = normalizeMacros(rawDay?.macros, fallbackDay?.macros ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 })
+    const rawMeals = Array.isArray(rawDay?.meals) ? rawDay?.meals ?? [] : []
+    const fallbackMeals = fallbackDay?.meals ?? []
+    if (!rawDay || rawMeals.length === 0) {
+      usedFallback = true
+    }
+    const meals = (rawMeals.length > 0 ? rawMeals : fallbackMeals).map((meal, mealIndex) => {
+      const fallbackMeal =
+        fallbackMeals[mealIndex] ??
+        fallbackMeals[0] ?? {
+          slot: mealIndex + 1,
+          name: "Meal",
+          time: null,
+          ingredients: [],
+          macros,
+          notes: null,
+        }
+      return normalizeMeal(meal, fallbackMeal, mealIndex)
+    })
+
+    return {
+      date,
+      day_type: dayType,
+      macros,
+      meals,
+    }
+  })
+
+  const plan: WeekPlan = { start, end, days }
+  const parsed = weekPlanSchema.safeParse(plan)
+  if (!parsed.success) {
+    return { plan: fallbackPlan, usedFallback: true }
+  }
+
+  return { plan: parsed.data, usedFallback }
+}
+
+function buildResponseDays(plan: WeekPlan): PlanGenerateDay[] {
+  return plan.days.map((day) => ({
+    date: day.date,
+    meals: day.meals.map((meal) => ({
+      slot: meal.slot,
+      name: meal.name,
+      time: meal.time ?? null,
+      emoji: null,
+      kcal: meal.macros.kcal,
+      protein_g: meal.macros.protein_g,
+      carbs_g: meal.macros.carbs_g,
+      fat_g: meal.macros.fat_g,
+      ingredients: meal.ingredients ?? [],
+      notes: meal.notes ?? null,
+    })),
+    totals: {
+      kcal: day.macros.kcal,
+      protein_g: day.macros.protein_g,
+      carbs_g: day.macros.carbs_g,
+      fat_g: day.macros.fat_g,
+    },
+    rationale: null,
+  }))
+}
+
+function inferMealType(name: string) {
+  const lowered = name.toLowerCase()
+  if (lowered.includes("breakfast")) return "breakfast"
+  if (lowered.includes("lunch")) return "lunch"
+  if (lowered.includes("dinner")) return "dinner"
+  if (lowered.includes("snack")) return "snack"
+  return null
 }
 
 // Quick sanity check:
@@ -341,7 +528,7 @@ export async function POST(req: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
+        { ok: false, error: "Not authenticated", details: authError?.message ?? null },
         { status: 401 },
       )
     }
@@ -354,7 +541,10 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (profileError) {
-      return NextResponse.json({ error: "Failed to load profile", details: profileError.message }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Failed to load profile", details: profileError.message },
+        { status: 400 },
+      )
     }
 
     const { data: workouts, error: workoutError } = await supabase
@@ -365,7 +555,10 @@ export async function POST(req: NextRequest) {
       .lte("workout_day", end)
 
     if (workoutError) {
-      return NextResponse.json({ error: "Failed to load workouts", details: workoutError.message }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Failed to load workouts", details: workoutError.message },
+        { status: 400 },
+      )
     }
 
     console.info("POST /api/ai/plan/generate", {
@@ -378,7 +571,7 @@ export async function POST(req: NextRequest) {
     const [{ data: existingMeals }, { data: existingRows }] = await Promise.all([
       supabase
         .from("nutrition_meals")
-        .select("date, slot, eaten, eaten_at, ingredients, name, time, notes, kcal, protein_g, carbs_g, fat_g, recipe")
+        .select("date, slot, eaten, eaten_at, ingredients, name, time, kcal, protein_g, carbs_g, fat_g, recipe")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
@@ -413,44 +606,58 @@ export async function POST(req: NextRequest) {
       rows: existingRows ?? [],
     })
 
-    let plan: WeekPlan
     let usedFallback = false
+    let rawPlan: WeekPlan | null = null
 
+    const fallbackPlan = buildFallbackPlan({
+      start,
+      end,
+      workouts: (workouts ?? []).map((workout) => ({
+        workout_day: workout.workout_day,
+        workout_type: workout.workout_type ?? null,
+        tss: workout.tss ?? null,
+        rpe: workout.rpe ?? null,
+        if: workout.if ?? null,
+      })),
+      weightKg: profile?.weight_kg ?? 70,
+      mealsPerDay: profile?.meals_per_day ?? DEFAULT_MEALS_PER_DAY,
+    })
+
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
+    const aiStartedAt = Date.now()
     try {
-      plan = await generateWeeklyPlan({
+      rawPlan = await generateWeeklyPlan({
         start,
         end,
         profile: profile ?? {},
         workouts: workouts ?? [],
         currentPlan,
       })
-      const aiParsed = aiResponseSchema.safeParse(plan)
-      if (!aiParsed.success) {
-        throw new Error("AI response missing required days")
-      }
-      weekPlanSchema.parse(plan)
+      console.info("[AI] weekly plan generated", {
+        userId: user.id,
+        model,
+        latencyMs: Date.now() - aiStartedAt,
+      })
     } catch (error) {
       usedFallback = true
       console.warn("AI plan generation failed, using fallback plan.", {
         userId: user.id,
         start,
         end,
+        model,
+        latencyMs: Date.now() - aiStartedAt,
         error: error instanceof Error ? error.message : String(error),
       })
-      plan = buildFallbackPlan({
-        start,
-        end,
-        workouts: (workouts ?? []).map((workout) => ({
-          workout_day: workout.workout_day,
-          workout_type: workout.workout_type ?? null,
-          tss: workout.tss ?? null,
-          rpe: workout.rpe ?? null,
-          if: workout.if ?? null,
-        })),
-        weightKg: profile?.weight_kg ?? 70,
-        mealsPerDay: profile?.meals_per_day ?? DEFAULT_MEALS_PER_DAY,
-      })
     }
+
+    const normalized = normalizeWeekPlan({
+      rawPlan,
+      fallbackPlan,
+      start,
+      end,
+    })
+    usedFallback = usedFallback || normalized.usedFallback
+    const plan = normalized.plan
 
     const { data: existingPlan } = await supabase
       .from("nutrition_plans")
@@ -478,7 +685,7 @@ export async function POST(req: NextRequest) {
 
       if (createError || !created) {
         return NextResponse.json(
-          { error: "Failed to create nutrition plan", details: createError?.message ?? null },
+          { ok: false, error: "Failed to create nutrition plan", details: createError?.message ?? null },
           { status: 400 },
         )
       }
@@ -487,7 +694,7 @@ export async function POST(req: NextRequest) {
 
     const workoutMap = workoutsByDate(workouts ?? [])
     const planRows = buildPlanRows(plan, user.id, planId, workoutMap)
-    const mealRows = buildMealRows({ plan, userId: user.id, planId, existingMeals: existingMealsMap })
+    const mealRows = buildNutritionMealRows({ plan, userId: user.id, existingMeals: existingMealsMap })
 
     const { error: rowError } = await supabase
       .from("nutrition_plan_rows")
@@ -495,48 +702,134 @@ export async function POST(req: NextRequest) {
 
     if (rowError) {
       console.error("Failed to save plan rows", rowError)
-      return NextResponse.json({ error: "Failed to save plan rows", details: rowError.message }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Failed to save plan rows", details: rowError.message },
+        { status: 400 },
+      )
     }
 
-    const mealRowsWithPlan = mealRows.map((meal) => ({
-      ...meal,
-      plan_id: planId,
-      macros: {
-        kcal: meal.kcal,
-        protein_g: meal.protein_g,
-        carbs_g: meal.carbs_g,
-        fat_g: meal.fat_g,
-      },
-      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-      eaten: meal.eaten ?? false,
-    }))
-    const mealRowsWithoutPlan = mealRows.map(({ plan_id: _planId, ...meal }) => meal)
-
-    let { error: mealError } = await supabase
+    const { error: mealError } = await supabase
       .from("nutrition_meals")
-      .upsert(mealRowsWithPlan, { onConflict: "user_id,date,slot" })
-
-    if (mealError) {
-      const isMissingColumn =
-        mealError.code === "42703" ||
-        /column "(plan_id|macros)"/i.test(mealError.message)
-
-      if (isMissingColumn) {
-        ;({ error: mealError } = await supabase
-          .from("nutrition_meals")
-          .upsert(mealRowsWithoutPlan, { onConflict: "user_id,date,slot" }))
-      }
-    }
+      .upsert(mealRows, { onConflict: "user_id,date,slot" })
 
     if (mealError) {
       console.error("Failed to save meals", mealError)
-      return NextResponse.json({ error: "Failed to save meals", details: mealError.message }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Failed to save meals", details: mealError.message },
+        { status: 400 },
+      )
+    }
+
+    for (const day of plan.days) {
+      const { data: planRow, error: planRowError } = await supabase
+        .from("meal_plans")
+        .upsert(
+          {
+            user_id: user.id,
+            date: day.date,
+            target_kcal: day.macros.kcal,
+            target_protein_g: day.macros.protein_g,
+            target_carbs_g: day.macros.carbs_g,
+            target_fat_g: day.macros.fat_g,
+            training_day_type: day.day_type ?? null,
+            status: "generated",
+            locked: false,
+          },
+          { onConflict: "user_id,date" },
+        )
+        .select("id")
+        .single()
+
+      if (planRowError || !planRow) {
+        console.error("Failed to save meal plan", planRowError)
+        return NextResponse.json(
+          { ok: false, error: "Failed to save meal plan", details: planRowError?.message ?? null },
+          { status: 400 },
+        )
+      }
+
+      const { data: existingItems } = await supabase
+        .from("meal_plan_items")
+        .select("id")
+        .eq("meal_plan_id", planRow.id)
+      const existingIds = (existingItems ?? []).map((item) => item.id)
+      if (existingIds.length > 0) {
+        await supabase.from("meal_plan_ingredients").delete().in("meal_item_id", existingIds)
+      }
+      await supabase.from("meal_plan_items").delete().eq("meal_plan_id", planRow.id)
+
+      const items = day.meals.map((meal, index) => ({
+        meal_plan_id: planRow.id,
+        slot: meal.slot,
+        meal_type: inferMealType(meal.name),
+        sort_order: index + 1,
+        name: meal.name,
+        time: meal.time ?? null,
+        emoji: null,
+        kcal: meal.macros.kcal,
+        protein_g: meal.macros.protein_g,
+        carbs_g: meal.macros.carbs_g,
+        fat_g: meal.macros.fat_g,
+        eaten: false,
+        notes: meal.notes ?? null,
+        recipe_id: null,
+      }))
+
+      if (items.length > 0) {
+        const { data: insertedItems, error: itemError } = await supabase
+          .from("meal_plan_items")
+          .insert(items)
+          .select("id, slot")
+        if (itemError || !insertedItems) {
+          console.error("Failed to save meal plan items", itemError)
+          return NextResponse.json(
+            { ok: false, error: "Failed to save meal plan items", details: itemError?.message ?? null },
+            { status: 400 },
+          )
+        }
+
+        const ingredientRows = insertedItems.flatMap((item) => {
+          const meal = day.meals.find((entry) => entry.slot === item.slot)
+          const ingredients = Array.isArray(meal?.ingredients) ? meal?.ingredients ?? [] : []
+          return ingredients
+            .map((ingredient) => {
+              if (!ingredient || typeof ingredient !== "object") return null
+              const data = ingredient as Record<string, unknown>
+              const name = typeof data.name === "string" ? data.name.trim() : ""
+              if (!name) return null
+              const quantity =
+                typeof data.quantity === "string" || typeof data.quantity === "number"
+                  ? String(data.quantity)
+                  : null
+              return {
+                meal_item_id: item.id,
+                name,
+                quantity,
+                checked: false,
+              }
+            })
+            .filter((row): row is { meal_item_id: string; name: string; quantity: string | null; checked: boolean } =>
+              Boolean(row),
+            )
+        })
+
+        if (ingredientRows.length > 0) {
+          const { error: ingredientError } = await supabase.from("meal_plan_ingredients").insert(ingredientRows)
+          if (ingredientError) {
+            console.error("Failed to save meal plan ingredients", ingredientError)
+            return NextResponse.json(
+              { ok: false, error: "Failed to save meal plan ingredients", details: ingredientError.message },
+              { status: 400 },
+            )
+          }
+        }
+      }
     }
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
       user_id: user.id,
-      plan_id: planId,
-      source: "generate",
+      week_start: start,
+      week_end: end,
       diff: { generated: true, start, end },
     })
 
@@ -545,7 +838,6 @@ export async function POST(req: NextRequest) {
         revisionError.code === "42P01" || /relation .*plan_revisions.* does not exist/i.test(revisionError.message)
       if (!isMissingTable) {
         console.error("Failed to save revision", revisionError)
-        return NextResponse.json({ error: "Failed to save revision", details: revisionError.message }, { status: 400 })
       }
       console.warn("Skipping plan_revisions insert due to missing table.", {
         userId: user.id,
@@ -554,11 +846,20 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    return NextResponse.json({ ok: true, planId, start, end, usedFallback }, { status: 200 })
+    return NextResponse.json(
+      {
+        ok: true,
+        usedFallback,
+        start,
+        end,
+        days: buildResponseDays(plan),
+      },
+      { status: 200 },
+    )
   } catch (error) {
     console.error("POST /api/ai/plan/generate error:", error)
     return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Internal error", details: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     )
   }
