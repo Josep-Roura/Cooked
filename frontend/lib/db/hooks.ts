@@ -21,8 +21,6 @@ import type {
   WeeklyNutritionDay,
   MacrosDaySummary,
   NutritionDaySummary,
-  NutritionDayType,
-  NutritionMacros,
   NutritionMeal,
   NutritionPlan,
   NutritionPlanRow,
@@ -208,24 +206,6 @@ function buildCalendarEvents(workouts: TpWorkout[]): CalendarEvent[] {
   })
 }
 
-type NutritionMetaEntry = {
-  meals?: Meal[]
-  macros?: NutritionMacros
-  day_type?: NutritionDayType
-  meals_per_day?: number
-}
-
-function parseNutritionMeta(meta: Record<string, unknown> | null | undefined): Record<string, NutritionMetaEntry> {
-  if (!meta || typeof meta !== "object") {
-    return {}
-  }
-  const raw = (meta as Record<string, unknown>)["nutrition_by_date"]
-  if (!raw || typeof raw !== "object") {
-    return {}
-  }
-  return raw as Record<string, NutritionMetaEntry>
-}
-
 function normalizeMealTime(value: string | undefined | null): string | null {
   if (!value) return null
   const match = value.match(/^(\d{1,2}):(\d{2})$/)
@@ -234,6 +214,7 @@ function normalizeMealTime(value: string | undefined | null): string | null {
 }
 
 function buildNutritionEvents(
+  meals: NutritionMeal[],
   rows: NutritionPlanRow[],
   profile: ProfileRow | null | undefined,
   range: DateRangeOption,
@@ -242,42 +223,24 @@ function buildNutritionEvents(
   const { start, end } = getDateRange(range, now)
   const startKey = format(start, "yyyy-MM-dd")
   const endKey = format(end, "yyyy-MM-dd")
-  const nutritionMeta = parseNutritionMeta(profile?.meta)
   const events: CalendarEvent[] = []
   const coveredDates = new Set<string>()
   const defaultMealsPerDay = profile?.meals_per_day ?? 3
 
-  Object.entries(nutritionMeta).forEach(([date, entry]) => {
-    if (date < startKey || date > endKey) return
-    const meals = Array.isArray(entry.meals) ? entry.meals : []
-    const dayMeals = meals.filter((meal) => Boolean(meal))
-    if (dayMeals.length > 0) {
-      dayMeals.forEach((meal) => {
-        const startTime = normalizeMealTime(meal.time) ?? "12:00"
-        events.push({
-          id: `nutrition-${date}-${meal.slot}`,
-          title: `Nutrition: ${meal.name}`,
-          type: "nutrition",
-          startTime,
-          endTime: calculateEndTime(startTime, 0.75),
-          date,
-          color: "bg-green-500",
-          description: `${meal.kcal} kcal`,
-        })
-      })
-    } else {
-      const mealsPerDay = entry.meals_per_day ?? defaultMealsPerDay
-      events.push({
-        id: `nutrition-${date}`,
-        title: `Meal plan (${mealsPerDay} meals)`,
-        type: "nutrition",
-        startTime: "12:00",
-        endTime: calculateEndTime("12:00", 0.5),
-        date,
-        color: "bg-green-500",
-      })
-    }
-    coveredDates.add(date)
+  meals.forEach((meal) => {
+    if (meal.date < startKey || meal.date > endKey) return
+    const startTime = normalizeMealTime(meal.time) ?? "12:00"
+    events.push({
+      id: `nutrition-${meal.date}-${meal.slot}`,
+      title: `Nutrition: ${meal.name}`,
+      type: "nutrition",
+      startTime,
+      endTime: calculateEndTime(startTime, 0.75),
+      date: meal.date,
+      color: "bg-green-500",
+      description: `${meal.macros?.kcal ?? 0} kcal`,
+    })
+    coveredDates.add(meal.date)
   })
 
   rows.forEach((row) => {
@@ -618,17 +581,36 @@ async function fetchPlanWeek(start: string, end: string) {
 }
 
 async function fetchPlanChat(weekStart: string, weekEnd: string) {
-  const params = new URLSearchParams({ weekStart, weekEnd })
+  const params = new URLSearchParams({ start: weekStart, end: weekEnd })
   const response = await fetch(`/api/ai/chat?${params.toString()}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load plan chat")
   }
   const data = (await response.json()) as PlanChatPayload
-  return {
-    thread: data.thread ?? null,
-    messages: Array.isArray(data.messages) ? data.messages : [],
-  }
+  const thread = data.thread
+    ? {
+        id: data.thread.id,
+        user_id: data.thread.user_id,
+        week_start_date: weekStart,
+        title: data.thread.title ?? null,
+        created_at: data.thread.created_at,
+        updated_at: data.thread.updated_at,
+      }
+    : null
+  const messages = Array.isArray(data.messages)
+    ? data.messages.map((message) => ({
+        id: message.id,
+        thread_id: message.thread_id,
+        user_id: message.user_id,
+        role: message.role,
+        content: message.content,
+        meta: message.meta ?? null,
+        created_at: message.created_at,
+      }))
+    : []
+
+  return { thread, messages }
 }
 
 async function fetchUserEvents(from: string, to: string) {
@@ -1134,7 +1116,7 @@ export function useSendPlanChatMessage(userId: string | null | undefined, weekSt
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart, weekEnd, message: content }),
+        body: JSON.stringify({ start: weekStart, end: weekEnd, message: content }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
@@ -1213,9 +1195,13 @@ export function useCalendarEvents(
           format(end, "yyyy-MM-dd"),
         ),
       ])
+      const nutritionMeals = await fetchNutritionMealsRange(
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd"),
+      )
 
       const trainingCalendar = buildCalendarEvents(workouts)
-      const nutritionCalendar = buildNutritionEvents(nutritionRows, profile, range, now)
+      const nutritionCalendar = buildNutritionEvents(nutritionMeals, nutritionRows, profile, range, now)
 
       return {
         sessions: buildTrainingSessions(workouts),

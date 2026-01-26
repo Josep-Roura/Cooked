@@ -37,17 +37,17 @@ export async function GET(req: NextRequest) {
 
     const { data: meals } = await supabase
       .from("nutrition_meals")
-      .select("kcal, protein_g, carbs_g, fat_g, eaten")
+      .select("macros, eaten")
       .eq("user_id", user.id)
       .eq("date", date)
 
     consumed = (meals ?? []).reduce(
       (acc, meal) => {
         if (!meal.eaten) return acc
-        acc.kcal += meal.kcal ?? 0
-        acc.protein_g += meal.protein_g ?? 0
-        acc.carbs_g += meal.carbs_g ?? 0
-        acc.fat_g += meal.fat_g ?? 0
+        acc.kcal += meal.macros?.kcal ?? 0
+        acc.protein_g += meal.macros?.protein_g ?? 0
+        acc.carbs_g += meal.macros?.carbs_g ?? 0
+        acc.fat_g += meal.macros?.fat_g ?? 0
         return acc
       },
       { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
