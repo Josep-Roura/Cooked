@@ -277,7 +277,10 @@ function buildMealRows({
         name: meal.name,
         time: meal.time ?? null,
         ingredients: meal.ingredients,
-        macros: meal.macros,
+        kcal: meal.macros.kcal,
+        protein_g: meal.macros.protein_g,
+        carbs_g: meal.macros.carbs_g,
+        fat_g: meal.macros.fat_g,
         eaten: existing?.eaten ?? false,
         eaten_at: existing?.eaten_at ?? null,
         notes: meal.notes ?? null,
@@ -347,7 +350,7 @@ export async function POST(req: NextRequest) {
     const [{ data: existingMeals }, { data: existingRows }] = await Promise.all([
       supabase
         .from("nutrition_meals")
-        .select("date, slot, eaten, eaten_at, macros, ingredients, name, time, notes")
+        .select("date, slot, eaten, eaten_at, ingredients, name, time, notes, kcal, protein_g, carbs_g, fat_g, recipe")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
@@ -364,10 +367,21 @@ export async function POST(req: NextRequest) {
       return map
     }, new Map<string, { eaten: boolean; eaten_at: string | null }>())
 
+    const normalizedExistingMeals = (existingMeals ?? []).map((meal) => ({
+      ...meal,
+      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      macros: {
+        kcal: meal.kcal ?? 0,
+        protein_g: meal.protein_g ?? 0,
+        carbs_g: meal.carbs_g ?? 0,
+        fat_g: meal.fat_g ?? 0,
+      },
+    }))
+
     const currentPlan = buildCurrentPlan({
       start,
       end,
-      meals: existingMeals ?? [],
+      meals: normalizedExistingMeals,
       rows: existingRows ?? [],
     })
 
