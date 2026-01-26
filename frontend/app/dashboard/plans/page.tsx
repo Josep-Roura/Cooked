@@ -86,7 +86,7 @@ export default function PlansPage() {
       const response = await fetch("/api/ai/plan/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart: weekStartKey, weekEnd: weekEndKey }),
+        body: JSON.stringify({ start: weekStartKey, end: weekEndKey }),
       })
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}))
