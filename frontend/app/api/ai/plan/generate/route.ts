@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { weekPlanSchema } from "@/lib/ai/schemas"
+import crypto from "node:crypto"
 import { createServerClient } from "@/lib/supabase/server"
 import { generateWeeklyPlan } from "@/lib/ai/openai"
 import type { WeekPlan } from "@/lib/ai/schemas"
@@ -45,6 +46,16 @@ function buildDateRange(start: string, end: string) {
     return null
   }
   return { startDate, endDate, days }
+}
+
+function buildDateKeys(start: string, end: string) {
+  const range = buildDateRange(start, end)
+  if (!range) return []
+  return Array.from({ length: range.days }, (_value, index) => {
+    const cursor = new Date(`${start}T00:00:00Z`)
+    cursor.setUTCDate(cursor.getUTCDate() + index)
+    return cursor.toISOString().split("T")[0]
+  })
 }
 
 function workoutsByDate(workouts: { workout_day: string }[]) {
@@ -491,31 +502,52 @@ function inferMealType(name: string) {
 //   -H "Content-Type: application/json" \
 //   -d '{"start":"2026-01-26","end":"2026-02-01"}'
 export async function POST(req: NextRequest) {
+  let requestId = "unknown"
   try {
+    requestId = crypto.randomUUID()
     const body = await req.json().catch(() => null)
     console.info("POST /api/ai/plan/generate payload keys", {
+      requestId,
       keys: body && typeof body === "object" ? Object.keys(body as Record<string, unknown>) : [],
     })
     const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json(
-        { ok: false, error: "Invalid payload", issues: parsed.error.issues },
+        {
+          ok: false,
+          error: "Invalid payload",
+          issues: parsed.error.issues,
+          error_code: "VALIDATION_ERROR",
+          requestId,
+        },
         { status: 400 },
       )
     }
 
-    const { start, end } = parsed.data
-    console.info("POST /api/ai/plan/generate payload", { start, end })
+    const { start, end, force } = parsed.data
+    console.info("POST /api/ai/plan/generate payload", { requestId, start, end, force })
     if (start > end) {
       return NextResponse.json(
-        { ok: false, error: "Invalid date range", issues: [{ message: "start must be <= end" }] },
+        {
+          ok: false,
+          error: "Invalid date range",
+          issues: [{ message: "start must be <= end" }],
+          error_code: "VALIDATION_ERROR",
+          requestId,
+        },
         { status: 400 },
       )
     }
     const range = buildDateRange(start, end)
     if (!range) {
       return NextResponse.json(
-        { ok: false, error: "Invalid date range", issues: [{ message: "range is outside allowed bounds" }] },
+        {
+          ok: false,
+          error: "Invalid date range",
+          issues: [{ message: "range is outside allowed bounds" }],
+          error_code: "VALIDATION_ERROR",
+          requestId,
+        },
         { status: 400 },
       )
     }
@@ -528,11 +560,17 @@ export async function POST(req: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { ok: false, error: "Not authenticated", details: authError?.message ?? null },
+        {
+          ok: false,
+          error: "Not authenticated",
+          details: authError?.message ?? null,
+          error_code: "AUTH_REQUIRED",
+          requestId,
+        },
         { status: 401 },
       )
     }
-    console.info("POST /api/ai/plan/generate auth", { userId: user.id })
+    console.info("POST /api/ai/plan/generate auth", { requestId, userId: user.id })
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -542,7 +580,13 @@ export async function POST(req: NextRequest) {
 
     if (profileError) {
       return NextResponse.json(
-        { ok: false, error: "Failed to load profile", details: profileError.message },
+        {
+          ok: false,
+          error: "Failed to load profile",
+          details: profileError.message,
+          error_code: "SUPABASE_READ_FAILED",
+          requestId,
+        },
         { status: 400 },
       )
     }
@@ -556,12 +600,19 @@ export async function POST(req: NextRequest) {
 
     if (workoutError) {
       return NextResponse.json(
-        { ok: false, error: "Failed to load workouts", details: workoutError.message },
+        {
+          ok: false,
+          error: "Failed to load workouts",
+          details: workoutError.message,
+          error_code: "SUPABASE_READ_FAILED",
+          requestId,
+        },
         { status: 400 },
       )
     }
 
     console.info("POST /api/ai/plan/generate", {
+      requestId,
       userId: user.id,
       start,
       end,
@@ -606,8 +657,10 @@ export async function POST(req: NextRequest) {
       rows: existingRows ?? [],
     })
 
+    const dateKeys = buildDateKeys(start, end)
     let usedFallback = false
     let rawPlan: WeekPlan | null = null
+    let errorCode: string | null = null
 
     const fallbackPlan = buildFallbackPlan({
       start,
@@ -623,6 +676,47 @@ export async function POST(req: NextRequest) {
       mealsPerDay: profile?.meals_per_day ?? DEFAULT_MEALS_PER_DAY,
     })
 
+    if (!force) {
+      const { data: existingPlans } = await supabase
+        .from("meal_plans")
+        .select("id, date")
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+      const planIds = (existingPlans ?? []).map((plan) => plan.id)
+      let hasMealPlanItems = false
+      if (planIds.length > 0) {
+        const { data: planItems } = await supabase
+          .from("meal_plan_items")
+          .select("meal_plan_id")
+          .in("meal_plan_id", planIds)
+        const planDateMap = new Map((existingPlans ?? []).map((plan) => [plan.id, plan.date]))
+        const datesWithItems = new Set(
+          (planItems ?? [])
+            .map((item) => planDateMap.get(item.meal_plan_id))
+            .filter((date): date is string => Boolean(date)),
+        )
+        hasMealPlanItems = dateKeys.every((date) => datesWithItems.has(date))
+      }
+
+      const nutritionDates = new Set((existingMeals ?? []).map((meal) => meal.date))
+      const hasNutritionMeals = dateKeys.every((date) => nutritionDates.has(date))
+
+      if (hasMealPlanItems || hasNutritionMeals) {
+        return NextResponse.json(
+          {
+            ok: true,
+            usedFallback: false,
+            start,
+            end,
+            days: buildResponseDays(currentPlan),
+            requestId,
+          },
+          { status: 200 },
+        )
+      }
+    }
+
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
     const aiStartedAt = Date.now()
     try {
@@ -632,15 +726,19 @@ export async function POST(req: NextRequest) {
         profile: profile ?? {},
         workouts: workouts ?? [],
         currentPlan,
+        requestId,
       })
       console.info("[AI] weekly plan generated", {
+        requestId,
         userId: user.id,
         model,
         latencyMs: Date.now() - aiStartedAt,
       })
     } catch (error) {
       usedFallback = true
+      errorCode = error instanceof Error && error.name === "AbortError" ? "OPENAI_TIMEOUT" : "OPENAI_FAILED"
       console.warn("AI plan generation failed, using fallback plan.", {
+        requestId,
         userId: user.id,
         start,
         end,
@@ -685,7 +783,13 @@ export async function POST(req: NextRequest) {
 
       if (createError || !created) {
         return NextResponse.json(
-          { ok: false, error: "Failed to create nutrition plan", details: createError?.message ?? null },
+          {
+            ok: false,
+            error: "Failed to create nutrition plan",
+            details: createError?.message ?? null,
+            error_code: "SUPABASE_WRITE_FAILED",
+            requestId,
+          },
           { status: 400 },
         )
       }
@@ -703,7 +807,13 @@ export async function POST(req: NextRequest) {
     if (rowError) {
       console.error("Failed to save plan rows", rowError)
       return NextResponse.json(
-        { ok: false, error: "Failed to save plan rows", details: rowError.message },
+        {
+          ok: false,
+          error: "Failed to save plan rows",
+          details: rowError.message,
+          error_code: "SUPABASE_WRITE_FAILED",
+          requestId,
+        },
         { status: 400 },
       )
     }
@@ -715,7 +825,13 @@ export async function POST(req: NextRequest) {
     if (mealError) {
       console.error("Failed to save meals", mealError)
       return NextResponse.json(
-        { ok: false, error: "Failed to save meals", details: mealError.message },
+        {
+          ok: false,
+          error: "Failed to save meals",
+          details: mealError.message,
+          error_code: "SUPABASE_WRITE_FAILED",
+          requestId,
+        },
         { status: 400 },
       )
     }
@@ -743,7 +859,13 @@ export async function POST(req: NextRequest) {
       if (planRowError || !planRow) {
         console.error("Failed to save meal plan", planRowError)
         return NextResponse.json(
-          { ok: false, error: "Failed to save meal plan", details: planRowError?.message ?? null },
+          {
+            ok: false,
+            error: "Failed to save meal plan",
+            details: planRowError?.message ?? null,
+            error_code: "SUPABASE_WRITE_FAILED",
+            requestId,
+          },
           { status: 400 },
         )
       }
@@ -783,7 +905,13 @@ export async function POST(req: NextRequest) {
         if (itemError || !insertedItems) {
           console.error("Failed to save meal plan items", itemError)
           return NextResponse.json(
-            { ok: false, error: "Failed to save meal plan items", details: itemError?.message ?? null },
+            {
+              ok: false,
+              error: "Failed to save meal plan items",
+              details: itemError?.message ?? null,
+              error_code: "SUPABASE_WRITE_FAILED",
+              requestId,
+            },
             { status: 400 },
           )
         }
@@ -818,7 +946,13 @@ export async function POST(req: NextRequest) {
           if (ingredientError) {
             console.error("Failed to save meal plan ingredients", ingredientError)
             return NextResponse.json(
-              { ok: false, error: "Failed to save meal plan ingredients", details: ingredientError.message },
+              {
+                ok: false,
+                error: "Failed to save meal plan ingredients",
+                details: ingredientError.message,
+                error_code: "SUPABASE_WRITE_FAILED",
+                requestId,
+              },
               { status: 400 },
             )
           }
@@ -840,6 +974,7 @@ export async function POST(req: NextRequest) {
         console.error("Failed to save revision", revisionError)
       }
       console.warn("Skipping plan_revisions insert due to missing table.", {
+        requestId,
         userId: user.id,
         start,
         end,
@@ -850,16 +985,24 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         usedFallback,
+        error_code: errorCode,
         start,
         end,
         days: buildResponseDays(plan),
+        requestId,
       },
       { status: 200 },
     )
   } catch (error) {
     console.error("POST /api/ai/plan/generate error:", error)
     return NextResponse.json(
-      { ok: false, error: "Internal error", details: error instanceof Error ? error.message : String(error) },
+      {
+        ok: false,
+        error: "Internal error",
+        details: error instanceof Error ? error.message : String(error),
+        error_code: "INTERNAL_ERROR",
+        requestId,
+      },
       { status: 500 },
     )
   }

@@ -36,14 +36,36 @@ export async function ensureNutritionPlanRange({
   end: string
   force?: boolean
 }) {
-  const response = await fetch(`/api/ai/plan/generate`, {
+  if (force) {
+    const response = await fetch(`/api/ai/plan/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start, end, force }),
+    })
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}))
+      throw new Error(errorBody?.error ?? "Failed to ensure nutrition plan")
+    }
+    return response.json()
+  }
+
+  const response = await fetch(`/api/v1/meals/ensure?start=${start}&end=${end}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ start, end, force }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to ensure nutrition plan")
+  }
+  return response.json()
+}
+
+export async function ensureMealPlanDay(date: string) {
+  const response = await fetch(`/api/v1/meals/ensure-day?date=${date}`, {
+    method: "POST",
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to ensure meal plan")
   }
   return response.json()
 }
