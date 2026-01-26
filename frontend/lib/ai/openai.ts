@@ -5,7 +5,7 @@ import { editResponseSchema, weekPlanSchema, type EditResponse, type WeekPlan } 
 
 const DEFAULT_MODEL = "gpt-4o-mini"
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-const TIMEOUT_MS = 25000
+const TIMEOUT_MS = 60000
 const MAX_RETRIES = 2
 
 type GeneratePlanInput = {
