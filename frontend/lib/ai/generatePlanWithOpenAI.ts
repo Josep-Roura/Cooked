@@ -16,6 +16,7 @@ export async function generatePlanWithOpenAI({
   const response = await fetch("/api/ai/plan/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ start: date, end: date, force }),
   })
 

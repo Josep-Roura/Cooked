@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import { weekPlanSchema } from "@/lib/ai/schemas"
 import { createServerClient } from "@/lib/supabase/server"
 import { generateWeeklyPlan } from "@/lib/ai/openai"
 import type { WeekPlan } from "@/lib/ai/schemas"
@@ -10,6 +11,10 @@ const payloadSchema = z.object({
   end: dateSchema,
   workoutCount: z.number().optional(),
   force: z.boolean().optional(),
+})
+const aiResponseSchema = z.object({
+  days: z.array(z.unknown()),
+  rationale: z.string().optional(),
 })
 const MAX_RANGE_DAYS = 62
 const DEFAULT_MEALS_PER_DAY = 3
@@ -301,6 +306,9 @@ function buildMealRows({
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null)
+    console.info("POST /api/ai/plan/generate payload keys", {
+      keys: body && typeof body === "object" ? Object.keys(body as Record<string, unknown>) : [],
+    })
     const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json(
@@ -310,6 +318,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { start, end } = parsed.data
+    console.info("POST /api/ai/plan/generate payload", { start, end })
     if (start > end) {
       return NextResponse.json(
         { ok: false, error: "Invalid date range", issues: [{ message: "start must be <= end" }] },
@@ -336,6 +345,7 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       )
     }
+    console.info("POST /api/ai/plan/generate auth", { userId: user.id })
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -414,6 +424,11 @@ export async function POST(req: NextRequest) {
         workouts: workouts ?? [],
         currentPlan,
       })
+      const aiParsed = aiResponseSchema.safeParse(plan)
+      if (!aiParsed.success) {
+        throw new Error("AI response missing required days")
+      }
+      weekPlanSchema.parse(plan)
     } catch (error) {
       usedFallback = true
       console.warn("AI plan generation failed, using fallback plan.", {
