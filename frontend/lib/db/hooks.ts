@@ -571,7 +571,9 @@ async function fetchMealPrep(start?: string, end?: string) {
 
 async function fetchPlanWeek(start: string, end: string) {
   const params = new URLSearchParams({ start, end })
-  const response = await fetch(`/api/v1/plans/week?${params.toString()}`)
+  const response = await fetch(`/api/v1/plans/week?${params.toString()}`, {
+    credentials: "include",
+  })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
     throw new Error(errorBody?.error ?? "Failed to load weekly plan")
