@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       .select(
         "id, workout_day, start_time, workout_type, title, description, coach_comments, planned_hours, actual_hours, tss, rpe, if",
       )
-      .eq("athlete_id", `user:${user.id}`)
+      .eq("user_id", user.id)
       .eq("workout_day", date)
       .order("start_time", { ascending: true })
 
@@ -64,6 +64,12 @@ export async function GET(req: NextRequest) {
         if: workout.if ?? null,
         description: workout.description ?? workout.coach_comments ?? null,
       }
+    })
+
+    console.info("GET /api/v1/workouts", {
+      userId: user.id,
+      date,
+      count: workouts.length,
     })
 
     return NextResponse.json({ date, workouts }, { status: 200 })
