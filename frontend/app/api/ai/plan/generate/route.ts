@@ -464,9 +464,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to save plan rows", details: rowError.message }, { status: 400 })
     }
 
-    const { error: mealError } = await supabase
+    const mealRowsWithPlan = mealRows.map((meal) => ({
+      ...meal,
+      plan_id: planId,
+      macros: {
+        kcal: meal.kcal,
+        protein_g: meal.protein_g,
+        carbs_g: meal.carbs_g,
+        fat_g: meal.fat_g,
+      },
+    }))
+    const mealRowsWithoutPlan = mealRows.map(({ plan_id: _planId, ...meal }) => meal)
+
+    let { error: mealError } = await supabase
       .from("nutrition_meals")
-      .upsert(mealRows, { onConflict: "user_id,date,slot" })
+      .upsert(mealRowsWithPlan, { onConflict: "user_id,date,slot" })
+
+    if (mealError) {
+      const isMissingColumn =
+        mealError.code === "42703" ||
+        /column "(plan_id|macros)"/i.test(mealError.message)
+
+      if (isMissingColumn) {
+        ;({ error: mealError } = await supabase
+          .from("nutrition_meals")
+          .upsert(mealRowsWithoutPlan, { onConflict: "user_id,date,slot" }))
+      }
+    }
 
     if (mealError) {
       return NextResponse.json({ error: "Failed to save meals", details: mealError.message }, { status: 400 })
