@@ -39,7 +39,7 @@ export async function ensureNutritionPlanRange({
   const response = await fetch(`/api/ai/plan/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ weekStart: start, weekEnd: end, force }),
+    body: JSON.stringify({ start, end, force }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))

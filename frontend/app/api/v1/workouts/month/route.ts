@@ -48,6 +48,13 @@ export async function GET(req: NextRequest) {
       )
     }
 
+    console.info("GET /api/v1/workouts/month", {
+      userId: user.id,
+      start: startKey,
+      end: endKey,
+      count: data?.length ?? 0,
+    })
+
     return NextResponse.json({ workouts: data ?? [] }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/workouts/month error:", error)

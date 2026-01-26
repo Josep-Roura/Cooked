@@ -1,11 +1,12 @@
 import "server-only"
 
+import { z } from "zod"
 import { systemPrompt } from "@/lib/ai/prompt"
 import { editResponseSchema, weekPlanSchema, type EditResponse, type WeekPlan } from "@/lib/ai/schemas"
 
 const DEFAULT_MODEL = "gpt-4o-mini"
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-const TIMEOUT_MS = 25000
+const TIMEOUT_MS = 60000
 const MAX_RETRIES = 2
 
 type GeneratePlanInput = {
@@ -19,6 +20,13 @@ type GeneratePlanInput = {
 type EditPlanInput = GeneratePlanInput & {
   message: string
 }
+
+const loosePlanSchema = z.object({
+  start: z.string().optional(),
+  end: z.string().optional(),
+  days: z.array(z.unknown()).optional(),
+  rationale: z.string().optional(),
+}).passthrough()
 
 type JsonSchemaParser<T> = {
   parse: (input: unknown) => T
@@ -99,7 +107,7 @@ export async function generateWeeklyPlan(input: GeneratePlanInput): Promise<Week
     workouts: input.workouts,
     currentPlan: input.currentPlan ?? null,
   }
-  return callCookedAI({ model, userPayload: payload, schema: weekPlanSchema })
+  return callCookedAI({ model, userPayload: payload, schema: loosePlanSchema }) as Promise<WeekPlan>
 }
 
 export async function applyPlanEdits(input: EditPlanInput): Promise<EditResponse> {
