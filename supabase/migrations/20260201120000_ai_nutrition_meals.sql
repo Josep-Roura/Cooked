@@ -116,6 +116,14 @@ begin
     from pg_constraint
     where conname = 'nutrition_plan_rows_user_date_unique'
   ) then
+    -- Limpiar duplicados: mantener el más reciente de cada (user_id, date)
+    delete from public.nutrition_plan_rows
+    where id not in (
+      select distinct on (user_id, date) id
+      from public.nutrition_plan_rows
+      order by user_id, date, id desc
+    );
+
     create unique index if not exists nutrition_plan_rows_user_date_unique_idx
       on public.nutrition_plan_rows (user_id, date);
     alter table public.nutrition_plan_rows
