@@ -5,7 +5,12 @@ import { generateWeeklyPlan } from "@/lib/ai/openai"
 import type { WeekPlan } from "@/lib/ai/schemas"
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-const payloadSchema = z.object({ start: dateSchema, end: dateSchema, force: z.boolean().optional() })
+const payloadSchema = z.object({
+  start: dateSchema,
+  end: dateSchema,
+  workoutCount: z.number().optional(),
+  force: z.boolean().optional(),
+})
 const MAX_RANGE_DAYS = 62
 const DEFAULT_MEALS_PER_DAY = 3
 
@@ -289,21 +294,34 @@ function buildMealRows({
   )
 }
 
+// Quick sanity check:
+// curl -X POST http://localhost:3000/api/ai/plan/generate \
+//   -H "Content-Type: application/json" \
+//   -d '{"start":"2026-01-26","end":"2026-02-01"}'
 export async function POST(req: NextRequest) {
   try {
-    const json = await req.json().catch(() => null)
-    const parsed = payloadSchema.safeParse(json)
+    const body = await req.json().catch(() => null)
+    const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Invalid payload", issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
 
     const { start, end } = parsed.data
     if (start > end) {
-      return NextResponse.json({ error: "Invalid date range" }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Invalid date range", issues: [{ message: "start must be <= end" }] },
+        { status: 400 },
+      )
     }
     const range = buildDateRange(start, end)
     if (!range) {
-      return NextResponse.json({ error: "Invalid date range" }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Invalid date range", issues: [{ message: "range is outside allowed bounds" }] },
+        { status: 400 },
+      )
     }
 
     const supabase = await createServerClient()
@@ -473,6 +491,8 @@ export async function POST(req: NextRequest) {
         carbs_g: meal.carbs_g,
         fat_g: meal.fat_g,
       },
+      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      eaten: meal.eaten ?? false,
     }))
     const mealRowsWithoutPlan = mealRows.map(({ plan_id: _planId, ...meal }) => meal)
 
