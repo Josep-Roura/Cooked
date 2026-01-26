@@ -79,7 +79,25 @@ export function PlanCard({
         <Accordion type="multiple" className="space-y-2">
           {plan.items.map((meal) => {
             const checkboxId = `meal-${date}-${meal.slot}`
-            const ingredients = meal.ingredients ?? []
+            const ingredients = (meal.ingredients ?? []).map((ingredient, index) => {
+              if (typeof ingredient === "string") {
+                return {
+                  id: `${meal.id}-ingredient-${index}`,
+                  meal_item_id: meal.id,
+                  name: ingredient,
+                  quantity: null,
+                  checked: false,
+                }
+              }
+              return {
+                id: ingredient.id ?? `${meal.id}-ingredient-${index}`,
+                meal_item_id: ingredient.meal_item_id ?? meal.id,
+                name: ingredient.name,
+                quantity: ingredient.quantity ?? null,
+                checked: ingredient.checked ?? false,
+                _missingId: !ingredient.id,
+              }
+            })
             return (
               <AccordionItem
                 key={meal.slot}
@@ -124,13 +142,15 @@ export function PlanCard({
                   <div className="pl-7 text-xs text-muted-foreground">
                     {ingredients.length > 0 ? (
                       <ul className="space-y-2">
-                        {ingredients.map((ingredient: MealPlanIngredient) => (
+                        {ingredients.map((ingredient: MealPlanIngredient & { _missingId?: boolean }) => (
                           <li key={ingredient.id} className="flex items-center gap-2">
                             <Checkbox
                               id={`ingredient-${ingredient.id}`}
                               checked={ingredient.checked}
-                              onCheckedChange={(checked) => onToggleIngredient(ingredient.id, Boolean(checked))}
-                              disabled={isUpdating}
+                              onCheckedChange={(checked) =>
+                                ingredient._missingId ? null : onToggleIngredient(ingredient.id, Boolean(checked))
+                              }
+                              disabled={isUpdating || ingredient._missingId}
                             />
                             <label htmlFor={`ingredient-${ingredient.id}`} className="text-xs text-muted-foreground">
                               {ingredient.name}
