@@ -299,6 +299,31 @@ function buildMealRows({
   )
 }
 
+function extractMissingColumns(message: string | undefined | null) {
+  if (!message) return []
+  const columns = new Set<string>()
+  const singleQuoteMatches = message.matchAll(/'([^']+)' column/gi)
+  for (const match of singleQuoteMatches) {
+    if (match[1]) columns.add(match[1])
+  }
+  const doubleQuoteMatches = message.matchAll(/column \"([^\"]+)\"/gi)
+  for (const match of doubleQuoteMatches) {
+    if (match[1]) columns.add(match[1])
+  }
+  return Array.from(columns)
+}
+
+function stripMealColumns<T extends Record<string, unknown>>(rows: T[], columns: Set<string>) {
+  if (!columns.size) return rows
+  return rows.map((row) => {
+    const stripped = { ...row }
+    for (const column of columns) {
+      if (column in stripped) delete stripped[column]
+    }
+    return stripped
+  })
+}
+
 // Quick sanity check:
 // curl -X POST http://localhost:3000/api/ai/plan/generate \
 //   -H "Content-Type: application/json" \
@@ -510,23 +535,43 @@ export async function POST(req: NextRequest) {
       ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
       eaten: meal.eaten ?? false,
     }))
-    const mealRowsWithoutPlan = mealRows.map(({ plan_id: _planId, ...meal }) => meal)
 
     let { error: mealError } = await supabase
       .from("nutrition_meals")
       .upsert(mealRowsWithPlan, { onConflict: "user_id,date,slot" })
 
     if (mealError) {
+      const message = mealError.message ?? ""
+      const missingColumns = new Set(extractMissingColumns(message))
+      const optionalColumns = ["plan_id", "macros", "notes"]
       const isMissingColumn =
         mealError.code === "42703" ||
         mealError.code === "PGRST204" ||
-        /column "(plan_id|macros)"/i.test(mealError.message) ||
-        /macros.*schema cache/i.test(mealError.message)
+        /column "(plan_id|macros|notes)"/i.test(message) ||
+        /macros.*schema cache/i.test(message)
 
       if (isMissingColumn) {
+        if (/plan_id/i.test(message)) missingColumns.add("plan_id")
+        if (/macros/i.test(message)) missingColumns.add("macros")
+        if (/notes/i.test(message)) missingColumns.add("notes")
+        if (!missingColumns.size) {
+          missingColumns.add("plan_id")
+          missingColumns.add("macros")
+        }
+        const fallbackRows = stripMealColumns(mealRowsWithPlan, missingColumns)
         ;({ error: mealError } = await supabase
           .from("nutrition_meals")
-          .upsert(mealRowsWithoutPlan, { onConflict: "user_id,date,slot" }))
+          .upsert(fallbackRows, { onConflict: "user_id,date,slot" }))
+
+        if (mealError && (mealError.code === "42703" || mealError.code === "PGRST204")) {
+          const needsFinalFallback = optionalColumns.some((column) => !missingColumns.has(column))
+          if (needsFinalFallback) {
+            const finalFallbackRows = stripMealColumns(mealRowsWithPlan, new Set(optionalColumns))
+            ;({ error: mealError } = await supabase
+              .from("nutrition_meals")
+              .upsert(finalFallbackRows, { onConflict: "user_id,date,slot" }))
+          }
+        }
       }
     }
 
