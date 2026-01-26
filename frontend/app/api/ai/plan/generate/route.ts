@@ -494,6 +494,7 @@ export async function POST(req: NextRequest) {
       .upsert(planRows, { onConflict: "user_id,date" })
 
     if (rowError) {
+      console.error("Failed to save plan rows", rowError)
       return NextResponse.json({ error: "Failed to save plan rows", details: rowError.message }, { status: 400 })
     }
 
@@ -528,6 +529,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (mealError) {
+      console.error("Failed to save meals", mealError)
       return NextResponse.json({ error: "Failed to save meals", details: mealError.message }, { status: 400 })
     }
 
@@ -539,7 +541,17 @@ export async function POST(req: NextRequest) {
     })
 
     if (revisionError) {
-      return NextResponse.json({ error: "Failed to save revision", details: revisionError.message }, { status: 400 })
+      const isMissingTable =
+        revisionError.code === "42P01" || /relation .*plan_revisions.* does not exist/i.test(revisionError.message)
+      if (!isMissingTable) {
+        console.error("Failed to save revision", revisionError)
+        return NextResponse.json({ error: "Failed to save revision", details: revisionError.message }, { status: 400 })
+      }
+      console.warn("Skipping plan_revisions insert due to missing table.", {
+        userId: user.id,
+        start,
+        end,
+      })
     }
 
     return NextResponse.json({ ok: true, planId, start, end, usedFallback }, { status: 200 })
