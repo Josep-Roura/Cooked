@@ -55,7 +55,9 @@ export async function GET(req: NextRequest) {
 
     const target = targetRow
       ? {
-          kcal: targetRow.kcal ?? 0,
+          kcal:
+            targetRow.kcal ??
+            (targetRow.protein_g ?? 0) * 4 + (targetRow.carbs_g ?? 0) * 4 + (targetRow.fat_g ?? 0) * 9,
           protein_g: targetRow.protein_g ?? 0,
           carbs_g: targetRow.carbs_g ?? 0,
           fat_g: targetRow.fat_g ?? 0,
