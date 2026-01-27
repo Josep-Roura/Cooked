@@ -30,27 +30,14 @@ export function writeEnsuredRange(userId: string, start: string, end: string) {
 export async function ensureNutritionPlanRange({
   start,
   end,
-  force = false,
 }: {
   start: string
   end: string
-  force?: boolean
 }) {
-  if (force) {
-    const response = await fetch(`/api/ai/plan/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ start, end, force }),
-    })
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}))
-      throw new Error(errorBody?.error ?? "Failed to ensure nutrition plan")
-    }
-    return response.json()
-  }
-
-  const response = await fetch(`/api/v1/meals/ensure?start=${start}&end=${end}`, {
+  const response = await fetch(`/api/ai/plan/generate`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start, end }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
@@ -60,8 +47,10 @@ export async function ensureNutritionPlanRange({
 }
 
 export async function ensureMealPlanDay(date: string) {
-  const response = await fetch(`/api/v1/meals/ensure-day?date=${date}`, {
+  const response = await fetch(`/api/ai/plan/generate`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start: date, end: date }),
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))

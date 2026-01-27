@@ -20,7 +20,7 @@ export async function generatePlanWithOpenAI({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ start: date, end: date, force }),
+    body: JSON.stringify({ start: date, end: date }),
   })
 
   const data = (await response.json().catch(() => ({}))) as GeneratePlanResult
@@ -29,5 +29,5 @@ export async function generatePlanWithOpenAI({
     throw new Error(data.error ?? "AI plan generation failed")
   }
 
-  return { usedFallback: data.usedFallback ?? false, days: data.days ?? [] }
+  return { usedFallback: false, days: [] }
 }
