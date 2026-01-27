@@ -45,6 +45,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to update meal", details: error.message }, { status: 400 })
     }
 
+    await supabase.from("meal_log").upsert(
+      {
+        user_id: user.id,
+        date,
+        slot,
+        is_eaten: eaten,
+        eaten_at: eatenAt,
+      },
+      { onConflict: "user_id,date,slot" },
+    )
+
     return NextResponse.json({ ok: true, meal: data }, { status: 200 })
   } catch (error) {
     console.error("POST /api/v1/nutrition/meal/toggle error:", error)

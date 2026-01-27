@@ -23,8 +23,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useMonthWorkouts, useNutritionMealsRange } from "@/lib/db/hooks"
-import type { NutritionMeal, TpWorkout } from "@/lib/db/types"
+import { useMonthWorkouts, useNutritionMealsRange, useNutritionPlanRowsRange } from "@/lib/db/hooks"
+import type { NutritionMeal, NutritionPlanRow, TpWorkout } from "@/lib/db/types"
 
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -96,6 +96,7 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
   const rangeStartKey = format(startOfWeek(startOfMonth(currentDate), { weekStartsOn: 0 }), "yyyy-MM-dd")
   const rangeEndKey = format(endOfWeek(endOfMonth(currentDate), { weekStartsOn: 0 }), "yyyy-MM-dd")
   const mealsQuery = useNutritionMealsRange(userId, rangeStartKey, rangeEndKey)
+  const planRowsQuery = useNutritionPlanRowsRange(userId, rangeStartKey, rangeEndKey)
 
   const monthStart = startOfMonth(currentDate)
   const monthEnd = endOfMonth(currentDate)
@@ -136,6 +137,14 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     return map
   }, [mealsQuery.data])
 
+  const planRowsByDay = useMemo(() => {
+    const map = new Map<string, NutritionPlanRow>()
+    planRowsQuery.data?.forEach((row) => {
+      map.set(row.date, row)
+    })
+    return map
+  }, [planRowsQuery.data])
+
 
   const handlePrevMonth = () => {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
@@ -149,10 +158,11 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
     setCurrentDate(new Date())
   }
 
-  if (workoutsQuery.isError || mealsQuery.isError) {
+  if (workoutsQuery.isError || mealsQuery.isError || planRowsQuery.isError) {
     return <ErrorState onRetry={() => {
       workoutsQuery.refetch()
       mealsQuery.refetch()
+      planRowsQuery.refetch()
     }} />
   }
 
@@ -173,7 +183,7 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
         </Button>
       </div>
 
-      {workoutsQuery.isLoading || mealsQuery.isLoading ? (
+      {workoutsQuery.isLoading || mealsQuery.isLoading || planRowsQuery.isLoading ? (
         <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-80 w-full" />
@@ -197,6 +207,7 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
               const visibleMeals = dayMeals.slice(0, 2)
               const inMonth = isSameMonth(date, currentDate)
               const isToday = isSameDay(date, today)
+              const planRow = planRowsByDay.get(dateKey)
               return (
                 <div
                   key={dateKey}
@@ -244,6 +255,11 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                           <TooltipContent side="top" className="max-w-xs text-xs">
                             <div className="font-semibold">{workout.title ?? workout.workout_type ?? "Workout"}</div>
                             {metrics && <div className="text-muted-foreground">{metrics}</div>}
+                            {planRow?.intra_cho_g_per_h ? (
+                              <div className="text-emerald-700 mt-1">
+                                Fueling hint: {planRow.intra_cho_g_per_h}g carbs/hr
+                              </div>
+                            ) : null}
                           </TooltipContent>
                         </Tooltip>
                       )
@@ -310,6 +326,12 @@ export function MonthWorkoutCalendar({ userId }: MonthWorkoutCalendarProps) {
                   {selectedWorkout.power_avg ? <span>Avg Power: {Math.round(selectedWorkout.power_avg)}</span> : null}
                   {selectedWorkout.rpe ? <span>RPE: {selectedWorkout.rpe}</span> : null}
                 </div>
+                {planRowsByDay.get(selectedWorkout.workout_day)?.intra_cho_g_per_h ? (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-xs text-emerald-700">
+                    Fueling hint: aim for{" "}
+                    {planRowsByDay.get(selectedWorkout.workout_day)?.intra_cho_g_per_h}g carbs per hour for this session.
+                  </div>
+                ) : null}
                 {selectedWorkout.description && (
                   <p className="text-sm text-muted-foreground">{selectedWorkout.description}</p>
                 )}

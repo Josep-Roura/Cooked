@@ -18,6 +18,7 @@ import {
   type TrainingPeaksCsvParseResult,
 } from "@/lib/integrations/trainingpeaks/csv"
 import { ensureNutritionPlanRange, writeEnsuredRange } from "@/lib/nutrition/ensure"
+import { useWorkoutImportStatus } from "@/lib/db/hooks"
 
 const PREVIEW_LIMIT = 10
 
@@ -25,6 +26,7 @@ export function TrainingPeaksCsvImport() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const { user } = useSession()
+  const importStatusQuery = useWorkoutImportStatus(user?.id)
   const [file, setFile] = useState<File | null>(null)
   const [parseResult, setParseResult] = useState<TrainingPeaksCsvParseResult | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
@@ -47,6 +49,20 @@ export function TrainingPeaksCsvImport() {
   const stats = parseResult?.stats
 
   const previewRows = useMemo(() => parseResult?.preview ?? [], [parseResult])
+  const duplicateRows = useMemo(() => {
+    if (!parseResult?.rows.length) return []
+    const seen = new Set<string>()
+    const duplicates: TrainingPeaksCsvParseResult["rows"] = []
+    parseResult.rows.forEach((row) => {
+      const key = `${row.workout_day}-${row.title}-${row.workout_type}`
+      if (seen.has(key)) {
+        duplicates.push(row)
+      } else {
+        seen.add(key)
+      }
+    })
+    return duplicates
+  }, [parseResult?.rows])
 
   const handleParse = async () => {
     if (!file) return
@@ -96,6 +112,7 @@ export function TrainingPeaksCsvImport() {
         })
       }
       toast({ title: "Import complete", description: "Your TrainingPeaks workouts are now available." })
+      await importStatusQuery.refetch()
       await queryClient.invalidateQueries({ queryKey: ["db"] })
     } catch (error) {
       toast({
@@ -117,6 +134,14 @@ export function TrainingPeaksCsvImport() {
         <a className="text-xs text-primary underline" href="/sample-trainingpeaks.csv" download>
           Download sample CSV
         </a>
+        {importStatusQuery.data && (
+          <div className="text-xs text-muted-foreground">
+            Last import: {importStatusQuery.data.last_import_at
+              ? format(new Date(importStatusQuery.data.last_import_at), "PPpp")
+              : "No imports yet"}{" "}
+            · Total workouts: {importStatusQuery.data.total_workouts}
+          </div>
+        )}
       </div>
 
       {!user && (
@@ -173,6 +198,23 @@ export function TrainingPeaksCsvImport() {
           </AlertDescription>
         </Alert>
       ) : null}
+
+      {duplicateRows.length > 0 && (
+        <Alert className="mt-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Duplicates detected</AlertTitle>
+          <AlertDescription>
+            {duplicateRows.slice(0, 3).map((row) => (
+              <p key={`${row.workout_day}-${row.title}-${row.workout_type}`} className="text-xs text-muted-foreground">
+                {row.workout_day} · {row.title ?? row.workout_type ?? "Workout"}
+              </p>
+            ))}
+            {duplicateRows.length > 3 && (
+              <p className="text-xs text-muted-foreground">+{duplicateRows.length - 3} more duplicates</p>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {progress > 0 && (
         <div className="mt-4">

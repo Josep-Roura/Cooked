@@ -13,6 +13,27 @@ const postSchema = z.object({
   message: z.string().min(1),
 })
 
+const CHAT_RATE_LIMIT_PER_MIN = 5
+
+async function enforceChatRateLimit(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string,
+) {
+  const cutoff = new Date(Date.now() - 60_000).toISOString()
+  const { data, error } = await supabase
+    .from("ai_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .gte("created_at", cutoff)
+
+  if (error) {
+    console.warn("Chat rate limit check failed", error)
+    return true
+  }
+
+  return (data?.length ?? 0) < CHAT_RATE_LIMIT_PER_MIN
+}
+
 function buildDays(start: string, end: string) {
   const days: string[] = []
   const cursor = new Date(`${start}T00:00:00Z`)
@@ -60,10 +81,10 @@ function buildWeeklyPlan({
         }
       : dayMeals.reduce(
           (acc, meal) => {
-            acc.kcal += meal.macros?.kcal ?? 0
-            acc.protein_g += meal.macros?.protein_g ?? 0
-            acc.carbs_g += meal.macros?.carbs_g ?? 0
-            acc.fat_g += meal.macros?.fat_g ?? 0
+            acc.kcal += meal.kcal ?? 0
+            acc.protein_g += meal.protein_g ?? 0
+            acc.carbs_g += meal.carbs_g ?? 0
+            acc.fat_g += meal.fat_g ?? 0
             return acc
           },
           { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
@@ -77,7 +98,12 @@ function buildWeeklyPlan({
         name: meal.name,
         time: meal.time ?? null,
         ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-        macros: meal.macros ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+        macros: {
+          kcal: meal.kcal ?? 0,
+          protein_g: meal.protein_g ?? 0,
+          carbs_g: meal.carbs_g ?? 0,
+          fat_g: meal.fat_g ?? 0,
+        },
         notes: meal.notes ?? null,
       })),
       macros: macroTotals,
@@ -112,12 +138,10 @@ function buildPlanRows(plan: WeekPlan, userId: string, planId: string, workoutMa
 function buildMealRows({
   plan,
   userId,
-  planId,
   existingMeals,
 }: {
   plan: WeekPlan
   userId: string
-  planId: string
   existingMeals: Map<string, { eaten: boolean; eaten_at: string | null }>
 }) {
   return plan.days.flatMap((day) =>
@@ -125,16 +149,17 @@ function buildMealRows({
       const existing = existingMeals.get(`${day.date}:${meal.slot}`)
       return {
         user_id: userId,
-        plan_id: planId,
         date: day.date,
         slot: meal.slot,
         name: meal.name,
         time: meal.time ?? null,
-        ingredients: meal.ingredients,
-        macros: meal.macros,
+        ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+        kcal: meal.macros.kcal,
+        protein_g: meal.macros.protein_g,
+        carbs_g: meal.macros.carbs_g,
+        fat_g: meal.macros.fat_g,
         eaten: existing?.eaten ?? false,
         eaten_at: existing?.eaten_at ?? null,
-        notes: meal.notes ?? null,
       }
     }),
   )
@@ -163,6 +188,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Not authenticated", details: authError?.message ?? null },
         { status: 401 },
+      )
+    }
+
+    const rateOk = await enforceChatRateLimit(supabase, user.id)
+    if (!rateOk) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment before retrying." },
+        { status: 429 },
       )
     }
 
@@ -309,7 +342,6 @@ export async function POST(req: NextRequest) {
     const mealRows = buildMealRows({
       plan: editResponse.updatedPlan,
       userId: user.id,
-      planId,
       existingMeals: existingMealsMap,
     })
 
@@ -343,8 +375,8 @@ export async function POST(req: NextRequest) {
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
       user_id: user.id,
-      plan_id: planId,
-      source: "chat_edit",
+      week_start: start,
+      week_end: end,
       diff: editResponse.diff,
     })
 
@@ -364,6 +396,12 @@ export async function POST(req: NextRequest) {
     )
   } catch (error) {
     console.error("POST /api/ai/chat error:", error)
+    if (error instanceof Error && error.message.includes("handled exclusively by /api/ai/plan/generate")) {
+      return NextResponse.json(
+        { error: "AI chat edits are unavailable in Phase 1.", details: error.message },
+        { status: 501 },
+      )
+    }
     return NextResponse.json(
       { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
       { status: 500 },

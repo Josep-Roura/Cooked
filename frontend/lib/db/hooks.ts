@@ -57,6 +57,16 @@ const intensityThresholds = {
 }
 const DEFAULT_START_TIME = "07:00"
 
+function extractApiErrorMessage(errorBody: any, fallback: string) {
+  if (!errorBody) return fallback
+  if (typeof errorBody.error === "string") return errorBody.error
+  if (errorBody.error && typeof errorBody.error === "object") {
+    return errorBody.error.message ?? errorBody.error.code ?? fallback
+  }
+  if (typeof errorBody.message === "string") return errorBody.message
+  return fallback
+}
+
 function mapWorkoutType(value: string | null): TrainingType {
   if (!value) return "other"
   const normalized = value.toLowerCase()
@@ -450,6 +460,26 @@ type PlanChatPayload = {
 
 type MacrosDayPayload = MacrosDaySummary
 
+type AiStatusPayload = {
+  last_run: {
+    id: string
+    created_at: string
+    model: string
+    provider: string
+    latency_ms: number | null
+    tokens: number | null
+    error_code: string | null
+    prompt_hash: string | null
+    prompt_preview?: string | null
+    response_preview?: string | null
+  } | null
+}
+
+type WorkoutImportStatusPayload = {
+  last_import_at: string | null
+  total_workouts: number
+}
+
 async function fetchPreferences() {
   const response = await fetch("/api/v1/settings/preferences")
   if (!response.ok) {
@@ -489,7 +519,7 @@ async function fetchNutritionDay(date: string) {
   }
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load nutrition day")
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load nutrition day"))
   }
   const data = (await response.json()) as NutritionDayPlan
   return { exists: true, plan: data }
@@ -630,22 +660,48 @@ async function fetchMealPlanDay(date: string) {
   const response = await fetch(`/api/v1/meals/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load meal plan")
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load meal plan")) as Error & {
+      status?: number
+    }
+    error.status = response.status
+    throw error
   }
   const data = (await response.json()) as MealPlanDayPayload
-  if (data.plan && Array.isArray(data.items)) {
-    return { plan: data.plan, items: data.items }
+  if (Array.isArray(data.items)) {
+    return { plan: data.plan ?? null, items: data.items }
   }
-  return { plan: null, items: [] }
+  return { plan: data.plan ?? null, items: [] }
 }
 
 async function fetchMacrosDay(date: string) {
   const response = await fetch(`/api/v1/macros/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load macros")
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load macros")) as Error & {
+      status?: number
+    }
+    error.status = response.status
+    throw error
   }
   return (await response.json()) as MacrosDayPayload
+}
+
+async function fetchAiStatus() {
+  const response = await fetch("/api/v1/ai/status")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load AI status"))
+  }
+  return (await response.json()) as AiStatusPayload
+}
+
+async function fetchWorkoutImportStatus() {
+  const response = await fetch("/api/v1/workouts/import-status")
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load import status"))
+  }
+  return (await response.json()) as WorkoutImportStatusPayload
 }
 
 async function fetchWeeklyNutrition(start: string, end: string) {
@@ -655,7 +711,11 @@ async function fetchWeeklyNutrition(start: string, end: string) {
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load weekly nutrition")
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load weekly nutrition")) as Error & {
+      status?: number
+    }
+    error.status = response.status
+    throw error
   }
   const data = (await response.json()) as { days?: WeeklyNutritionDay[] }
   return Array.isArray(data.days) ? data.days : []
@@ -668,7 +728,7 @@ async function fetchNutritionMealsRange(start: string, end: string) {
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load nutrition meals")
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load nutrition meals"))
   }
   const data = (await response.json()) as { meals?: NutritionMeal[] }
   return Array.isArray(data.meals) ? data.meals : []
@@ -690,7 +750,14 @@ export function useWeeklyNutrition(userId: string | null | undefined, weekStart:
     queryKey: ["db", "nutrition-week", userId, weekStart, weekEnd],
     queryFn: () => fetchWeeklyNutrition(weekStart, weekEnd),
     enabled: Boolean(userId) && Boolean(weekStart) && Boolean(weekEnd),
-    staleTime: 1000 * 30,
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    staleTime: 1000 * 45,
+    gcTime: 1000 * 60 * 5,
   })
 }
 
@@ -770,7 +837,22 @@ export function useMonthWorkouts(userId: string | null | undefined, year: number
     queryKey: ["db", "month-workouts", userId, year, month],
     queryFn: () => fetchMonthWorkouts(year, month),
     enabled: Boolean(userId),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 60,
+    gcTime: 1000 * 60 * 10,
+  })
+}
+
+export function useNutritionPlanRowsRange(
+  userId: string | null | undefined,
+  startDate: string,
+  endDate: string,
+) {
+  return useQuery({
+    queryKey: ["db", "nutrition-plan-rows-range", userId, startDate, endDate],
+    queryFn: () => fetchNutritionPlanRowsByDateRange(userId as string, startDate, endDate),
+    enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
+    staleTime: 1000 * 60,
+    gcTime: 1000 * 60 * 10,
   })
 }
 
@@ -783,7 +865,8 @@ export function useNutritionMealsRange(
     queryKey: ["db", "nutrition-meals-range", userId, start, end],
     queryFn: () => fetchNutritionMealsRange(start, end),
     enabled: Boolean(userId) && Boolean(start) && Boolean(end),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 60,
+    gcTime: 1000 * 60 * 10,
   })
 }
 
@@ -843,7 +926,8 @@ export function useTrainingSessions(
       return buildTrainingSessions(workouts)
     },
     enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 45,
+    gcTime: 1000 * 60 * 5,
   })
 }
 
@@ -957,7 +1041,14 @@ export function useMealPlanDay(userId: string | null | undefined, date: string) 
     queryKey: ["db", "meal-plan-day", userId, date],
     queryFn: () => fetchMealPlanDay(date),
     enabled: Boolean(userId) && Boolean(date),
-    staleTime: 1000 * 15,
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
   })
 }
 
@@ -966,7 +1057,14 @@ export function useMacrosDay(userId: string | null | undefined, date: string) {
     queryKey: ["db", "macros-day", userId, date],
     queryFn: () => fetchMacrosDay(date),
     enabled: Boolean(userId) && Boolean(date),
-    staleTime: 1000 * 15,
+    retry: (failureCount, error) => {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) return false
+      return failureCount < 2
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
   })
 }
 
@@ -980,6 +1078,184 @@ export function useEnsureMealPlans() {
         throw new Error(errorBody?.error ?? "Failed to ensure meals")
       }
       return response.json()
+    },
+  })
+}
+
+export function useUpdateNutritionDay(userId: string | null | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (payload: {
+      date: string
+      macros?: Partial<Pick<NutritionMacros, "kcal" | "protein_g" | "carbs_g" | "fat_g" | "intra_cho_g_per_h">>
+      meals?: Array<{
+        slot: number
+        name: string
+        time?: string | null
+        kcal?: number
+        protein_g?: number
+        carbs_g?: number
+        fat_g?: number
+        locked?: boolean
+      }>
+      removedSlots?: number[]
+      day_locked?: boolean
+    }) => {
+      const response = await fetch("/api/v1/nutrition/day", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(extractApiErrorMessage(errorBody, "Failed to update nutrition day"))
+      }
+      return response.json()
+    },
+    onMutate: async (payload) => {
+      if (!userId) return {}
+      const mealPlanKey = ["db", "meal-plan-day", userId, payload.date]
+      const macrosKey = ["db", "macros-day", userId, payload.date]
+
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: mealPlanKey }),
+        queryClient.cancelQueries({ queryKey: macrosKey }),
+        queryClient.cancelQueries({ queryKey: ["db", "nutrition-week", userId] }),
+      ])
+
+      const previousMealPlan = queryClient.getQueryData<MealPlanDay>(mealPlanKey)
+      const previousMacros = queryClient.getQueryData<MacrosDayPayload>(macrosKey)
+      const previousWeek = queryClient.getQueriesData<WeeklyNutritionDay[]>({
+        queryKey: ["db", "nutrition-week", userId],
+      })
+      const previousPlanWeek = queryClient.getQueriesData<PlanWeekMeal[]>({
+        queryKey: ["db", "plan-week", userId],
+      })
+
+      if (previousMealPlan && (payload.meals || payload.removedSlots)) {
+        const existingItems = previousMealPlan.items ?? []
+        const removedSlots = new Set(payload.removedSlots ?? [])
+        const updatedItems = existingItems.filter((item) => !removedSlots.has(item.slot))
+        const itemsBySlot = new Map(updatedItems.map((item) => [item.slot, item]))
+
+        ;(payload.meals ?? []).forEach((meal) => {
+          const existing = itemsBySlot.get(meal.slot)
+          const updated = {
+            ...(existing ?? {}),
+            id: existing?.id ?? `${payload.date}:${meal.slot}`,
+            meal_plan_id: existing?.meal_plan_id ?? null,
+            slot: meal.slot,
+            meal_type: existing?.meal_type ?? null,
+            sort_order: existing?.sort_order ?? meal.slot,
+            name: meal.name,
+            time: meal.time ?? existing?.time ?? null,
+            emoji: existing?.emoji ?? null,
+            kcal: meal.kcal ?? existing?.kcal ?? 0,
+            protein_g: meal.protein_g ?? existing?.protein_g ?? 0,
+            carbs_g: meal.carbs_g ?? existing?.carbs_g ?? 0,
+            fat_g: meal.fat_g ?? existing?.fat_g ?? 0,
+            eaten: existing?.eaten ?? false,
+            notes: existing?.notes ?? null,
+            recipe_id: existing?.recipe_id ?? null,
+            created_at: existing?.created_at ?? new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            ingredients: existing?.ingredients ?? [],
+            locked: meal.locked ?? existing?.locked ?? false,
+          }
+          itemsBySlot.set(meal.slot, updated)
+        })
+
+        const nextItems = Array.from(itemsBySlot.values()).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+        queryClient.setQueryData(mealPlanKey, {
+          ...previousMealPlan,
+          items: nextItems,
+        })
+
+        previousPlanWeek.forEach(([key, data]) => {
+          if (!data) return
+          const nextData = data.map((meal) => {
+            if (meal.date !== payload.date) return meal
+            const updated = itemsBySlot.get(meal.slot)
+            if (!updated) return meal
+            return {
+              ...meal,
+              name: updated.name,
+              time: updated.time,
+              kcal: updated.kcal,
+              protein_g: updated.protein_g,
+              carbs_g: updated.carbs_g,
+              fat_g: updated.fat_g,
+              locked: updated.locked,
+            }
+          })
+          queryClient.setQueryData(key, nextData)
+        })
+      }
+
+      if (payload.macros && previousMacros) {
+        const target = {
+          ...previousMacros.target,
+          ...payload.macros,
+        }
+        queryClient.setQueryData(macrosKey, {
+          ...previousMacros,
+          target,
+        })
+
+        previousWeek.forEach(([key, data]) => {
+          if (!data) return
+          const next = data.map((day) =>
+            day.date === payload.date
+              ? {
+                  ...day,
+                  target: {
+                    ...(day.target ?? {}),
+                    ...payload.macros,
+                  },
+                }
+              : day,
+          )
+          queryClient.setQueryData(key, next)
+        })
+      }
+
+      if (typeof payload.day_locked === "boolean") {
+        previousWeek.forEach(([key, data]) => {
+          if (!data) return
+          const next = data.map((day) =>
+            day.date === payload.date ? { ...day, locked: payload.day_locked } : day,
+          )
+          queryClient.setQueryData(key, next)
+        })
+      }
+
+      return { previousMealPlan, previousMacros, previousWeek, previousPlanWeek }
+    },
+    onError: (_error, payload, context) => {
+      if (!userId) return
+      const mealPlanKey = ["db", "meal-plan-day", userId, payload.date]
+      const macrosKey = ["db", "macros-day", userId, payload.date]
+      if (context?.previousMealPlan) {
+        queryClient.setQueryData(mealPlanKey, context.previousMealPlan)
+      }
+      if (context?.previousMacros) {
+        queryClient.setQueryData(macrosKey, context.previousMacros)
+      }
+      context?.previousWeek?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data)
+      })
+      context?.previousPlanWeek?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data)
+      })
+    },
+    onSettled: (_data, _error, payload) => {
+      if (!userId) return
+      queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", userId, payload.date] })
+      queryClient.invalidateQueries({ queryKey: ["db", "macros-day", userId, payload.date] })
+      queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", userId] })
+      queryClient.invalidateQueries({ queryKey: ["db", "plan-week", userId] })
+      queryClient.invalidateQueries({ queryKey: ["db", "dashboard-overview", userId] })
     },
   })
 }
@@ -1096,12 +1372,66 @@ export function useMealPrep(userId: string | null | undefined, start?: string, e
   })
 }
 
+export function useAiStatus(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "ai-status", userId],
+    queryFn: fetchAiStatus,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
+  })
+}
+
+export function useWorkoutImportStatus(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["db", "workout-import-status", userId],
+    queryFn: fetchWorkoutImportStatus,
+    enabled: Boolean(userId),
+    staleTime: 1000 * 60,
+    gcTime: 1000 * 60 * 10,
+  })
+}
+
+export function useCreateWorkout(userId: string | null | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (payload: {
+      date: string
+      workout_type: string
+      title?: string
+      start_time?: string | null
+      duration_hours: number
+      tss?: number
+      rpe?: number
+    }) => {
+      const response = await fetch("/api/v1/workouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(extractApiErrorMessage(errorBody, "Failed to add workout"))
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["db", "training-sessions", userId] })
+      queryClient.invalidateQueries({ queryKey: ["db", "training-workouts", userId] })
+      queryClient.invalidateQueries({ queryKey: ["db", "month-workouts", userId] })
+      queryClient.invalidateQueries({ queryKey: ["db", "dashboard-overview", userId] })
+    },
+  })
+}
+
 export function usePlanWeek(userId: string | null | undefined, start: string, end: string) {
   return useQuery({
     queryKey: ["db", "plan-week", userId, start, end],
     queryFn: () => fetchPlanWeek(start, end),
     enabled: Boolean(userId) && Boolean(start) && Boolean(end),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 45,
+    gcTime: 1000 * 60 * 5,
   })
 }
 
