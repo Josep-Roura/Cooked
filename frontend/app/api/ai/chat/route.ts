@@ -367,6 +367,12 @@ export async function POST(req: NextRequest) {
     )
   } catch (error) {
     console.error("POST /api/ai/chat error:", error)
+    if (error instanceof Error && error.message.includes("handled exclusively by /api/ai/plan/generate")) {
+      return NextResponse.json(
+        { error: "AI chat edits are unavailable in Phase 1.", details: error.message },
+        { status: 501 },
+      )
+    }
     return NextResponse.json(
       { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
       { status: 500 },
