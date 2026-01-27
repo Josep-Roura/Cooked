@@ -13,6 +13,7 @@ import { PlanDetailsDrawer } from "@/components/dashboard/plans/plan-details-dra
 import { WeeklyPlanHeader } from "@/components/dashboard/plans/weekly-plan-header"
 import { useSession } from "@/hooks/use-session"
 import { usePlanChat, usePlanWeek, useResetPlanChat, useSendPlanChatMessage } from "@/lib/db/hooks"
+import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 import type { PlanWeekMeal } from "@/lib/db/types"
 
 export default function PlansPage() {
@@ -36,6 +37,7 @@ export default function PlansPage() {
   const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
   const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
   const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
+  useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
 
@@ -80,18 +82,10 @@ export default function PlansPage() {
     }
   }
 
-  const handleGenerateWeek = async () => {
+  const handleGenerateWeek = async (resetLocks = false, force = true) => {
     setIsGenerating(true)
     try {
-      const response = await fetch("/api/ai/plan/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start: weekStartKey, end: weekEndKey }),
-      })
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}))
-        throw new Error(errorBody?.error ?? "Failed to generate plan")
-      }
+      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force, resetLocks })
       await weekMealsQuery.refetch()
     } catch (error) {
       toast({
@@ -117,6 +111,9 @@ export default function PlansPage() {
       })
     }
   }
+
+  const handleRegenerateWeek = () => handleGenerateWeek(false, true)
+  const handleResetWeek = () => handleGenerateWeek(true, true)
 
   const openMealDetails = (meal: PlanWeekMeal) => {
     setSelectedMeal(meal)
@@ -146,6 +143,9 @@ export default function PlansPage() {
           onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
           onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
           onOpenChat={() => setChatOpen(true)}
+          onRegenerateWeek={handleRegenerateWeek}
+          onResetWeek={handleResetWeek}
+          isGenerating={isGenerating}
         />
 
         {weekMealsQuery.isLoading ? (
@@ -160,7 +160,7 @@ export default function PlansPage() {
             <Button
               variant="outline"
               className="rounded-full text-xs"
-              onClick={handleGenerateWeek}
+              onClick={() => handleGenerateWeek(false, true)}
               disabled={isGenerating}
             >
               Generate plan

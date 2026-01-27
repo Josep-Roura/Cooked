@@ -1,24 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { buildDateRange } from "@/lib/utils/dateRange"
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const MAX_RANGE_DAYS = 7
 
-function parseDate(value: string) {
-  if (!DATE_REGEX.test(value)) return null
-  const [year, month, day] = value.split("-").map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return Number.isNaN(date.getTime()) ? null : date
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
 }
 
-function buildDateRange(start: string, end: string) {
-  const startDate = parseDate(start)
-  const endDate = parseDate(end)
-  if (!startDate || !endDate) return null
-  if (start > end) return null
-  const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
-  if (days > MAX_RANGE_DAYS) return null
-  return { startDate, endDate, days }
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
 }
 
 function formatDate(date: Date) {
@@ -31,9 +28,9 @@ export async function GET(req: NextRequest) {
     const start = searchParams.get("start") ?? ""
     const end = searchParams.get("end") ?? ""
 
-    const range = buildDateRange(start, end)
+    const range = buildDateRange(start, end, MAX_RANGE_DAYS)
     if (!range) {
-      return NextResponse.json({ error: "Invalid date range." }, { status: 400 })
+      return jsonError(400, "invalid_range", "Invalid date range.")
     }
 
     const supabase = await createServerClient()
@@ -43,30 +40,24 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
     const { data: targetRows, error: targetError } = await supabase
       .from("nutrition_plan_rows")
-      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, day_type")
+      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, day_type, locked")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
       .order("created_at", { ascending: false })
 
     if (targetError) {
-      return NextResponse.json(
-        { error: "Failed to load nutrition targets", details: targetError.message },
-        { status: 400 },
-      )
+      return jsonError(400, "db_error", "Failed to load nutrition targets", targetError.message)
     }
 
     const targetMap = new Map<
       string,
-      { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number }
+      { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number; locked: boolean }
     >()
     ;(targetRows ?? []).forEach((row) => {
       if (!targetMap.has(row.date)) {
@@ -76,6 +67,7 @@ export async function GET(req: NextRequest) {
           carbs_g: row.carbs_g ?? 0,
           fat_g: row.fat_g ?? 0,
           intra_cho_g_per_h: row.intra_cho_g_per_h ?? 0,
+          locked: row.locked ?? false,
         })
       }
     })
@@ -91,9 +83,11 @@ export async function GET(req: NextRequest) {
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
+      .order("time", { ascending: true, nullsFirst: false })
+      .order("slot", { ascending: true })
 
     if (mealsError) {
-      return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
+      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
     }
 
     const normalizedMeals = (meals ?? []).map((meal) => ({
@@ -151,6 +145,7 @@ export async function GET(req: NextRequest) {
           intra_cho_g_per_h: 0,
         },
         target: targetMap.get(dateKey) ?? null,
+        locked: targetMap.get(dateKey)?.locked ?? false,
         meals: mealsByDate.get(dateKey) ?? [],
       }
     })
@@ -165,9 +160,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ days }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/nutrition/week error:", error)
-    return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }

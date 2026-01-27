@@ -87,6 +87,8 @@ export default function OnboardingPage() {
   const { toast } = useToast()
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [generatingPlan, setGeneratingPlan] = useState(false)
+  const [generationComplete, setGenerationComplete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [checkingProfile, setCheckingProfile] = useState(true)
 
@@ -226,12 +228,13 @@ export default function OnboardingPage() {
         const now = new Date()
         const { start, end } = getDateRange("week", now)
         try {
-          await ensureNutritionPlanRange({
+          setGeneratingPlan(true)
+          const result = await ensureNutritionPlanRange({
             start: format(start, "yyyy-MM-dd"),
             end: format(end, "yyyy-MM-dd"),
-            force: true,
           })
           writeEnsuredRange(user.id, format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"))
+          setGenerationComplete(true)
         } catch (error) {
           console.error("Failed to ensure nutrition plan after onboarding", error)
           toast({
@@ -239,6 +242,8 @@ export default function OnboardingPage() {
             description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
             variant: "destructive",
           })
+        } finally {
+          setGeneratingPlan(false)
         }
       }
       localStorage.removeItem(STORAGE_KEY)
@@ -254,6 +259,23 @@ export default function OnboardingPage() {
     return (
       <div className="min-h-screen bg-[#0a1628] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-green-500" />
+      </div>
+    )
+  }
+
+  if (generatingPlan) {
+    return (
+      <div className="min-h-screen bg-[#0a1628] flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white/5 border border-white/10 rounded-2xl p-8 text-center space-y-4">
+          <Loader2 className="w-8 h-8 animate-spin text-green-400 mx-auto" />
+          <h2 className="text-xl font-semibold text-white">Generating your first plan…</h2>
+          <p className="text-sm text-white/70">
+            We&apos;re building a personalized week of meals and macros. This usually takes under a minute.
+          </p>
+          {generationComplete && (
+            <p className="text-xs text-emerald-300">Plan generated! Redirecting you to the dashboard.</p>
+          )}
+        </div>
       </div>
     )
   }

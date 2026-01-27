@@ -3,12 +3,26 @@ import { createServerClient } from "@/lib/supabase/server"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
+}
+
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const date = searchParams.get("date") ?? ""
     if (!DATE_REGEX.test(date)) {
-      return NextResponse.json({ error: "Invalid date." }, { status: 400 })
+      return jsonError(400, "invalid_date", "Invalid date.")
     }
 
     const supabase = await createServerClient()
@@ -18,36 +32,41 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
-    const { data: targetRow } = await supabase
+    const { data: targetRow, error: targetError } = await supabase
       .from("nutrition_plan_rows")
       .select("kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h")
       .eq("user_id", user.id)
       .eq("date", date)
       .order("created_at", { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
+
+    if (targetError) {
+      return jsonError(400, "db_error", "Failed to load macro targets", targetError.message)
+    }
 
     let consumed = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
 
-    const { data: meals } = await supabase
+    const { data: meals, error: mealsError } = await supabase
       .from("nutrition_meals")
-      .select("macros, eaten")
+      .select("kcal, protein_g, carbs_g, fat_g, eaten")
       .eq("user_id", user.id)
       .eq("date", date)
+
+    if (mealsError) {
+      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
+    }
 
     consumed = (meals ?? []).reduce(
       (acc, meal) => {
         if (!meal.eaten) return acc
-        acc.kcal += meal.macros?.kcal ?? 0
-        acc.protein_g += meal.macros?.protein_g ?? 0
-        acc.carbs_g += meal.macros?.carbs_g ?? 0
-        acc.fat_g += meal.macros?.fat_g ?? 0
+        acc.kcal += meal.kcal ?? 0
+        acc.protein_g += meal.protein_g ?? 0
+        acc.carbs_g += meal.carbs_g ?? 0
+        acc.fat_g += meal.fat_g ?? 0
         return acc
       },
       { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
@@ -55,7 +74,9 @@ export async function GET(req: NextRequest) {
 
     const target = targetRow
       ? {
-          kcal: targetRow.kcal ?? 0,
+          kcal:
+            targetRow.kcal ??
+            (targetRow.protein_g ?? 0) * 4 + (targetRow.carbs_g ?? 0) * 4 + (targetRow.fat_g ?? 0) * 9,
           protein_g: targetRow.protein_g ?? 0,
           carbs_g: targetRow.carbs_g ?? 0,
           fat_g: targetRow.fat_g ?? 0,
@@ -68,9 +89,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ date, target, consumed, percent }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/macros/day error:", error)
-    return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }

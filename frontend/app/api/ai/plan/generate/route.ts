@@ -1,23 +1,118 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
-import { weekPlanSchema } from "@/lib/ai/schemas"
+import crypto from "node:crypto"
+import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateWeeklyPlan } from "@/lib/ai/openai"
-import type { WeekPlan } from "@/lib/ai/schemas"
+
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+const OPENAI_TIMEOUT_MS = 60000
+const OPENAI_MAX_RETRIES = 2
+const OPENAI_RETRY_BASE_MS = 800
+const MAX_RANGE_DAYS = 90
+const RECENT_REQUEST_WINDOW_MS = 10 * 60 * 1000
+const RATE_LIMIT_FORCE_PER_MIN = 5
+const RATE_LIMIT_ENSURE_PER_MIN = 20
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-const payloadSchema = z.object({
-  start: dateSchema,
-  end: dateSchema,
-  workoutCount: z.number().optional(),
-  force: z.boolean().optional(),
+const payloadSchema = z
+  .object({
+    start: dateSchema,
+    end: dateSchema,
+    force: z.boolean().optional(),
+    resetLocks: z.boolean().optional(),
+  })
+  .strict()
+
+const mealSchema = z.object({
+  slot: z.number().int().min(1),
+  name: z.string().min(1),
+  time: z.string().regex(/^\d{2}:\d{2}$/),
+  kcal: z.number().nonnegative(),
+  protein_g: z.number().nonnegative(),
+  carbs_g: z.number().nonnegative(),
+  fat_g: z.number().nonnegative(),
 })
+
+const macrosSchema = z.object({
+  kcal: z.number().nonnegative(),
+  protein_g: z.number().nonnegative(),
+  carbs_g: z.number().nonnegative(),
+  fat_g: z.number().nonnegative(),
+  intra_cho_g_per_h: z.number().nonnegative(),
+})
+
+const daySchema = z.object({
+  date: dateSchema,
+  day_type: z.enum(["rest", "training", "high"]),
+  macros: macrosSchema,
+  meals: z.array(mealSchema).min(1),
+})
+
 const aiResponseSchema = z.object({
-  days: z.array(z.unknown()),
-  rationale: z.string().optional(),
+  days: z.array(daySchema).min(1),
+  rationale: z.string().min(1),
 })
-const MAX_RANGE_DAYS = 62
-const DEFAULT_MEALS_PER_DAY = 3
+
+type AiResponse = z.infer<typeof aiResponseSchema>
+
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
+}
+
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
+}
+
+function formatErrorCode(value: string) {
+  return value.toUpperCase()
+}
+
+function buildPromptPreview(payload: {
+  start: string
+  end: string
+  profile: Record<string, unknown>
+  workouts_summary: Array<{ date: string; total_hours: number; tss_total: number; sports: string[]; intensity: string }>
+}) {
+  const workoutDays = payload.workouts_summary.length
+  const sportsSet = new Set<string>()
+  payload.workouts_summary.forEach((summary) => summary.sports.forEach((sport) => sportsSet.add(sport)))
+
+  return JSON.stringify(
+    {
+      start: payload.start,
+      end: payload.end,
+      profile: payload.profile,
+      workout_days: workoutDays,
+      sports: Array.from(sportsSet),
+    },
+    null,
+    0,
+  ).slice(0, 300)
+}
+
+function buildResponsePreview(response: AiResponse) {
+  const dayTypes = response.days.reduce<Record<string, number>>((acc, day) => {
+    acc[day.day_type] = (acc[day.day_type] ?? 0) + 1
+    return acc
+  }, {})
+  return JSON.stringify(
+    {
+      days: response.days.length,
+      day_types: dayTypes,
+      meals_per_day: Math.round(
+        response.days.reduce((sum, day) => sum + day.meals.length, 0) / response.days.length,
+      ),
+    },
+    null,
+    0,
+  )
+}
 
 function buildDateRange(start: string, end: string) {
   const startDate = new Date(`${start}T00:00:00Z`)
@@ -32,12 +127,14 @@ function buildDateRange(start: string, end: string) {
   return { startDate, endDate, days }
 }
 
-function workoutsByDate(workouts: { workout_day: string }[]) {
-  const map = new Map<string, number>()
-  workouts.forEach((workout) => {
-    map.set(workout.workout_day, (map.get(workout.workout_day) ?? 0) + 1)
+function buildDateKeys(start: string, end: string) {
+  const range = buildDateRange(start, end)
+  if (!range) return []
+  return Array.from({ length: range.days }, (_value, index) => {
+    const cursor = new Date(`${start}T00:00:00Z`)
+    cursor.setUTCDate(cursor.getUTCDate() + index)
+    return cursor.toISOString().split("T")[0]
   })
-  return map
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -74,6 +171,7 @@ function computeMacros(weightKg: number, dayType: string) {
     protein_g: protein,
     carbs_g: carbs,
     fat_g: fat,
+    intra_cho_g_per_h: 0,
   }
 }
 
@@ -135,15 +233,116 @@ function splitMacrosAcrossMeals(
     slot: index + 1,
     name: meal.name,
     time: meal.time,
-    ingredients: [],
-    macros: {
-      kcal: Math.round(macros.kcal * mealShares[index]),
-      protein_g: Math.round(macros.protein_g * mealShares[index]),
-      carbs_g: Math.round(macros.carbs_g * mealShares[index]),
-      fat_g: Math.round(macros.fat_g * mealShares[index]),
-    },
-    notes: null,
+    kcal: Math.round(macros.kcal * mealShares[index]),
+    protein_g: Math.round(macros.protein_g * mealShares[index]),
+    carbs_g: Math.round(macros.carbs_g * mealShares[index]),
+    fat_g: Math.round(macros.fat_g * mealShares[index]),
   }))
+}
+
+function normalizeSportType(value: string | null) {
+  const normalized = value?.toLowerCase() ?? ""
+  if (normalized.includes("swim")) return "swim"
+  if (normalized.includes("bike") || normalized.includes("cycle")) return "bike"
+  if (normalized.includes("run")) return "run"
+  if (normalized.includes("strength") || normalized.includes("gym")) return "strength"
+  if (normalized.includes("rest")) return "rest"
+  return "other"
+}
+
+function summarizeWorkoutsByDay(
+  workouts: Array<{
+    workout_day: string
+    workout_type: string | null
+    planned_hours: number | null
+    actual_hours: number | null
+    tss: number | null
+    if: number | null
+    rpe: number | null
+    title: string | null
+  }>,
+  start: string,
+  end: string,
+) {
+  const dateKeys = buildDateKeys(start, end)
+  const summaryMap = new Map<
+    string,
+    {
+      total_hours: number
+      tss_total: number
+      sports: Set<string>
+      intensityScore: number
+      key_sessions: string[]
+    }
+  >()
+
+  workouts.forEach((workout) => {
+    const key = workout.workout_day
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, {
+        total_hours: 0,
+        tss_total: 0,
+        sports: new Set<string>(),
+        intensityScore: 0,
+        key_sessions: [],
+      })
+    }
+    const entry = summaryMap.get(key)
+    if (!entry) return
+    const duration = workout.actual_hours ?? workout.planned_hours ?? 0
+    entry.total_hours += duration
+    entry.tss_total += workout.tss ?? 0
+    entry.sports.add(normalizeSportType(workout.workout_type))
+
+    const intensitySignals = [
+      workout.tss ?? 0,
+      (workout.if ?? 0) * 100,
+      (workout.rpe ?? 0) * 15,
+    ]
+    entry.intensityScore = Math.max(entry.intensityScore, ...intensitySignals)
+
+    const isKeySession =
+      (workout.tss ?? 0) >= 80 ||
+      (workout.if ?? 0) >= 0.8 ||
+      (workout.rpe ?? 0) >= 7 ||
+      duration >= 1.5
+    if (isKeySession && workout.title) {
+      if (!entry.key_sessions.includes(workout.title)) {
+        entry.key_sessions.push(workout.title)
+      }
+    }
+  })
+
+  return dateKeys.map((date) => {
+    const entry = summaryMap.get(date)
+    if (!entry) {
+      return {
+        date,
+        total_hours: 0,
+        tss_total: 0,
+        sports: [],
+        intensity: "rest",
+        key_sessions: [],
+      }
+    }
+    const intensity =
+      entry.total_hours === 0 && entry.tss_total === 0
+        ? "rest"
+        : entry.intensityScore >= 120
+          ? "high"
+          : entry.intensityScore >= 60
+            ? "moderate"
+            : "low"
+
+    return {
+      date,
+      total_hours: Number(entry.total_hours.toFixed(2)),
+      tss_total: Math.round(entry.tss_total),
+      sports: Array.from(entry.sports).filter((value) => value !== "rest"),
+      intensity,
+      key_sessions: entry.key_sessions.slice(0, 3),
+    }
+  })
 }
 
 function buildFallbackPlan({
@@ -158,10 +357,10 @@ function buildFallbackPlan({
   workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
   weightKg: number
   mealsPerDay: number
-}): WeekPlan {
+}): AiResponse {
   const range = buildDateRange(start, end)
   if (!range) {
-    return { start, end, days: [] }
+    return { days: [], rationale: "Fallback plan unavailable for the requested range." }
   }
   const workoutsByDay = workouts.reduce((map, workout) => {
     if (!map.has(workout.workout_day)) {
@@ -188,149 +387,135 @@ function buildFallbackPlan({
     }
   })
 
-  return { start, end, days }
+  return {
+    days,
+    rationale: "Fallback plan generated deterministically from profile and workouts.",
+  }
 }
 
-function buildCurrentPlan({
-  start,
-  end,
-  meals,
-  rows,
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function callOpenAI({
+  apiKey,
+  model,
+  requestId,
+  payload,
 }: {
-  start: string
-  end: string
-  meals: Array<any>
-  rows: Array<any>
-}): WeekPlan {
-  const mealsByDate = meals.reduce((map, meal) => {
-    if (!map.has(meal.date)) {
-      map.set(meal.date, [])
-    }
-    map.get(meal.date)?.push(meal)
-    return map
-  }, new Map<string, any[]>())
-
-  const rowsByDate = rows.reduce((map, row) => {
-    map.set(row.date, row)
-    return map
-  }, new Map<string, any>())
-
-  const days = Array.from({ length: buildDateRange(start, end)?.days ?? 0 }, (_value, index) => {
-    const cursor = new Date(`${start}T00:00:00Z`)
-    cursor.setUTCDate(cursor.getUTCDate() + index)
-    const date = cursor.toISOString().split("T")[0]
-    const dayMeals = (mealsByDate.get(date) ?? []).sort((a, b) => a.slot - b.slot)
-    const row = rowsByDate.get(date)
-    return {
-      date,
-      day_type: row?.day_type ?? "rest",
-      macros: row
-        ? {
-            kcal: row.kcal ?? 0,
-            protein_g: row.protein_g ?? 0,
-            carbs_g: row.carbs_g ?? 0,
-            fat_g: row.fat_g ?? 0,
-          }
-        : {
-            kcal: 0,
-            protein_g: 0,
-            carbs_g: 0,
-            fat_g: 0,
-          },
-      meals: dayMeals.map((meal) => ({
-        slot: meal.slot,
-        name: meal.name,
-        time: meal.time ?? null,
-        ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-        macros: meal.macros ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
-        notes: meal.notes ?? null,
-      })),
-    }
-  })
-
-  return { start, end, days }
-}
-
-function buildPlanRows(plan: WeekPlan, userId: string, planId: string, workoutMap: Map<string, number>) {
-  return plan.days.map((day) => ({
-    plan_id: planId,
-    user_id: userId,
-    date: day.date,
-    day_type: day.day_type ?? (workoutMap.has(day.date) ? "training" : "rest"),
-    kcal: day.macros.kcal,
-    protein_g: day.macros.protein_g,
-    carbs_g: day.macros.carbs_g,
-    fat_g: day.macros.fat_g,
-    intra_cho_g_per_h: 0,
-  }))
-}
-
-function buildMealRows({
-  plan,
-  userId,
-  planId,
-  existingMeals,
-}: {
-  plan: WeekPlan
-  userId: string
-  planId: string
-  existingMeals: Map<string, { eaten: boolean; eaten_at: string | null }>
+  apiKey: string
+  model: string
+  requestId: string
+  payload: Record<string, unknown>
 }) {
-  return plan.days.flatMap((day) =>
-    day.meals.map((meal) => {
-      const existing = existingMeals.get(`${day.date}:${meal.slot}`)
-      return {
-        user_id: userId,
-        plan_id: planId,
-        date: day.date,
-        slot: meal.slot,
-        name: meal.name,
-        time: meal.time ?? null,
-        ingredients: meal.ingredients,
-        kcal: meal.macros.kcal,
-        protein_g: meal.macros.protein_g,
-        carbs_g: meal.macros.carbs_g,
-        fat_g: meal.macros.fat_g,
-        eaten: existing?.eaten ?? false,
-        eaten_at: existing?.eaten_at ?? null,
-        notes: meal.notes ?? null,
-      }
-    }),
-  )
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
+  const startedAt = Date.now()
+
+  try {
+    const response = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-Request-Id": requestId,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: JSON.stringify(payload) },
+        ],
+      }),
+      signal: controller.signal,
+    })
+
+    const data = await response.json().catch(() => null)
+    const latencyMs = Date.now() - startedAt
+    return { response, data, latencyMs }
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
-// Quick sanity check:
-// curl -X POST http://localhost:3000/api/ai/plan/generate \
-//   -H "Content-Type: application/json" \
-//   -d '{"start":"2026-01-26","end":"2026-02-01"}'
+async function callOpenAIWithRetry(args: {
+  apiKey: string
+  model: string
+  requestId: string
+  payload: Record<string, unknown>
+}) {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= OPENAI_MAX_RETRIES; attempt += 1) {
+    try {
+      const { response, data, latencyMs } = await callOpenAI(args)
+      if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status)) {
+        return { response, data, latencyMs }
+      }
+      lastError = new Error(`OpenAI retryable error: ${response.status}`)
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+    }
+
+    if (attempt < OPENAI_MAX_RETRIES) {
+      const waitMs = OPENAI_RETRY_BASE_MS * (attempt + 1)
+      await sleep(waitMs)
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  throw new Error("OpenAI request failed")
+}
+
+async function enforceRateLimit({
+  supabase,
+  userId,
+  limit,
+}: {
+  supabase: Awaited<ReturnType<typeof createServerClient>>
+  userId: string
+  limit: number
+}) {
+  const cutoff = new Date(Date.now() - 60_000).toISOString()
+  const { data, error } = await supabase
+    .from("ai_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .gte("created_at", cutoff)
+
+  if (error) {
+    console.warn("Rate limit check failed", error)
+    return { ok: true, remaining: null }
+  }
+
+  if ((data?.length ?? 0) >= limit) {
+    return { ok: false, remaining: 0 }
+  }
+
+  return { ok: true, remaining: limit - (data?.length ?? 0) }
+}
+
 export async function POST(req: NextRequest) {
+  let requestId = "unknown"
   try {
+    requestId = crypto.randomUUID()
     const body = await req.json().catch(() => null)
-    console.info("POST /api/ai/plan/generate payload keys", {
-      keys: body && typeof body === "object" ? Object.keys(body as Record<string, unknown>) : [],
-    })
     const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid payload", issues: parsed.error.issues },
-        { status: 400 },
-      )
+      return jsonError(400, "invalid_payload", "Invalid payload", parsed.error.issues)
     }
 
-    const { start, end } = parsed.data
-    console.info("POST /api/ai/plan/generate payload", { start, end })
+    const { start, end, force = false, resetLocks = false } = parsed.data
     if (start > end) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid date range", issues: [{ message: "start must be <= end" }] },
-        { status: 400 },
-      )
+      return jsonError(400, "invalid_range", "Invalid date range")
     }
     const range = buildDateRange(start, end)
     if (!range) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid date range", issues: [{ message: "range is outside allowed bounds" }] },
-        { status: 400 },
-      )
+      return jsonError(400, "invalid_range", "Invalid date range")
     }
 
     const supabase = await createServerClient()
@@ -340,104 +525,162 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
+    }
+
+    const effectiveForce = force || resetLocks
+    const rateLimit = await enforceRateLimit({
+      supabase,
+      userId: user.id,
+      limit: effectiveForce ? RATE_LIMIT_FORCE_PER_MIN : RATE_LIMIT_ENSURE_PER_MIN,
+    })
+    if (!rateLimit.ok) {
+      return jsonError(
+        429,
+        "rate_limited",
+        "Too many requests. Please wait a moment before trying again.",
       )
     }
-    console.info("POST /api/ai/plan/generate auth", { userId: user.id })
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single()
-
-    if (profileError) {
-      return NextResponse.json({ error: "Failed to load profile", details: profileError.message }, { status: 400 })
-    }
-
-    const { data: workouts, error: workoutError } = await supabase
-      .from("tp_workouts")
-      .select("workout_day, workout_type, title, start_time, planned_hours, actual_hours, tss, if, rpe")
-      .eq("user_id", user.id)
-      .gte("workout_day", start)
-      .lte("workout_day", end)
-
-    if (workoutError) {
-      return NextResponse.json({ error: "Failed to load workouts", details: workoutError.message }, { status: 400 })
-    }
-
-    console.info("POST /api/ai/plan/generate", {
-      userId: user.id,
-      start,
-      end,
-      workoutCount: workouts?.length ?? 0,
-    })
-
-    const [{ data: existingMeals }, { data: existingRows }] = await Promise.all([
+    const dateKeys = buildDateKeys(start, end)
+    const [{ data: existingRows }, { data: existingMeals }] = await Promise.all([
       supabase
-        .from("nutrition_meals")
-        .select("date, slot, eaten, eaten_at, ingredients, name, time, notes, kcal, protein_g, carbs_g, fat_g, recipe")
+        .from("nutrition_plan_rows")
+        .select("date, day_type, plan_id, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, locked")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
       supabase
-        .from("nutrition_plan_rows")
-        .select("date, day_type, kcal, protein_g, carbs_g, fat_g")
+        .from("nutrition_meals")
+        .select("date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, eaten_at, locked")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
     ])
 
-    const existingMealsMap = (existingMeals ?? []).reduce((map, meal) => {
-      map.set(`${meal.date}:${meal.slot}`, { eaten: meal.eaten ?? false, eaten_at: meal.eaten_at ?? null })
-      return map
-    }, new Map<string, { eaten: boolean; eaten_at: string | null }>())
+    const rowsByDate = new Set((existingRows ?? []).map((row) => row.date))
+    const mealsByDate = new Set((existingMeals ?? []).map((meal) => meal.date))
+    const hasAllDays = dateKeys.every((date) => rowsByDate.has(date) && mealsByDate.has(date))
+    if (!effectiveForce && hasAllDays) {
+      const cutoff = new Date(Date.now() - RECENT_REQUEST_WINDOW_MS).toISOString()
+      const { data: recentRequest } = await supabase
+        .from("ai_requests")
+        .select("id, created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-    const normalizedExistingMeals = (existingMeals ?? []).map((meal) => ({
+      return NextResponse.json(
+        { ok: true, start, end, deduped: true, recentRequest: Boolean(recentRequest) },
+        { status: 200 },
+      )
+    }
+
+    if (resetLocks) {
+      await supabase
+        .from("nutrition_plan_rows")
+        .update({ locked: false })
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+      await supabase
+        .from("nutrition_meals")
+        .update({ locked: false })
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+    }
+
+    const normalizedRows = (existingRows ?? []).map((row) => ({
+      ...row,
+      locked: resetLocks ? false : row.locked ?? false,
+    }))
+    const normalizedMeals = (existingMeals ?? []).map((meal) => ({
       ...meal,
-      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-      macros: {
-        kcal: meal.kcal ?? 0,
-        protein_g: meal.protein_g ?? 0,
-        carbs_g: meal.carbs_g ?? 0,
-        fat_g: meal.fat_g ?? 0,
-      },
+      locked: resetLocks ? false : meal.locked ?? false,
     }))
 
-    const currentPlan = buildCurrentPlan({
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("weight_kg, primary_goal, diet, meals_per_day, units")
+      .eq("id", user.id)
+      .single()
+
+    const { data: workouts } = await supabase
+      .from("tp_workouts")
+      .select("workout_day, workout_type, planned_hours, actual_hours, tss, if, rpe, title")
+      .eq("user_id", user.id)
+      .gte("workout_day", start)
+      .lte("workout_day", end)
+
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      return jsonError(500, "config_missing", "OPENAI_API_KEY is not configured")
+    }
+
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
+    const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
+    const payload = {
       start,
       end,
-      meals: normalizedExistingMeals,
-      rows: existingRows ?? [],
-    })
+      profile: {
+        weight_kg: profile?.weight_kg ?? null,
+        meals_per_day: profile?.meals_per_day ?? null,
+        diet: profile?.diet ?? null,
+        primary_goal: profile?.primary_goal ?? null,
+        units: profile?.units ?? null,
+      },
+      workouts_summary: workoutsSummary,
+      schema:
+        "days[{date,day_type,macros{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,name,time,kcal,protein_g,carbs_g,fat_g}]}]",
+    }
 
-    let plan: WeekPlan
-    let usedFallback = false
+    let aiResponse: AiResponse | null = null
+    let aiRaw: unknown = null
+    let latencyMs = 0
+    let tokens: number | null = null
+    let aiErrorCode: string | null = null
 
     try {
-      plan = await generateWeeklyPlan({
-        start,
-        end,
-        profile: profile ?? {},
-        workouts: workouts ?? [],
-        currentPlan,
+      const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
+        apiKey,
+        model,
+        requestId,
+        payload,
       })
-      const aiParsed = aiResponseSchema.safeParse(plan)
-      if (!aiParsed.success) {
-        throw new Error("AI response missing required days")
+      latencyMs = callLatency
+      aiRaw = data
+
+      if (!response.ok || !data) {
+        const message = data?.error?.message ?? "OpenAI request failed"
+        aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
+        throw new Error(message)
       }
-      weekPlanSchema.parse(plan)
+
+      const content = data.choices?.[0]?.message?.content ?? ""
+      let parsedJson: unknown
+      try {
+        parsedJson = JSON.parse(content)
+      } catch {
+        aiErrorCode = "INVALID_JSON"
+        throw new Error("Invalid JSON response")
+      }
+      const parsed = aiResponseSchema.safeParse(parsedJson)
+      if (!parsed.success) {
+        aiErrorCode = "VALIDATION_ERROR"
+        throw new Error("Invalid AI response")
+      }
+
+      tokens = data?.usage?.total_tokens ?? null
+      aiResponse = parsed.data
     } catch (error) {
-      usedFallback = true
-      console.warn("AI plan generation failed, using fallback plan.", {
-        userId: user.id,
-        start,
-        end,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      plan = buildFallbackPlan({
+      if (!aiErrorCode) {
+        const message = error instanceof Error ? error.message : String(error)
+        aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
+      }
+      const fallback = buildFallbackPlan({
         start,
         end,
         workouts: (workouts ?? []).map((workout) => ({
@@ -448,118 +691,249 @@ export async function POST(req: NextRequest) {
           if: workout.if ?? null,
         })),
         weightKg: profile?.weight_kg ?? 70,
-        mealsPerDay: profile?.meals_per_day ?? DEFAULT_MEALS_PER_DAY,
+        mealsPerDay: profile?.meals_per_day ?? 3,
       })
+      aiResponse = fallback
+      aiRaw = { fallback: true, error: error instanceof Error ? error.message : String(error) }
     }
 
-    const { data: existingPlan } = await supabase
-      .from("nutrition_plans")
+    const promptHash = crypto
+      .createHash("sha256")
+      .update(`${systemPrompt}:${JSON.stringify(payload)}`)
+      .digest("hex")
+    const promptPreview = buildPromptPreview(payload)
+    const responsePreview = aiResponse ? buildResponsePreview(aiResponse) : null
+
+    const { data: aiLogRow, error: aiLogError } = await supabase
+      .from("ai_requests")
+      .insert({
+        user_id: user.id,
+        provider: "openai",
+        model,
+        prompt_hash: promptHash,
+        response_json: aiRaw,
+        tokens,
+        latency_ms: latencyMs,
+        error_code: aiErrorCode ? formatErrorCode(aiErrorCode) : null,
+        prompt_preview: promptPreview,
+        response_preview: responsePreview,
+      })
       .select("id")
-      .eq("user_id", user.id)
-      .eq("start_date", start)
-      .eq("end_date", end)
-      .maybeSingle()
+      .single()
 
-    let planId = existingPlan?.id ?? null
-
-    if (!planId) {
-      const { data: created, error: createError } = await supabase
-        .from("nutrition_plans")
-        .insert({
-          user_id: user.id,
-          user_key: user.id,
-          source_filename: "ai",
-          weight_kg: profile?.weight_kg ?? 0,
-          start_date: start,
-          end_date: end,
-        })
-        .select("id")
-        .single()
-
-      if (createError || !created) {
-        return NextResponse.json(
-          { error: "Failed to create nutrition plan", details: createError?.message ?? null },
-          { status: 400 },
-        )
-      }
-      planId = created.id
+    if (aiLogError) {
+      return jsonError(500, "ai_log_failed", "Failed to log AI request", aiLogError.message)
     }
 
-    const workoutMap = workoutsByDate(workouts ?? [])
-    const planRows = buildPlanRows(plan, user.id, planId, workoutMap)
-    const mealRows = buildMealRows({ plan, userId: user.id, planId, existingMeals: existingMealsMap })
+    if (!aiResponse || aiResponse.days.length === 0) {
+      return jsonError(500, "ai_response_invalid", "AI response missing days")
+    }
+
+    const rowsByDateMap = new Map(normalizedRows.map((row) => [row.date, row]))
+    const lockedDaySet = new Set(normalizedRows.filter((row) => row.locked).map((row) => row.date))
+    const mealsByDateMap = normalizedMeals.reduce((map, meal) => {
+      if (!map.has(meal.date)) {
+        map.set(meal.date, [])
+      }
+      map.get(meal.date)?.push(meal)
+      return map
+    }, new Map<string, typeof normalizedMeals>())
+
+    const planRows: Array<{
+      user_id: string
+      date: string
+      day_type: string
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      intra_cho_g_per_h: number
+      plan_id?: string | null
+      locked?: boolean
+    }> = []
+
+    const mealRows: Array<{
+      user_id: string
+      date: string
+      slot: number
+      name: string
+      time: string | null
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      ingredients: unknown[]
+      eaten: boolean
+      eaten_at: string | null
+      locked?: boolean
+    }> = []
+
+    const diff = {
+      mode: resetLocks ? "reset" : effectiveForce ? "regenerate" : "ensure",
+      macros_changed: 0,
+      meals_added: 0,
+      meals_removed: 0,
+      meals_updated: 0,
+      preserved_days: [] as string[],
+      preserved_meals: [] as Array<{ date: string; slot: number }>,
+    }
+
+    const aiMealsByDate = aiResponse.days.reduce((map, day) => {
+      map.set(day.date, day.meals)
+      return map
+    }, new Map<string, typeof aiResponse.days[number]["meals"]>())
+
+    aiResponse.days.forEach((day) => {
+      const existingRow = rowsByDateMap.get(day.date)
+      const dayLocked = existingRow?.locked ?? false
+      const existingMealsForDay = mealsByDateMap.get(day.date) ?? []
+      const existingMealsBySlot = new Map(existingMealsForDay.map((meal) => [meal.slot, meal]))
+
+      if (dayLocked && !resetLocks) {
+        diff.preserved_days.push(day.date)
+        return
+      }
+
+      planRows.push({
+        user_id: user.id,
+        date: day.date,
+        day_type: day.day_type,
+        kcal: day.macros.kcal,
+        protein_g: day.macros.protein_g,
+        carbs_g: day.macros.carbs_g,
+        fat_g: day.macros.fat_g,
+        intra_cho_g_per_h: day.macros.intra_cho_g_per_h,
+        plan_id: existingRow?.plan_id ?? null,
+        locked: resetLocks ? false : existingRow?.locked ?? false,
+      })
+
+      if (existingRow) {
+        const macroChanged =
+          existingRow.kcal !== day.macros.kcal ||
+          existingRow.protein_g !== day.macros.protein_g ||
+          existingRow.carbs_g !== day.macros.carbs_g ||
+          existingRow.fat_g !== day.macros.fat_g ||
+          existingRow.intra_cho_g_per_h !== day.macros.intra_cho_g_per_h
+        if (macroChanged) diff.macros_changed += 1
+      }
+
+      const aiMeals = aiMealsByDate.get(day.date) ?? []
+      aiMeals.forEach((meal) => {
+        const existingMeal = existingMealsBySlot.get(meal.slot)
+        if (existingMeal?.locked && !resetLocks) {
+          diff.preserved_meals.push({ date: day.date, slot: meal.slot })
+          return
+        }
+        const eaten = existingMeal?.eaten ?? false
+        const eatenAt = existingMeal?.eaten_at ?? null
+
+        if (!existingMeal) {
+          diff.meals_added += 1
+        } else {
+          const updated =
+            existingMeal.name !== meal.name ||
+            (existingMeal.time ?? null) !== (meal.time ?? null) ||
+            (existingMeal.kcal ?? 0) !== meal.kcal ||
+            (existingMeal.protein_g ?? 0) !== meal.protein_g ||
+            (existingMeal.carbs_g ?? 0) !== meal.carbs_g ||
+            (existingMeal.fat_g ?? 0) !== meal.fat_g
+          if (updated) diff.meals_updated += 1
+        }
+
+        mealRows.push({
+          user_id: user.id,
+          date: day.date,
+          slot: meal.slot,
+          name: meal.name,
+          time: meal.time ?? null,
+          kcal: meal.kcal,
+          protein_g: meal.protein_g,
+          carbs_g: meal.carbs_g,
+          fat_g: meal.fat_g,
+          ingredients: [],
+          eaten,
+          eaten_at: eatenAt,
+          locked: resetLocks ? false : existingMeal?.locked ?? false,
+        })
+      })
+
+      if (existingMealsForDay.length > aiMeals.length) {
+        const aiSlots = new Set(aiMeals.map((meal) => meal.slot))
+        existingMealsForDay.forEach((meal) => {
+          if (!aiSlots.has(meal.slot) && !(meal.locked && !resetLocks)) {
+            diff.meals_removed += 1
+          }
+        })
+      }
+    })
+
+    if (resetLocks) {
+      await supabase
+        .from("nutrition_meals")
+        .delete()
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+    } else {
+      const unlockedDates = dateKeys.filter((date) => !lockedDaySet.has(date))
+      await Promise.all(
+        unlockedDates.map((date) =>
+          supabase
+            .from("nutrition_meals")
+            .delete()
+            .eq("user_id", user.id)
+            .eq("date", date)
+            .eq("locked", false),
+        ),
+      )
+    }
 
     const { error: rowError } = await supabase
       .from("nutrition_plan_rows")
       .upsert(planRows, { onConflict: "user_id,date" })
-
     if (rowError) {
-      console.error("Failed to save plan rows", rowError)
-      return NextResponse.json({ error: "Failed to save plan rows", details: rowError.message }, { status: 400 })
-    }
-
-    const mealRowsWithPlan = mealRows.map((meal) => ({
-      ...meal,
-      plan_id: planId,
-      macros: {
-        kcal: meal.kcal,
-        protein_g: meal.protein_g,
-        carbs_g: meal.carbs_g,
-        fat_g: meal.fat_g,
-      },
-      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
-      eaten: meal.eaten ?? false,
-    }))
-    const mealRowsWithoutPlan = mealRows.map(({ plan_id: _planId, ...meal }) => meal)
-
-    let { error: mealError } = await supabase
-      .from("nutrition_meals")
-      .upsert(mealRowsWithPlan, { onConflict: "user_id,date,slot" })
-
-    if (mealError) {
-      const isMissingColumn =
-        mealError.code === "42703" ||
-        /column "(plan_id|macros)"/i.test(mealError.message)
-
-      if (isMissingColumn) {
-        ;({ error: mealError } = await supabase
-          .from("nutrition_meals")
-          .upsert(mealRowsWithoutPlan, { onConflict: "user_id,date,slot" }))
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
       }
+      return jsonError(500, "plan_rows_save_failed", "Failed to save plan rows", rowError.message)
     }
 
+    const { error: mealError } = await supabase
+      .from("nutrition_meals")
+      .upsert(mealRows, { onConflict: "user_id,date,slot" })
     if (mealError) {
-      console.error("Failed to save meals", mealError)
-      return NextResponse.json({ error: "Failed to save meals", details: mealError.message }, { status: 400 })
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
+      }
+      return jsonError(500, "meals_save_failed", "Failed to save meals", mealError.message)
     }
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
       user_id: user.id,
-      plan_id: planId,
-      source: "generate",
-      diff: { generated: true, start, end },
+      week_start: start,
+      week_end: end,
+      diff,
     })
 
     if (revisionError) {
-      const isMissingTable =
-        revisionError.code === "42P01" || /relation .*plan_revisions.* does not exist/i.test(revisionError.message)
-      if (!isMissingTable) {
-        console.error("Failed to save revision", revisionError)
-        return NextResponse.json({ error: "Failed to save revision", details: revisionError.message }, { status: 400 })
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
       }
-      console.warn("Skipping plan_revisions insert due to missing table.", {
-        userId: user.id,
-        start,
-        end,
-      })
+      return jsonError(500, "plan_revision_failed", "Failed to save revision", revisionError.message)
     }
 
-    return NextResponse.json({ ok: true, planId, start, end, usedFallback }, { status: 200 })
+    const usedFallback = Boolean((aiRaw as { fallback?: boolean } | null)?.fallback)
+    return NextResponse.json(
+      { ok: true, start, end, usedFallback, diff },
+      { status: 200 },
+    )
   } catch (error) {
     console.error("POST /api/ai/plan/generate error:", error)
-    return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }
