@@ -37,6 +37,7 @@ export interface NutritionPlanRow {
   carbs_g: number
   fat_g: number
   intra_cho_g_per_h: number
+  locked?: boolean | null
   created_at: string
   user_id: string | null
 }
@@ -53,6 +54,7 @@ export interface NutritionMeal {
   protein_g?: number
   carbs_g?: number
   fat_g?: number
+  locked?: boolean | null
   macros?: {
     kcal: number
     protein_g: number
@@ -178,6 +180,7 @@ export interface Meal {
   completed?: boolean
   notes?: string | null
   tags?: string[]
+  locked?: boolean
 }
 
 export interface UserEvent {
@@ -225,6 +228,7 @@ export interface MealPlanItem {
   eaten: boolean
   notes: string | null
   recipe_id: string | null
+  locked?: boolean
   created_at: string
   updated_at: string
   ingredients?: MealPlanIngredient[]
@@ -255,6 +259,7 @@ export interface WeeklyNutritionDay {
   date: string
   consumed: NutritionMacros
   target: NutritionMacros | null
+  locked?: boolean
 }
 
 export interface NutritionDayPlan {
@@ -264,6 +269,7 @@ export interface NutritionDayPlan {
   meals_per_day: number
   meals: Meal[]
   plan_id: string | null
+  locked?: boolean
 }
 
 export type RecipeCategory =
@@ -369,6 +375,7 @@ export interface PlanWeekMeal {
   recipe_id: string | null
   created_at: string
   updated_at: string
+  locked?: boolean
   recipe: PlanRecipeSummary | null
   recipe_ingredients: PlanRecipeIngredient[]
 }

@@ -64,6 +64,16 @@ type GeneratePlanResult = {
   start?: string
   end?: string
   usedFallback?: boolean
+  deduped?: boolean
+  diff?: {
+    mode?: string
+    macros_changed?: number
+    meals_added?: number
+    meals_removed?: number
+    meals_updated?: number
+    preserved_days?: string[]
+    preserved_meals?: Array<{ date: string; slot: number }>
+  }
   error?: { code?: string; message?: string; details?: string }
   details?: string
 }
@@ -82,15 +92,17 @@ export async function ensureNutritionPlanRange({
   start,
   end,
   force = false,
+  resetLocks = false,
 }: {
   start: string
   end: string
   force?: boolean
+  resetLocks?: boolean
 }) {
   const response = await fetch(`/api/ai/plan/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ start, end, force }),
+    body: JSON.stringify({ start, end, force, resetLocks }),
   })
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => ({}))) as GeneratePlanResult
@@ -99,8 +111,8 @@ export async function ensureNutritionPlanRange({
   return (await response.json()) as GeneratePlanResult
 }
 
-export async function ensureDailyPlan(date: string, force = false) {
-  return ensureNutritionPlanRange({ start: date, end: date, force })
+export async function ensureDailyPlan(date: string, force = false, resetLocks = false) {
+  return ensureNutritionPlanRange({ start: date, end: date, force, resetLocks })
 }
 
 export function useEnsureNutritionPlan({

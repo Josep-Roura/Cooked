@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error: mealsError } = await supabase
       .from("nutrition_meals")
-      .select("*")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, created_at, updated_at, ingredients, locked")
       .eq("user_id", user.id)
       .eq("date", date)
       .order("time", { ascending: true, nullsFirst: false })
@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
       created_at: meal.created_at,
       updated_at: meal.updated_at,
       ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      locked: meal.locked ?? false,
     }))
 
     console.info("GET /api/v1/meals/day", {

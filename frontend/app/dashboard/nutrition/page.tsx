@@ -9,18 +9,26 @@ import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
 import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-cards"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
 import {
   useMealPlanDay,
   useProfile,
   useTrainingSessions,
+  useUpdateNutritionDay,
   useUpdateMealPlanItem,
   useWeekRange,
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { ensureDailyPlan, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { ensureDailyPlan, ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -40,8 +48,27 @@ export default function NutritionPage() {
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const updateMealMutation = useUpdateMealPlanItem()
+  const updateNutritionDay = useUpdateNutritionDay(user?.id)
   const lastSyncedRef = useRef<string | null>(null)
   useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
+  const [editOpen, setEditOpen] = useState(false)
+  const [editMacros, setEditMacros] = useState(() => ({
+    kcal: 0,
+    protein_g: 0,
+    carbs_g: 0,
+    fat_g: 0,
+  }))
+  const [editMeals, setEditMeals] = useState<Array<{
+    slot: number
+    name: string
+    time: string | null
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    locked?: boolean
+  }>>([])
+  const [dayLocked, setDayLocked] = useState(false)
 
   useEffect(() => {
     if (!selectedDate) return
@@ -85,6 +112,7 @@ export default function NutritionPage() {
     date: selectedDate,
     consumed: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
     target: null,
+    locked: false,
   }
 
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
@@ -99,11 +127,11 @@ export default function NutritionPage() {
     ? "Carbs are higher today to fuel training sessions and recovery."
     : "Carbs ease off to match recovery needs on rest days."
 
-  const handleGenerate = async (regenerate: boolean) => {
+  const handleGenerate = async (regenerate: boolean, resetLocks = false) => {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
-      await ensureDailyPlan(selectedDate, regenerate)
+      await ensureDailyPlan(selectedDate, regenerate, resetLocks)
       await Promise.all([
         weeklyNutritionQuery.refetch(),
         mealPlanQuery.refetch(),
@@ -119,6 +147,95 @@ export default function NutritionPage() {
       })
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  const handleRegenerateRange = async (resetLocks: boolean) => {
+    setIsGenerating(true)
+    try {
+      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force: true, resetLocks })
+      await Promise.all([
+        weeklyNutritionQuery.refetch(),
+        mealPlanQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] }),
+        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
+      ])
+    } catch (error) {
+      toast({
+        title: "Plan regeneration failed",
+        description: error instanceof Error ? error.message : "Unable to regenerate the plan.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!editOpen) return
+    const macros = selectedDay.target ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
+    setEditMacros({
+      kcal: macros.kcal ?? 0,
+      protein_g: macros.protein_g ?? 0,
+      carbs_g: macros.carbs_g ?? 0,
+      fat_g: macros.fat_g ?? 0,
+    })
+    setDayLocked(Boolean((weeklyNutritionQuery.data ?? []).find((day) => day.date === selectedDate)?.locked))
+    const items = (mealPlanQuery.data?.items ?? []).map((item) => ({
+      slot: item.slot,
+      name: item.name,
+      time: item.time ?? null,
+      kcal: item.kcal ?? 0,
+      protein_g: item.protein_g ?? 0,
+      carbs_g: item.carbs_g ?? 0,
+      fat_g: item.fat_g ?? 0,
+      locked: item.locked ?? false,
+    }))
+    setEditMeals(items)
+  }, [editOpen, mealPlanQuery.data?.items, selectedDate, selectedDay.target, weeklyNutritionQuery.data])
+
+  const handleAddMeal = () => {
+    setEditMeals((prev) => {
+      const nextSlot = prev.length > 0 ? Math.max(...prev.map((meal) => meal.slot)) + 1 : 1
+      return [
+        ...prev,
+        {
+          slot: nextSlot,
+          name: `Meal ${nextSlot}`,
+          time: null,
+          kcal: 0,
+          protein_g: 0,
+          carbs_g: 0,
+          fat_g: 0,
+          locked: false,
+        },
+      ]
+    })
+  }
+
+  const handleRemoveMeal = (slot: number) => {
+    setEditMeals((prev) => prev.filter((meal) => meal.slot !== slot))
+  }
+
+  const handleSaveEdits = async () => {
+    try {
+      await updateNutritionDay.mutateAsync({
+        date: selectedDate,
+        macros: editMacros,
+        meals: editMeals,
+        removedSlots: (mealPlanQuery.data?.items ?? [])
+          .map((item) => item.slot)
+          .filter((slot) => !editMeals.some((meal) => meal.slot === slot)),
+        day_locked: dayLocked,
+      })
+      toast({ title: "Day updated", description: "Your edits have been saved." })
+      setEditOpen(false)
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Unable to save changes.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -188,6 +305,14 @@ export default function NutritionPage() {
               className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
             />
             <Button
+              onClick={() => setEditOpen(true)}
+              variant="outline"
+              className="h-9 rounded-full px-4 text-xs"
+              type="button"
+            >
+              Edit day
+            </Button>
+            <Button
               onClick={() => handleGenerate(false)}
               disabled={isGenerating}
               className="h-9 rounded-full px-4 text-xs"
@@ -195,15 +320,24 @@ export default function NutritionPage() {
             >
               Generate today&apos;s plan
             </Button>
-            <Button
-              onClick={() => handleGenerate(true)}
-              disabled={isGenerating}
-              variant="outline"
-              className="h-9 rounded-full px-4 text-xs"
-              type="button"
-            >
-              Regenerate
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={isGenerating}
+                  variant="outline"
+                  className="h-9 rounded-full px-4 text-xs"
+                  type="button"
+                >
+                  Regenerate
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleGenerate(true)}>Regenerate day</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleRegenerateRange(false)}>Regenerate week</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleGenerate(true, true)}>Full reset day</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleRegenerateRange(true)}>Full reset week</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -227,6 +361,143 @@ export default function NutritionPage() {
           />
         </div>
       </div>
+
+      <Sheet open={editOpen} onOpenChange={setEditOpen}>
+        <SheetContent className="w-full sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Edit {selectedDate}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6 space-y-6">
+            <div className="flex items-center justify-between rounded-xl border border-border p-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Lock day</p>
+                <p className="text-xs text-muted-foreground">Locked days won&apos;t be changed by regeneration.</p>
+              </div>
+              <Button
+                variant={dayLocked ? "default" : "outline"}
+                size="sm"
+                onClick={() => setDayLocked((prev) => !prev)}
+              >
+                {dayLocked ? "Locked" : "Unlocked"}
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-foreground">Macro targets</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {(["kcal", "protein_g", "carbs_g", "fat_g"] as const).map((key) => (
+                  <label key={key} className="text-xs text-muted-foreground flex flex-col gap-1">
+                    {key.replace("_g", "").toUpperCase()}
+                    <input
+                      type="number"
+                      value={editMacros[key]}
+                      onChange={(event) =>
+                        setEditMacros((prev) => ({ ...prev, [key]: Number(event.target.value) }))
+                      }
+                      className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">Meals</h3>
+                <Button variant="outline" size="sm" onClick={handleAddMeal}>
+                  Add meal
+                </Button>
+              </div>
+              <div className="space-y-4">
+                {editMeals.map((meal) => (
+                  <div key={meal.slot} className="rounded-xl border border-border p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-foreground">Slot {meal.slot}</p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant={meal.locked ? "default" : "outline"}
+                          size="sm"
+                          onClick={() =>
+                            setEditMeals((prev) =>
+                              prev.map((item) =>
+                                item.slot === meal.slot ? { ...item, locked: !item.locked } : item,
+                              ),
+                            )
+                          }
+                        >
+                          {meal.locked ? "Locked" : "Unlocked"}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleRemoveMeal(meal.slot)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-xs text-muted-foreground flex flex-col gap-1">
+                        Name
+                        <input
+                          value={meal.name}
+                          onChange={(event) =>
+                            setEditMeals((prev) =>
+                              prev.map((item) =>
+                                item.slot === meal.slot ? { ...item, name: event.target.value } : item,
+                              ),
+                            )
+                          }
+                          className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground flex flex-col gap-1">
+                        Time
+                        <input
+                          value={meal.time ?? ""}
+                          onChange={(event) =>
+                            setEditMeals((prev) =>
+                              prev.map((item) =>
+                                item.slot === meal.slot ? { ...item, time: event.target.value || null } : item,
+                              ),
+                            )
+                          }
+                          placeholder="HH:MM"
+                          className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
+                        />
+                      </label>
+                      {(["kcal", "protein_g", "carbs_g", "fat_g"] as const).map((key) => (
+                        <label key={key} className="text-xs text-muted-foreground flex flex-col gap-1">
+                          {key.replace("_g", "").toUpperCase()}
+                          <input
+                            type="number"
+                            value={meal[key]}
+                            onChange={(event) =>
+                              setEditMeals((prev) =>
+                                prev.map((item) =>
+                                  item.slot === meal.slot
+                                    ? { ...item, [key]: Number(event.target.value) }
+                                    : item,
+                                ),
+                              )
+                            }
+                            className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEdits} disabled={updateNutritionDay.isPending}>
+                Save changes
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </main>
   )
 }

@@ -13,6 +13,27 @@ const postSchema = z.object({
   message: z.string().min(1),
 })
 
+const CHAT_RATE_LIMIT_PER_MIN = 5
+
+async function enforceChatRateLimit(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string,
+) {
+  const cutoff = new Date(Date.now() - 60_000).toISOString()
+  const { data, error } = await supabase
+    .from("ai_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .gte("created_at", cutoff)
+
+  if (error) {
+    console.warn("Chat rate limit check failed", error)
+    return true
+  }
+
+  return (data?.length ?? 0) < CHAT_RATE_LIMIT_PER_MIN
+}
+
 function buildDays(start: string, end: string) {
   const days: string[] = []
   const cursor = new Date(`${start}T00:00:00Z`)
@@ -167,6 +188,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Not authenticated", details: authError?.message ?? null },
         { status: 401 },
+      )
+    }
+
+    const rateOk = await enforceChatRateLimit(supabase, user.id)
+    if (!rateOk) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment before retrying." },
+        { status: 429 },
       )
     }
 

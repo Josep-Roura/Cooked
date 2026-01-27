@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error } = await supabase
       .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, created_at, updated_at")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, created_at, updated_at, locked")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
       recipe_id: null,
       created_at: meal.created_at,
       updated_at: meal.updated_at,
+      locked: meal.locked ?? false,
       recipe: null,
       recipe_ingredients: [],
     }))
