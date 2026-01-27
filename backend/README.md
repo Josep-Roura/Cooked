@@ -44,7 +44,7 @@ macOS/Linux:
 
 ```bash
 PYTHONPATH=src python scripts/tp_extract_and_viz.py --input "../data/tp.csv" --outdir "out"
-PYTHONPATH=src python scripts/tp_to_supabase.py --input "../data/tp.csv" --athlete_id "josep"
+PYTHONPATH=src python scripts/tp_to_supabase.py --input "../data/tp.csv" --user_id "<SUPABASE_USER_UUID>" --athlete_id "josep"
 ```
 
 Windows PowerShell:
@@ -52,5 +52,5 @@ Windows PowerShell:
 ```powershell
 $env:PYTHONPATH="src"
 python scripts\tp_extract_and_viz.py --input "..\data\tp.csv" --outdir "out"
-python scripts\tp_to_supabase.py --input "..\data\tp.csv" --athlete_id "josep"
+python scripts\tp_to_supabase.py --input "..\data\tp.csv" --user_id "<SUPABASE_USER_UUID>" --athlete_id "josep"
 ```

@@ -19,7 +19,8 @@ def chunked(items: list[dict], batch_size: int) -> list[list[dict]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Upsert TrainingPeaks workouts into Supabase.")
     parser.add_argument("--input", required=True, help="Path to TrainingPeaks CSV export.")
-    parser.add_argument("--athlete_id", required=True, help="Athlete identifier.")
+    parser.add_argument("--user_id", required=True, help="Supabase auth.users id (uuid).")
+    parser.add_argument("--athlete_id", help="Legacy athlete identifier (optional).")
     parser.add_argument("--batch", type=int, default=500, help="Batch size for upserts.")
     args = parser.parse_args()
 
@@ -37,7 +38,9 @@ def main() -> None:
     df = load_tp_csv(input_path)
     mvp = build_mvp_dataset(df)
 
-    mvp["athlete_id"] = args.athlete_id
+    mvp["user_id"] = args.user_id
+    if args.athlete_id:
+        mvp["athlete_id"] = args.athlete_id
     mvp["workout_day"] = pd.to_datetime(mvp["workout_day"], errors="coerce").dt.date
 
     records = mvp.where(pd.notnull(mvp), None).to_dict(orient="records")
@@ -51,7 +54,7 @@ def main() -> None:
     for index, batch in enumerate(batches, start=1):
         client.table("tp_workouts").upsert(
             batch,
-            on_conflict="athlete_id,workout_day,title,workout_type",
+            on_conflict="user_id,workout_day,title,workout_type",
         ).execute()
         print(f"Batch {index}/{len(batches)} uploaded ({len(batch)} records).")
 

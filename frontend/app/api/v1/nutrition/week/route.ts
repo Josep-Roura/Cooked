@@ -4,6 +4,20 @@ import { createServerClient } from "@/lib/supabase/server"
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const MAX_RANGE_DAYS = 7
 
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
+}
+
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
+}
+
 function parseDate(value: string) {
   if (!DATE_REGEX.test(value)) return null
   const [year, month, day] = value.split("-").map(Number)
@@ -33,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     const range = buildDateRange(start, end)
     if (!range) {
-      return NextResponse.json({ error: "Invalid date range." }, { status: 400 })
+      return jsonError(400, "invalid_range", "Invalid date range.")
     }
 
     const supabase = await createServerClient()
@@ -43,10 +57,7 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
     const { data: targetRows, error: targetError } = await supabase
@@ -58,10 +69,7 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false })
 
     if (targetError) {
-      return NextResponse.json(
-        { error: "Failed to load nutrition targets", details: targetError.message },
-        { status: 400 },
-      )
+      return jsonError(400, "db_error", "Failed to load nutrition targets", targetError.message)
     }
 
     const targetMap = new Map<
@@ -95,7 +103,7 @@ export async function GET(req: NextRequest) {
       .order("slot", { ascending: true })
 
     if (mealsError) {
-      return NextResponse.json({ error: "Failed to load meals", details: mealsError.message }, { status: 400 })
+      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
     }
 
     const normalizedMeals = (meals ?? []).map((meal) => ({
@@ -167,9 +175,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ days }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/nutrition/week error:", error)
-    return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }

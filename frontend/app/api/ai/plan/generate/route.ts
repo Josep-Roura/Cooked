@@ -6,13 +6,19 @@ import { createServerClient } from "@/lib/supabase/server"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const OPENAI_TIMEOUT_MS = 60000
-const MAX_RANGE_DAYS = 62
+const OPENAI_MAX_RETRIES = 2
+const OPENAI_RETRY_BASE_MS = 800
+const MAX_RANGE_DAYS = 90
+const RECENT_REQUEST_WINDOW_MS = 10 * 60 * 1000
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-const payloadSchema = z.object({
-  start: dateSchema,
-  end: dateSchema,
-}).strict()
+const payloadSchema = z
+  .object({
+    start: dateSchema,
+    end: dateSchema,
+    force: z.boolean().optional(),
+  })
+  .strict()
 
 const mealSchema = z.object({
   slot: z.number().int().min(1),
@@ -45,6 +51,20 @@ const aiResponseSchema = z.object({
 })
 
 type AiResponse = z.infer<typeof aiResponseSchema>
+
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
+}
+
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
+}
 
 function buildDateRange(start: string, end: string) {
   const startDate = new Date(`${start}T00:00:00Z`)
@@ -172,6 +192,111 @@ function splitMacrosAcrossMeals(
   }))
 }
 
+function normalizeSportType(value: string | null) {
+  const normalized = value?.toLowerCase() ?? ""
+  if (normalized.includes("swim")) return "swim"
+  if (normalized.includes("bike") || normalized.includes("cycle")) return "bike"
+  if (normalized.includes("run")) return "run"
+  if (normalized.includes("strength") || normalized.includes("gym")) return "strength"
+  if (normalized.includes("rest")) return "rest"
+  return "other"
+}
+
+function summarizeWorkoutsByDay(
+  workouts: Array<{
+    workout_day: string
+    workout_type: string | null
+    planned_hours: number | null
+    actual_hours: number | null
+    tss: number | null
+    if: number | null
+    rpe: number | null
+    title: string | null
+  }>,
+  start: string,
+  end: string,
+) {
+  const dateKeys = buildDateKeys(start, end)
+  const summaryMap = new Map<
+    string,
+    {
+      total_hours: number
+      tss_total: number
+      sports: Set<string>
+      intensityScore: number
+      key_sessions: string[]
+    }
+  >()
+
+  workouts.forEach((workout) => {
+    const key = workout.workout_day
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, {
+        total_hours: 0,
+        tss_total: 0,
+        sports: new Set<string>(),
+        intensityScore: 0,
+        key_sessions: [],
+      })
+    }
+    const entry = summaryMap.get(key)
+    if (!entry) return
+    const duration = workout.actual_hours ?? workout.planned_hours ?? 0
+    entry.total_hours += duration
+    entry.tss_total += workout.tss ?? 0
+    entry.sports.add(normalizeSportType(workout.workout_type))
+
+    const intensitySignals = [
+      workout.tss ?? 0,
+      (workout.if ?? 0) * 100,
+      (workout.rpe ?? 0) * 15,
+    ]
+    entry.intensityScore = Math.max(entry.intensityScore, ...intensitySignals)
+
+    const isKeySession =
+      (workout.tss ?? 0) >= 80 ||
+      (workout.if ?? 0) >= 0.8 ||
+      (workout.rpe ?? 0) >= 7 ||
+      duration >= 1.5
+    if (isKeySession && workout.title) {
+      if (!entry.key_sessions.includes(workout.title)) {
+        entry.key_sessions.push(workout.title)
+      }
+    }
+  })
+
+  return dateKeys.map((date) => {
+    const entry = summaryMap.get(date)
+    if (!entry) {
+      return {
+        date,
+        total_hours: 0,
+        tss_total: 0,
+        sports: [],
+        intensity: "rest",
+        key_sessions: [],
+      }
+    }
+    const intensity =
+      entry.total_hours === 0 && entry.tss_total === 0
+        ? "rest"
+        : entry.intensityScore >= 120
+          ? "high"
+          : entry.intensityScore >= 60
+            ? "moderate"
+            : "low"
+
+    return {
+      date,
+      total_hours: Number(entry.total_hours.toFixed(2)),
+      tss_total: Math.round(entry.tss_total),
+      sports: Array.from(entry.sports).filter((value) => value !== "rest"),
+      intensity,
+      key_sessions: entry.key_sessions.slice(0, 3),
+    }
+  })
+}
+
 function buildFallbackPlan({
   start,
   end,
@@ -220,6 +345,10 @@ function buildFallbackPlan({
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function callOpenAI({
   apiKey,
   model,
@@ -241,6 +370,7 @@ async function callOpenAI({
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "X-Request-Id": requestId,
       },
       body: JSON.stringify({
         model,
@@ -262,6 +392,37 @@ async function callOpenAI({
   }
 }
 
+async function callOpenAIWithRetry(args: {
+  apiKey: string
+  model: string
+  requestId: string
+  payload: Record<string, unknown>
+}) {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= OPENAI_MAX_RETRIES; attempt += 1) {
+    try {
+      const { response, data, latencyMs } = await callOpenAI(args)
+      if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status)) {
+        return { response, data, latencyMs }
+      }
+      lastError = new Error(`OpenAI retryable error: ${response.status}`)
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+    }
+
+    if (attempt < OPENAI_MAX_RETRIES) {
+      const waitMs = OPENAI_RETRY_BASE_MS * (attempt + 1)
+      await sleep(waitMs)
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  throw new Error("OpenAI request failed")
+}
+
 export async function POST(req: NextRequest) {
   let requestId = "unknown"
   try {
@@ -269,19 +430,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid payload", issues: parsed.error.issues },
-        { status: 400 },
-      )
+      return jsonError(400, "invalid_payload", "Invalid payload", parsed.error.issues)
     }
 
-    const { start, end } = parsed.data
+    const { start, end, force = false } = parsed.data
     if (start > end) {
-      return NextResponse.json({ ok: false, error: "Invalid date range" }, { status: 400 })
+      return jsonError(400, "invalid_range", "Invalid date range")
     }
     const range = buildDateRange(start, end)
     if (!range) {
-      return NextResponse.json({ ok: false, error: "Invalid date range" }, { status: 400 })
+      return jsonError(400, "invalid_range", "Invalid date range")
     }
 
     const supabase = await createServerClient()
@@ -291,10 +449,7 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
-        { ok: false, error: "Not authenticated", details: authError?.message ?? null },
-        { status: 401 },
-      )
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
     const dateKeys = buildDateKeys(start, end)
@@ -316,13 +471,26 @@ export async function POST(req: NextRequest) {
     const rowsByDate = new Set((existingRows ?? []).map((row) => row.date))
     const mealsByDate = new Set((existingMeals ?? []).map((meal) => meal.date))
     const hasAllDays = dateKeys.every((date) => rowsByDate.has(date) && mealsByDate.has(date))
-    if (hasAllDays) {
-      return NextResponse.json({ ok: true }, { status: 200 })
+    if (!force && hasAllDays) {
+      const cutoff = new Date(Date.now() - RECENT_REQUEST_WINDOW_MS).toISOString()
+      const { data: recentRequest } = await supabase
+        .from("ai_requests")
+        .select("id, created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      return NextResponse.json(
+        { ok: true, start, end, deduped: true, recentRequest: Boolean(recentRequest) },
+        { status: 200 },
+      )
     }
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("weight_kg, primary_goal, diet, meals_per_day")
+      .select("weight_kg, primary_goal, diet, meals_per_day, units")
       .eq("id", user.id)
       .single()
 
@@ -335,16 +503,24 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "OPENAI_API_KEY is not configured" }, { status: 500 })
+      return jsonError(500, "config_missing", "OPENAI_API_KEY is not configured")
     }
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
+    const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
     const payload = {
       start,
       end,
-      profile: profile ?? {},
-      workouts: workouts ?? [],
-      schema: "days[{date,day_type,macros{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,name,time,kcal,protein_g,carbs_g,fat_g}]}]",
+      profile: {
+        weight_kg: profile?.weight_kg ?? null,
+        meals_per_day: profile?.meals_per_day ?? null,
+        diet: profile?.diet ?? null,
+        primary_goal: profile?.primary_goal ?? null,
+        units: profile?.units ?? null,
+      },
+      workouts_summary: workoutsSummary,
+      schema:
+        "days[{date,day_type,macros{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,name,time,kcal,protein_g,carbs_g,fat_g}]}]",
     }
 
     let aiResponse: AiResponse | null = null
@@ -353,7 +529,7 @@ export async function POST(req: NextRequest) {
     let tokens: number | null = null
 
     try {
-      const { response, data, latencyMs: callLatency } = await callOpenAI({
+      const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
         apiKey,
         model,
         requestId,
@@ -410,11 +586,11 @@ export async function POST(req: NextRequest) {
     })
 
     if (aiLogError) {
-      return NextResponse.json({ ok: false, error: "Failed to log AI request" }, { status: 500 })
+      return jsonError(500, "ai_log_failed", "Failed to log AI request", aiLogError.message)
     }
 
     if (!aiResponse || aiResponse.days.length === 0) {
-      return NextResponse.json({ ok: false, error: "AI response missing days" }, { status: 500 })
+      return jsonError(500, "ai_response_invalid", "AI response missing days")
     }
 
     const planRows = aiResponse.days.map((day) => ({
@@ -448,14 +624,14 @@ export async function POST(req: NextRequest) {
       .from("nutrition_plan_rows")
       .upsert(planRows, { onConflict: "user_id,date" })
     if (rowError) {
-      return NextResponse.json({ ok: false, error: "Failed to save plan rows", details: rowError.message }, { status: 500 })
+      return jsonError(500, "plan_rows_save_failed", "Failed to save plan rows", rowError.message)
     }
 
     const { error: mealError } = await supabase
       .from("nutrition_meals")
       .upsert(mealRows, { onConflict: "user_id,date,slot" })
     if (mealError) {
-      return NextResponse.json({ ok: false, error: "Failed to save meals", details: mealError.message }, { status: 500 })
+      return jsonError(500, "meals_save_failed", "Failed to save meals", mealError.message)
     }
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
@@ -471,15 +647,18 @@ export async function POST(req: NextRequest) {
     })
 
     if (revisionError) {
-      return NextResponse.json({ ok: false, error: "Failed to save revision", details: revisionError.message }, { status: 500 })
+      return jsonError(500, "plan_revision_failed", "Failed to save revision", revisionError.message)
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 })
+    const usedFallback = Boolean((aiRaw as { fallback?: boolean } | null)?.fallback)
+    return NextResponse.json({ ok: true, start, end, usedFallback }, { status: 200 })
   } catch (error) {
     console.error("POST /api/ai/plan/generate error:", error)
-    return NextResponse.json(
-      { ok: false, error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }

@@ -4,6 +4,20 @@ import type { Meal, NutritionDayPlan, NutritionMacros, NutritionDayType } from "
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
+type ErrorPayload = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    details?: unknown
+  }
+}
+
+function jsonError(status: number, code: string, message: string, details?: unknown) {
+  const payload: ErrorPayload = { ok: false, error: { code, message, details } }
+  return NextResponse.json(payload, { status })
+}
+
 function normalizeDayType(value: string | null | undefined): NutritionDayType {
   if (value === "high" || value === "rest" || value === "training") {
     return value
@@ -31,7 +45,7 @@ export async function GET(req: NextRequest) {
     const date = url.searchParams.get("date")
 
     if (!date || !DATE_REGEX.test(date)) {
-      return NextResponse.json({ error: "Invalid or missing date (YYYY-MM-DD required)." }, { status: 400 })
+      return jsonError(400, "invalid_date", "Invalid or missing date (YYYY-MM-DD required).")
     }
 
     const supabase = await createServerClient()
@@ -41,7 +55,7 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Not authenticated", details: authError?.message ?? null }, { status: 401 })
+      return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
     const [{ data: rows, error: rowError }, { data: meals, error: mealsError }] = await Promise.all([
@@ -61,9 +75,11 @@ export async function GET(req: NextRequest) {
     ])
 
     if (rowError || mealsError) {
-      return NextResponse.json(
-        { error: "Database error", details: rowError?.message ?? mealsError?.message ?? "" },
-        { status: 400 },
+      return jsonError(
+        400,
+        "db_error",
+        "Database error",
+        rowError?.message ?? mealsError?.message ?? "",
       )
     }
 
@@ -107,9 +123,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payload, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/nutrition/day error:", error)
-    return NextResponse.json(
-      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
+    return jsonError(
+      500,
+      "internal_error",
+      "Internal error",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }
