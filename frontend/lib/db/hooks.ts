@@ -57,6 +57,16 @@ const intensityThresholds = {
 }
 const DEFAULT_START_TIME = "07:00"
 
+function extractApiErrorMessage(errorBody: any, fallback: string) {
+  if (!errorBody) return fallback
+  if (typeof errorBody.error === "string") return errorBody.error
+  if (errorBody.error && typeof errorBody.error === "object") {
+    return errorBody.error.message ?? errorBody.error.code ?? fallback
+  }
+  if (typeof errorBody.message === "string") return errorBody.message
+  return fallback
+}
+
 function mapWorkoutType(value: string | null): TrainingType {
   if (!value) return "other"
   const normalized = value.toLowerCase()
@@ -489,7 +499,7 @@ async function fetchNutritionDay(date: string) {
   }
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load nutrition day")
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load nutrition day"))
   }
   const data = (await response.json()) as NutritionDayPlan
   return { exists: true, plan: data }
@@ -630,7 +640,9 @@ async function fetchMealPlanDay(date: string) {
   const response = await fetch(`/api/v1/meals/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    const error = new Error(errorBody?.error ?? "Failed to load meal plan") as Error & { status?: number }
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load meal plan")) as Error & {
+      status?: number
+    }
     error.status = response.status
     throw error
   }
@@ -645,7 +657,9 @@ async function fetchMacrosDay(date: string) {
   const response = await fetch(`/api/v1/macros/day?date=${date}`)
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    const error = new Error(errorBody?.error ?? "Failed to load macros") as Error & { status?: number }
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load macros")) as Error & {
+      status?: number
+    }
     error.status = response.status
     throw error
   }
@@ -659,7 +673,9 @@ async function fetchWeeklyNutrition(start: string, end: string) {
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    const error = new Error(errorBody?.error ?? "Failed to load weekly nutrition") as Error & { status?: number }
+    const error = new Error(extractApiErrorMessage(errorBody, "Failed to load weekly nutrition")) as Error & {
+      status?: number
+    }
     error.status = response.status
     throw error
   }
@@ -674,7 +690,7 @@ async function fetchNutritionMealsRange(start: string, end: string) {
   })
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody?.error ?? "Failed to load nutrition meals")
+    throw new Error(extractApiErrorMessage(errorBody, "Failed to load nutrition meals"))
   }
   const data = (await response.json()) as { meals?: NutritionMeal[] }
   return Array.isArray(data.meals) ? data.meals : []

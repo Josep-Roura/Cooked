@@ -38,6 +38,7 @@ export async function buildNutritionRowsForRange(supabase: SupabaseClient, args:
   const { data: workouts, error } = await supabase
     .from("tp_workouts")
     .select("workout_day,workout_type,planned_hours,tss,if")
+    .eq("user_id", args.userId)
     .gte("workout_day", args.start)
     .lte("workout_day", args.end)
 

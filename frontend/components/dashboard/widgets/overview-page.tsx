@@ -27,6 +27,7 @@ import {
 } from "@/lib/db/hooks"
 import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
+import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
@@ -39,6 +40,7 @@ export function OverviewPage() {
   const [eventsOpen, setEventsOpen] = useState(false)
   const [highlightMeals, setHighlightMeals] = useState(false)
   const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
+  useEnsureNutritionPlan({ userId: user?.id, range, enabled: Boolean(user?.id) })
   const todayKey = format(now, "yyyy-MM-dd")
   const eventsQuery = useUserEvents(
     user?.id,

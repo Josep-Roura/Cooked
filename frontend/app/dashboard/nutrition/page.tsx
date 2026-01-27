@@ -20,7 +20,7 @@ import {
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { generatePlanWithOpenAI } from "@/lib/ai/generatePlanWithOpenAI"
+import { ensureDailyPlan, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -41,6 +41,7 @@ export default function NutritionPage() {
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const updateMealMutation = useUpdateMealPlanItem()
   const lastSyncedRef = useRef<string | null>(null)
+  useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
 
   useEffect(() => {
     if (!selectedDate) return
@@ -102,7 +103,7 @@ export default function NutritionPage() {
     if (!selectedDate) return
     setIsGenerating(true)
     try {
-      await generatePlanWithOpenAI({ date: selectedDate, force: regenerate })
+      await ensureDailyPlan(selectedDate, regenerate)
       await Promise.all([
         weeklyNutritionQuery.refetch(),
         mealPlanQuery.refetch(),
