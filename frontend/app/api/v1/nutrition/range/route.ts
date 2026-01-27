@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { buildDateRange } from "@/lib/utils/dateRange"
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const MAX_RANGE_DAYS = 90
 
 type ErrorPayload = {
@@ -18,23 +18,6 @@ function jsonError(status: number, code: string, message: string, details?: unkn
   return NextResponse.json(payload, { status })
 }
 
-function parseDate(value: string) {
-  if (!DATE_REGEX.test(value)) return null
-  const [year, month, day] = value.split("-").map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-function buildDateRange(start: string, end: string) {
-  const startDate = parseDate(start)
-  const endDate = parseDate(end)
-  if (!startDate || !endDate) return null
-  if (start > end) return null
-  const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
-  if (days < 1 || days > MAX_RANGE_DAYS) return null
-  return { start, end, days }
-}
-
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url)
@@ -45,7 +28,7 @@ export async function GET(req: NextRequest) {
       return jsonError(400, "missing_dates", "Missing start or end date.")
     }
 
-    const range = buildDateRange(start, end)
+    const range = buildDateRange(start, end, MAX_RANGE_DAYS)
     if (!range) {
       return jsonError(
         400,
@@ -70,8 +53,8 @@ export async function GET(req: NextRequest) {
         "id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, ingredients, eaten, eaten_at, recipe",
       )
       .eq("user_id", user.id)
-      .gte("date", range.start)
-      .lte("date", range.end)
+      .gte("date", start)
+      .lte("date", end)
       .order("date", { ascending: true })
       .order("slot", { ascending: true })
 
@@ -103,12 +86,12 @@ export async function GET(req: NextRequest) {
 
     console.info("GET /api/v1/nutrition/range", {
       userId: user.id,
-      start: range.start,
-      end: range.end,
+      start,
+      end,
       count: normalizedMeals.length,
     })
 
-    return NextResponse.json({ start: range.start, end: range.end, meals: normalizedMeals }, { status: 200 })
+    return NextResponse.json({ start, end, meals: normalizedMeals }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/nutrition/range error:", error)
     return jsonError(

@@ -82,10 +82,10 @@ export default function PlansPage() {
     }
   }
 
-  const handleGenerateWeek = async () => {
+  const handleGenerateWeek = async (resetLocks = false, force = true) => {
     setIsGenerating(true)
     try {
-      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey })
+      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force, resetLocks })
       await weekMealsQuery.refetch()
     } catch (error) {
       toast({
@@ -111,6 +111,9 @@ export default function PlansPage() {
       })
     }
   }
+
+  const handleRegenerateWeek = () => handleGenerateWeek(false, true)
+  const handleResetWeek = () => handleGenerateWeek(true, true)
 
   const openMealDetails = (meal: PlanWeekMeal) => {
     setSelectedMeal(meal)
@@ -140,6 +143,9 @@ export default function PlansPage() {
           onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
           onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
           onOpenChat={() => setChatOpen(true)}
+          onRegenerateWeek={handleRegenerateWeek}
+          onResetWeek={handleResetWeek}
+          isGenerating={isGenerating}
         />
 
         {weekMealsQuery.isLoading ? (
@@ -154,7 +160,7 @@ export default function PlansPage() {
             <Button
               variant="outline"
               className="rounded-full text-xs"
-              onClick={handleGenerateWeek}
+              onClick={() => handleGenerateWeek(false, true)}
               disabled={isGenerating}
             >
               Generate plan

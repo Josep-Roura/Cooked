@@ -7,6 +7,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const date = typeof body?.date === "string" ? body.date : ""
     const force = Boolean(body?.force)
+    const resetLocks = Boolean(body?.resetLocks)
     if (!DATE_REGEX.test(date)) {
       return NextResponse.json(
         { ok: false, error: { code: "invalid_payload", message: "Invalid date." } },
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         cookie: req.headers.get("cookie") ?? "",
       },
-      body: JSON.stringify({ start: date, end: date, force }),
+      body: JSON.stringify({ start: date, end: date, force, resetLocks }),
     })
     const data = await response.json().catch(() => ({}))
     return NextResponse.json(data, { status: response.status })

@@ -10,6 +10,8 @@ const OPENAI_MAX_RETRIES = 2
 const OPENAI_RETRY_BASE_MS = 800
 const MAX_RANGE_DAYS = 90
 const RECENT_REQUEST_WINDOW_MS = 10 * 60 * 1000
+const RATE_LIMIT_FORCE_PER_MIN = 5
+const RATE_LIMIT_ENSURE_PER_MIN = 20
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const payloadSchema = z
@@ -17,6 +19,7 @@ const payloadSchema = z
     start: dateSchema,
     end: dateSchema,
     force: z.boolean().optional(),
+    resetLocks: z.boolean().optional(),
   })
   .strict()
 
@@ -64,6 +67,51 @@ type ErrorPayload = {
 function jsonError(status: number, code: string, message: string, details?: unknown) {
   const payload: ErrorPayload = { ok: false, error: { code, message, details } }
   return NextResponse.json(payload, { status })
+}
+
+function formatErrorCode(value: string) {
+  return value.toUpperCase()
+}
+
+function buildPromptPreview(payload: {
+  start: string
+  end: string
+  profile: Record<string, unknown>
+  workouts_summary: Array<{ date: string; total_hours: number; tss_total: number; sports: string[]; intensity: string }>
+}) {
+  const workoutDays = payload.workouts_summary.length
+  const sportsSet = new Set<string>()
+  payload.workouts_summary.forEach((summary) => summary.sports.forEach((sport) => sportsSet.add(sport)))
+
+  return JSON.stringify(
+    {
+      start: payload.start,
+      end: payload.end,
+      profile: payload.profile,
+      workout_days: workoutDays,
+      sports: Array.from(sportsSet),
+    },
+    null,
+    0,
+  ).slice(0, 300)
+}
+
+function buildResponsePreview(response: AiResponse) {
+  const dayTypes = response.days.reduce<Record<string, number>>((acc, day) => {
+    acc[day.day_type] = (acc[day.day_type] ?? 0) + 1
+    return acc
+  }, {})
+  return JSON.stringify(
+    {
+      days: response.days.length,
+      day_types: dayTypes,
+      meals_per_day: Math.round(
+        response.days.reduce((sum, day) => sum + day.meals.length, 0) / response.days.length,
+      ),
+    },
+    null,
+    0,
+  )
 }
 
 function buildDateRange(start: string, end: string) {
@@ -423,6 +471,34 @@ async function callOpenAIWithRetry(args: {
   throw new Error("OpenAI request failed")
 }
 
+async function enforceRateLimit({
+  supabase,
+  userId,
+  limit,
+}: {
+  supabase: Awaited<ReturnType<typeof createServerClient>>
+  userId: string
+  limit: number
+}) {
+  const cutoff = new Date(Date.now() - 60_000).toISOString()
+  const { data, error } = await supabase
+    .from("ai_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .gte("created_at", cutoff)
+
+  if (error) {
+    console.warn("Rate limit check failed", error)
+    return { ok: true, remaining: null }
+  }
+
+  if ((data?.length ?? 0) >= limit) {
+    return { ok: false, remaining: 0 }
+  }
+
+  return { ok: true, remaining: limit - (data?.length ?? 0) }
+}
+
 export async function POST(req: NextRequest) {
   let requestId = "unknown"
   try {
@@ -433,7 +509,7 @@ export async function POST(req: NextRequest) {
       return jsonError(400, "invalid_payload", "Invalid payload", parsed.error.issues)
     }
 
-    const { start, end, force = false } = parsed.data
+    const { start, end, force = false, resetLocks = false } = parsed.data
     if (start > end) {
       return jsonError(400, "invalid_range", "Invalid date range")
     }
@@ -452,17 +528,31 @@ export async function POST(req: NextRequest) {
       return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
+    const effectiveForce = force || resetLocks
+    const rateLimit = await enforceRateLimit({
+      supabase,
+      userId: user.id,
+      limit: effectiveForce ? RATE_LIMIT_FORCE_PER_MIN : RATE_LIMIT_ENSURE_PER_MIN,
+    })
+    if (!rateLimit.ok) {
+      return jsonError(
+        429,
+        "rate_limited",
+        "Too many requests. Please wait a moment before trying again.",
+      )
+    }
+
     const dateKeys = buildDateKeys(start, end)
     const [{ data: existingRows }, { data: existingMeals }] = await Promise.all([
       supabase
         .from("nutrition_plan_rows")
-        .select("date")
+        .select("date, day_type, plan_id, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, locked")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
       supabase
         .from("nutrition_meals")
-        .select("date")
+        .select("date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, eaten_at, locked")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
@@ -471,7 +561,7 @@ export async function POST(req: NextRequest) {
     const rowsByDate = new Set((existingRows ?? []).map((row) => row.date))
     const mealsByDate = new Set((existingMeals ?? []).map((meal) => meal.date))
     const hasAllDays = dateKeys.every((date) => rowsByDate.has(date) && mealsByDate.has(date))
-    if (!force && hasAllDays) {
+    if (!effectiveForce && hasAllDays) {
       const cutoff = new Date(Date.now() - RECENT_REQUEST_WINDOW_MS).toISOString()
       const { data: recentRequest } = await supabase
         .from("ai_requests")
@@ -487,6 +577,30 @@ export async function POST(req: NextRequest) {
         { status: 200 },
       )
     }
+
+    if (resetLocks) {
+      await supabase
+        .from("nutrition_plan_rows")
+        .update({ locked: false })
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+      await supabase
+        .from("nutrition_meals")
+        .update({ locked: false })
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+    }
+
+    const normalizedRows = (existingRows ?? []).map((row) => ({
+      ...row,
+      locked: resetLocks ? false : row.locked ?? false,
+    }))
+    const normalizedMeals = (existingMeals ?? []).map((meal) => ({
+      ...meal,
+      locked: resetLocks ? false : meal.locked ?? false,
+    }))
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -527,6 +641,7 @@ export async function POST(req: NextRequest) {
     let aiRaw: unknown = null
     let latencyMs = 0
     let tokens: number | null = null
+    let aiErrorCode: string | null = null
 
     try {
       const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
@@ -540,19 +655,31 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok || !data) {
         const message = data?.error?.message ?? "OpenAI request failed"
+        aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
         throw new Error(message)
       }
 
       const content = data.choices?.[0]?.message?.content ?? ""
-      const parsedJson = JSON.parse(content)
+      let parsedJson: unknown
+      try {
+        parsedJson = JSON.parse(content)
+      } catch {
+        aiErrorCode = "INVALID_JSON"
+        throw new Error("Invalid JSON response")
+      }
       const parsed = aiResponseSchema.safeParse(parsedJson)
       if (!parsed.success) {
+        aiErrorCode = "VALIDATION_ERROR"
         throw new Error("Invalid AI response")
       }
 
       tokens = data?.usage?.total_tokens ?? null
       aiResponse = parsed.data
     } catch (error) {
+      if (!aiErrorCode) {
+        const message = error instanceof Error ? error.message : String(error)
+        aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
+      }
       const fallback = buildFallbackPlan({
         start,
         end,
@@ -574,16 +701,25 @@ export async function POST(req: NextRequest) {
       .createHash("sha256")
       .update(`${systemPrompt}:${JSON.stringify(payload)}`)
       .digest("hex")
+    const promptPreview = buildPromptPreview(payload)
+    const responsePreview = aiResponse ? buildResponsePreview(aiResponse) : null
 
-    const { error: aiLogError } = await supabase.from("ai_requests").insert({
-      user_id: user.id,
-      provider: "openai",
-      model,
-      prompt_hash: promptHash,
-      response_json: aiRaw,
-      tokens,
-      latency_ms: latencyMs,
-    })
+    const { data: aiLogRow, error: aiLogError } = await supabase
+      .from("ai_requests")
+      .insert({
+        user_id: user.id,
+        provider: "openai",
+        model,
+        prompt_hash: promptHash,
+        response_json: aiRaw,
+        tokens,
+        latency_ms: latencyMs,
+        error_code: aiErrorCode ? formatErrorCode(aiErrorCode) : null,
+        prompt_preview: promptPreview,
+        response_preview: responsePreview,
+      })
+      .select("id")
+      .single()
 
     if (aiLogError) {
       return jsonError(500, "ai_log_failed", "Failed to log AI request", aiLogError.message)
@@ -593,37 +729,172 @@ export async function POST(req: NextRequest) {
       return jsonError(500, "ai_response_invalid", "AI response missing days")
     }
 
-    const planRows = aiResponse.days.map((day) => ({
-      user_id: user.id,
-      date: day.date,
-      day_type: day.day_type,
-      kcal: day.macros.kcal,
-      protein_g: day.macros.protein_g,
-      carbs_g: day.macros.carbs_g,
-      fat_g: day.macros.fat_g,
-      intra_cho_g_per_h: day.macros.intra_cho_g_per_h,
-    }))
+    const rowsByDateMap = new Map(normalizedRows.map((row) => [row.date, row]))
+    const lockedDaySet = new Set(normalizedRows.filter((row) => row.locked).map((row) => row.date))
+    const mealsByDateMap = normalizedMeals.reduce((map, meal) => {
+      if (!map.has(meal.date)) {
+        map.set(meal.date, [])
+      }
+      map.get(meal.date)?.push(meal)
+      return map
+    }, new Map<string, typeof normalizedMeals>())
 
-    const mealRows = aiResponse.days.flatMap((day) =>
-      day.meals.map((meal) => ({
+    const planRows: Array<{
+      user_id: string
+      date: string
+      day_type: string
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      intra_cho_g_per_h: number
+      plan_id?: string | null
+      locked?: boolean
+    }> = []
+
+    const mealRows: Array<{
+      user_id: string
+      date: string
+      slot: number
+      name: string
+      time: string | null
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      ingredients: unknown[]
+      eaten: boolean
+      eaten_at: string | null
+      locked?: boolean
+    }> = []
+
+    const diff = {
+      mode: resetLocks ? "reset" : effectiveForce ? "regenerate" : "ensure",
+      macros_changed: 0,
+      meals_added: 0,
+      meals_removed: 0,
+      meals_updated: 0,
+      preserved_days: [] as string[],
+      preserved_meals: [] as Array<{ date: string; slot: number }>,
+    }
+
+    const aiMealsByDate = aiResponse.days.reduce((map, day) => {
+      map.set(day.date, day.meals)
+      return map
+    }, new Map<string, typeof aiResponse.days[number]["meals"]>())
+
+    aiResponse.days.forEach((day) => {
+      const existingRow = rowsByDateMap.get(day.date)
+      const dayLocked = existingRow?.locked ?? false
+      const existingMealsForDay = mealsByDateMap.get(day.date) ?? []
+      const existingMealsBySlot = new Map(existingMealsForDay.map((meal) => [meal.slot, meal]))
+
+      if (dayLocked && !resetLocks) {
+        diff.preserved_days.push(day.date)
+        return
+      }
+
+      planRows.push({
         user_id: user.id,
         date: day.date,
-        slot: meal.slot,
-        name: meal.name,
-        time: meal.time ?? null,
-        kcal: meal.kcal,
-        protein_g: meal.protein_g,
-        carbs_g: meal.carbs_g,
-        fat_g: meal.fat_g,
-        ingredients: [],
-        eaten: false,
-      })),
-    )
+        day_type: day.day_type,
+        kcal: day.macros.kcal,
+        protein_g: day.macros.protein_g,
+        carbs_g: day.macros.carbs_g,
+        fat_g: day.macros.fat_g,
+        intra_cho_g_per_h: day.macros.intra_cho_g_per_h,
+        plan_id: existingRow?.plan_id ?? null,
+        locked: resetLocks ? false : existingRow?.locked ?? false,
+      })
+
+      if (existingRow) {
+        const macroChanged =
+          existingRow.kcal !== day.macros.kcal ||
+          existingRow.protein_g !== day.macros.protein_g ||
+          existingRow.carbs_g !== day.macros.carbs_g ||
+          existingRow.fat_g !== day.macros.fat_g ||
+          existingRow.intra_cho_g_per_h !== day.macros.intra_cho_g_per_h
+        if (macroChanged) diff.macros_changed += 1
+      }
+
+      const aiMeals = aiMealsByDate.get(day.date) ?? []
+      aiMeals.forEach((meal) => {
+        const existingMeal = existingMealsBySlot.get(meal.slot)
+        if (existingMeal?.locked && !resetLocks) {
+          diff.preserved_meals.push({ date: day.date, slot: meal.slot })
+          return
+        }
+        const eaten = existingMeal?.eaten ?? false
+        const eatenAt = existingMeal?.eaten_at ?? null
+
+        if (!existingMeal) {
+          diff.meals_added += 1
+        } else {
+          const updated =
+            existingMeal.name !== meal.name ||
+            (existingMeal.time ?? null) !== (meal.time ?? null) ||
+            (existingMeal.kcal ?? 0) !== meal.kcal ||
+            (existingMeal.protein_g ?? 0) !== meal.protein_g ||
+            (existingMeal.carbs_g ?? 0) !== meal.carbs_g ||
+            (existingMeal.fat_g ?? 0) !== meal.fat_g
+          if (updated) diff.meals_updated += 1
+        }
+
+        mealRows.push({
+          user_id: user.id,
+          date: day.date,
+          slot: meal.slot,
+          name: meal.name,
+          time: meal.time ?? null,
+          kcal: meal.kcal,
+          protein_g: meal.protein_g,
+          carbs_g: meal.carbs_g,
+          fat_g: meal.fat_g,
+          ingredients: [],
+          eaten,
+          eaten_at: eatenAt,
+          locked: resetLocks ? false : existingMeal?.locked ?? false,
+        })
+      })
+
+      if (existingMealsForDay.length > aiMeals.length) {
+        const aiSlots = new Set(aiMeals.map((meal) => meal.slot))
+        existingMealsForDay.forEach((meal) => {
+          if (!aiSlots.has(meal.slot) && !(meal.locked && !resetLocks)) {
+            diff.meals_removed += 1
+          }
+        })
+      }
+    })
+
+    if (resetLocks) {
+      await supabase
+        .from("nutrition_meals")
+        .delete()
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+    } else {
+      const unlockedDates = dateKeys.filter((date) => !lockedDaySet.has(date))
+      await Promise.all(
+        unlockedDates.map((date) =>
+          supabase
+            .from("nutrition_meals")
+            .delete()
+            .eq("user_id", user.id)
+            .eq("date", date)
+            .eq("locked", false),
+        ),
+      )
+    }
 
     const { error: rowError } = await supabase
       .from("nutrition_plan_rows")
       .upsert(planRows, { onConflict: "user_id,date" })
     if (rowError) {
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
+      }
       return jsonError(500, "plan_rows_save_failed", "Failed to save plan rows", rowError.message)
     }
 
@@ -631,6 +902,9 @@ export async function POST(req: NextRequest) {
       .from("nutrition_meals")
       .upsert(mealRows, { onConflict: "user_id,date,slot" })
     if (mealError) {
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
+      }
       return jsonError(500, "meals_save_failed", "Failed to save meals", mealError.message)
     }
 
@@ -638,20 +912,21 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       week_start: start,
       week_end: end,
-      diff: {
-        generated: true,
-        start,
-        end,
-        days: aiResponse.days.length,
-      },
+      diff,
     })
 
     if (revisionError) {
+      if (aiLogRow?.id) {
+        await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
+      }
       return jsonError(500, "plan_revision_failed", "Failed to save revision", revisionError.message)
     }
 
     const usedFallback = Boolean((aiRaw as { fallback?: boolean } | null)?.fallback)
-    return NextResponse.json({ ok: true, start, end, usedFallback }, { status: 200 })
+    return NextResponse.json(
+      { ok: true, start, end, usedFallback, diff },
+      { status: 200 },
+    )
   } catch (error) {
     console.error("POST /api/ai/plan/generate error:", error)
     return jsonError(

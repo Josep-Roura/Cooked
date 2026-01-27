@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { buildDateRange } from "@/lib/utils/dateRange"
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const MAX_RANGE_DAYS = 7
 
 type ErrorPayload = {
@@ -18,23 +18,6 @@ function jsonError(status: number, code: string, message: string, details?: unkn
   return NextResponse.json(payload, { status })
 }
 
-function parseDate(value: string) {
-  if (!DATE_REGEX.test(value)) return null
-  const [year, month, day] = value.split("-").map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-function buildDateRange(start: string, end: string) {
-  const startDate = parseDate(start)
-  const endDate = parseDate(end)
-  if (!startDate || !endDate) return null
-  if (start > end) return null
-  const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
-  if (days > MAX_RANGE_DAYS) return null
-  return { startDate, endDate, days }
-}
-
 function formatDate(date: Date) {
   return date.toISOString().split("T")[0]
 }
@@ -45,7 +28,7 @@ export async function GET(req: NextRequest) {
     const start = searchParams.get("start") ?? ""
     const end = searchParams.get("end") ?? ""
 
-    const range = buildDateRange(start, end)
+    const range = buildDateRange(start, end, MAX_RANGE_DAYS)
     if (!range) {
       return jsonError(400, "invalid_range", "Invalid date range.")
     }
@@ -62,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     const { data: targetRows, error: targetError } = await supabase
       .from("nutrition_plan_rows")
-      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, day_type")
+      .select("date, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, day_type, locked")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -74,7 +57,7 @@ export async function GET(req: NextRequest) {
 
     const targetMap = new Map<
       string,
-      { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number }
+      { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number; locked: boolean }
     >()
     ;(targetRows ?? []).forEach((row) => {
       if (!targetMap.has(row.date)) {
@@ -84,6 +67,7 @@ export async function GET(req: NextRequest) {
           carbs_g: row.carbs_g ?? 0,
           fat_g: row.fat_g ?? 0,
           intra_cho_g_per_h: row.intra_cho_g_per_h ?? 0,
+          locked: row.locked ?? false,
         })
       }
     })
@@ -161,6 +145,7 @@ export async function GET(req: NextRequest) {
           intra_cho_g_per_h: 0,
         },
         target: targetMap.get(dateKey) ?? null,
+        locked: targetMap.get(dateKey)?.locked ?? false,
         meals: mealsByDate.get(dateKey) ?? [],
       }
     })

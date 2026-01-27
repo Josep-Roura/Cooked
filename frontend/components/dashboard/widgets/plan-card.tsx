@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Utensils } from "lucide-react"
+import { ChevronLeft, ChevronRight, Lock, Utensils } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
@@ -125,6 +125,12 @@ export function PlanCard({
                           {meal.emoji ? `${meal.emoji} ` : ""}
                           {meal.name}
                         </p>
+                        {meal.locked && (
+                          <Badge variant="outline" className="text-[10px] flex items-center gap-1">
+                            <Lock className="h-3 w-3" />
+                            Locked
+                          </Badge>
+                        )}
                         <span className="text-xs text-muted-foreground">{meal.time ?? "Any time"}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">

@@ -3,6 +3,7 @@
 import { Settings } from "lucide-react"
 import { ProfilePreferences } from "@/components/dashboard/profile/profile-preferences"
 import { TrainingPeaksCsvImport } from "@/components/dashboard/settings/trainingpeaks-csv-import"
+import { AiStatusCard } from "@/components/dashboard/settings/ai-status"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
@@ -58,6 +59,7 @@ export default function SettingsPage() {
               }
             />
           )}
+          <AiStatusCard />
           <TrainingPeaksCsvImport />
         </div>
       </div>

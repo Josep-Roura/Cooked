@@ -2,6 +2,12 @@
 
 import { Calendar, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface WeeklyPlanHeaderProps {
   weekLabel: string
@@ -9,9 +15,21 @@ interface WeeklyPlanHeaderProps {
   onNextWeek: () => void
   onThisWeek: () => void
   onOpenChat: () => void
+  onRegenerateWeek: () => void
+  onResetWeek: () => void
+  isGenerating: boolean
 }
 
-export function WeeklyPlanHeader({ weekLabel, onPrevWeek, onNextWeek, onThisWeek, onOpenChat }: WeeklyPlanHeaderProps) {
+export function WeeklyPlanHeader({
+  weekLabel,
+  onPrevWeek,
+  onNextWeek,
+  onThisWeek,
+  onOpenChat,
+  onRegenerateWeek,
+  onResetWeek,
+  isGenerating,
+}: WeeklyPlanHeaderProps) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -32,6 +50,17 @@ export function WeeklyPlanHeader({ weekLabel, onPrevWeek, onNextWeek, onThisWeek
           <Calendar className="h-4 w-4" />
           {weekLabel}
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="rounded-full text-xs" disabled={isGenerating}>
+              Regenerate week
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onRegenerateWeek}>Regenerate (respect locks)</DropdownMenuItem>
+            <DropdownMenuItem onClick={onResetWeek}>Full reset (clear locks)</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button className="rounded-full text-xs" onClick={onOpenChat}>
           <MessageCircle className="h-4 w-4 mr-2" />
           Open plan chat
