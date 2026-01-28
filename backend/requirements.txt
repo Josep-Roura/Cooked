@@ -7,5 +7,4 @@ fastapi
 uvicorn[standard]
 python-multipart
 requests
-pydantic
-email-validator
+pydantic[email]
