@@ -13,6 +13,7 @@ interface TodaysTrainingCardProps {
   isLoading: boolean
   sessions: TrainingSessionSummary[]
   onSelect: (session: TrainingSessionSummary) => void
+  title?: string
 }
 
 const typeIcons: Record<TrainingType, string> = {
@@ -32,7 +33,7 @@ const filterOptions: Array<{ label: string; value: TrainingType | "all" }> = [
   { label: "Strength", value: "strength" },
 ]
 
-export function TodaysTrainingCard({ isLoading, sessions, onSelect }: TodaysTrainingCardProps) {
+export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: TodaysTrainingCardProps) {
   const [selectedSession, setSelectedSession] = useState<TrainingSessionSummary | null>(null)
   const [filter, setFilter] = useState<TrainingType | "all">("all")
   const [search, setSearch] = useState("")
@@ -68,7 +69,7 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect }: TodaysTrai
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Today's Training</h3>
+        <h3 className="text-lg font-semibold text-foreground">{title ?? "Today's Training"}</h3>
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <select

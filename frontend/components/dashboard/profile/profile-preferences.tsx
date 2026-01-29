@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { Moon, Sun, Ruler, Bell } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Switch } from "@/components/ui/switch"
@@ -15,8 +16,14 @@ interface ProfilePreferencesProps {
 }
 
 export function ProfilePreferences({ preferences, isSaving, onUpdate }: ProfilePreferencesProps) {
-  const { setTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
   const isDark = preferences.theme === "dark"
+
+  useEffect(() => {
+    if (preferences.theme && theme !== preferences.theme) {
+      setTheme(preferences.theme)
+    }
+  }, [preferences.theme, setTheme, theme])
 
   const handleThemeToggle = (checked: boolean) => {
     const nextTheme = checked ? "dark" : "light"

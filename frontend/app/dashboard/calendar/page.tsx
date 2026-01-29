@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CalendarMonthGrid, type CalendarMonthItem } from "@/components/dashboard/calendar/calendar-month-grid"
 import { WeeklyTimeGrid } from "@/components/dashboard/schedule/weekly-time-grid"
+import { NotionModal } from "@/components/ui/notion-modal"
 import type { ScheduleItem } from "@/components/dashboard/schedule/types"
 import {
   addMinutesToTime,
@@ -32,6 +33,8 @@ export default function CalendarPage() {
   const { user } = useSession()
   const [view, setView] = useState<"month" | "week">("month")
   const [currentDate, setCurrentDate] = useState(() => new Date())
+  const [selectedItem, setSelectedItem] = useState<ScheduleItem | null>(null)
+  const [selectedMonthItem, setSelectedMonthItem] = useState<CalendarMonthItem | null>(null)
 
   const rangeStart = view === "month"
     ? startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 })
@@ -183,6 +186,38 @@ export default function CalendarPage() {
     return items
   }, [mealsQuery.data, workoutsQuery.data, eventsQuery.data])
 
+  const selectedDetails = useMemo(() => {
+    if (selectedItem) {
+      const detailLines: string[] = []
+      if (selectedItem.kcal) {
+        detailLines.push(`${selectedItem.kcal} kcal`)
+      }
+      if (selectedItem.macros?.protein_g || selectedItem.macros?.carbs_g || selectedItem.macros?.fat_g) {
+        const macros = [
+          selectedItem.macros?.protein_g ? `P ${selectedItem.macros.protein_g}g` : null,
+          selectedItem.macros?.carbs_g ? `C ${selectedItem.macros.carbs_g}g` : null,
+          selectedItem.macros?.fat_g ? `F ${selectedItem.macros.fat_g}g` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+        if (macros) detailLines.push(macros)
+      }
+      return {
+        title: selectedItem.title,
+        subtitle: `${selectedItem.date} · ${selectedItem.startTime}–${selectedItem.endTime}`,
+        details: detailLines,
+      }
+    }
+    if (selectedMonthItem) {
+      return {
+        title: selectedMonthItem.label,
+        subtitle: selectedMonthItem.date,
+        details: [],
+      }
+    }
+    return null
+  }, [selectedItem, selectedMonthItem])
+
   const handlePrev = () => {
     if (view === "month") {
       setCurrentDate((prev) => addMonths(prev, -1))
@@ -262,11 +297,50 @@ export default function CalendarPage() {
             <Skeleton className="h-[520px] w-full" />
           </div>
         ) : view === "month" ? (
-          <CalendarMonthGrid days={calendarDays} currentDate={currentDate} items={monthItems} />
+          <CalendarMonthGrid
+            days={calendarDays}
+            currentDate={currentDate}
+            items={monthItems}
+            onSelectItem={(item) => {
+              setSelectedItem(null)
+              setSelectedMonthItem(item)
+            }}
+          />
         ) : (
-          <WeeklyTimeGrid days={weekDays} items={scheduleItems} />
+          <WeeklyTimeGrid
+            days={weekDays}
+            items={scheduleItems}
+            onSelectItem={(item) => {
+              setSelectedMonthItem(null)
+              setSelectedItem(item)
+            }}
+          />
         )}
       </div>
+
+      <NotionModal
+        open={Boolean(selectedDetails)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedItem(null)
+            setSelectedMonthItem(null)
+          }
+        }}
+        title={selectedDetails?.title ?? "Schedule item"}
+        description={selectedDetails?.subtitle}
+      >
+        {selectedDetails?.details?.length ? (
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            {selectedDetails.details.map((detail) => (
+              <span key={detail} className="rounded-full bg-muted px-3 py-1">
+                {detail}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No additional details available.</p>
+        )}
+      </NotionModal>
     </main>
   )
 }

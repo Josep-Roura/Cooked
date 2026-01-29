@@ -36,6 +36,45 @@ type ProfileFormState = {
 }
 
 const DEFAULT_UNITS: Units = "metric"
+const primaryGoalOptions = [
+  { value: "performance", label: "Performance" },
+  { value: "fat_loss", label: "Fat Loss" },
+  { value: "muscle_gain", label: "Muscle Gain" },
+  { value: "maintenance", label: "Maintenance" },
+  { value: "health", label: "General Health" },
+]
+const experienceOptions = [
+  { value: "beginner", label: "Beginner" },
+  { value: "intermediate", label: "Intermediate" },
+  { value: "advanced", label: "Advanced" },
+]
+const workoutTimeOptions = [
+  { value: "morning", label: "Morning" },
+  { value: "midday", label: "Midday" },
+  { value: "evening", label: "Evening" },
+]
+const dietOptions = [
+  { value: "omnivore", label: "Omnivore" },
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "vegan", label: "Vegan" },
+  { value: "pescatarian", label: "Pescatarian" },
+]
+const budgetOptions = [
+  { value: "low", label: "Low - Budget conscious" },
+  { value: "medium", label: "Medium - Balanced" },
+  { value: "high", label: "High - Premium ingredients" },
+]
+const kitchenOptions = [
+  { value: "full_kitchen", label: "Full Kitchen" },
+  { value: "microwave_only", label: "Microwave Only" },
+  { value: "no_kitchen", label: "No Kitchen" },
+]
+const sportsOptions = [
+  { value: "swim", label: "Swim" },
+  { value: "bike", label: "Bike" },
+  { value: "run", label: "Run" },
+  { value: "gym", label: "Gym" },
+]
 
 function buildFormState(profile: ProfileRow): ProfileFormState {
   return {
@@ -91,6 +130,21 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
 
   const handleChange = (field: keyof ProfileFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }))
+  }
+
+  const handleSelectChange = (field: keyof ProfileFormState) => (value: string) => {
+    setFormState((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const toggleSport = (sport: string) => {
+    const currentSports = formState.sports
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const nextSports = currentSports.includes(sport)
+      ? currentSports.filter((item) => item !== sport)
+      : [...currentSports, sport]
+    setFormState((prev) => ({ ...prev, sports: nextSports.join(", ") }))
   }
 
   const handleUnitsChange = (value: Units) => {
@@ -211,51 +265,149 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="primary_goal">Primary goal</Label>
-                  <Input id="primary_goal" value={formState.primary_goal} onChange={handleChange("primary_goal")} />
+                  <Select value={formState.primary_goal} onValueChange={handleSelectChange("primary_goal")}>
+                    <SelectTrigger id="primary_goal">
+                      <SelectValue placeholder="Select your primary goal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {primaryGoalOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="experience_level">Experience level</Label>
-                  <Input
-                    id="experience_level"
-                    value={formState.experience_level}
-                    onChange={handleChange("experience_level")}
-                  />
+                  <Select value={formState.experience_level} onValueChange={handleSelectChange("experience_level")}>
+                    <SelectTrigger id="experience_level">
+                      <SelectValue placeholder="Select your experience level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {experienceOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="event">Event</Label>
                   <Input id="event" value={formState.event} onChange={handleChange("event")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="sports">Sports (comma-separated)</Label>
-                  <Input id="sports" value={formState.sports} onChange={handleChange("sports")} />
+                  <Label htmlFor="sports">Sports</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {sportsOptions.map((sport) => {
+                      const isActive = formState.sports.split(",").map((item) => item.trim()).includes(sport.value)
+                      return (
+                        <button
+                          key={sport.value}
+                          type="button"
+                          onClick={() => toggleSport(sport.value)}
+                          className={`px-3 py-1.5 rounded-full text-xs transition-all ${
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/70"
+                          }`}
+                        >
+                          {sport.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="workout_time">Workout time</Label>
-                  <Input id="workout_time" value={formState.workout_time} onChange={handleChange("workout_time")} />
+                  <Select value={formState.workout_time} onValueChange={handleSelectChange("workout_time")}>
+                    <SelectTrigger id="workout_time">
+                      <SelectValue placeholder="Select workout time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workoutTimeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="diet">Diet</Label>
-                  <Input id="diet" value={formState.diet} onChange={handleChange("diet")} />
+                  <Select value={formState.diet} onValueChange={handleSelectChange("diet")}>
+                    <SelectTrigger id="diet">
+                      <SelectValue placeholder="Select diet type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dietOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="meals_per_day">Meals per day</Label>
-                  <Input id="meals_per_day" value={formState.meals_per_day} onChange={handleChange("meals_per_day")} />
+                  <Select value={formState.meals_per_day} onValueChange={handleSelectChange("meals_per_day")}>
+                    <SelectTrigger id="meals_per_day">
+                      <SelectValue placeholder="Select meals per day" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[2, 3, 4, 5, 6].map((count) => (
+                        <SelectItem key={count} value={String(count)}>
+                          {count} meals
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cooking_time_min">Cooking time (min)</Label>
-                  <Input
-                    id="cooking_time_min"
-                    value={formState.cooking_time_min}
-                    onChange={handleChange("cooking_time_min")}
-                  />
+                  <Select value={formState.cooking_time_min} onValueChange={handleSelectChange("cooking_time_min")}>
+                    <SelectTrigger id="cooking_time_min">
+                      <SelectValue placeholder="Select cooking time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[10, 20, 30, 60].map((minutes) => (
+                        <SelectItem key={minutes} value={String(minutes)}>
+                          {minutes === 60 ? "60+ minutes" : `${minutes} minutes`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="budget">Budget</Label>
-                  <Input id="budget" value={formState.budget} onChange={handleChange("budget")} />
+                  <Select value={formState.budget} onValueChange={handleSelectChange("budget")}>
+                    <SelectTrigger id="budget">
+                      <SelectValue placeholder="Select budget level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {budgetOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="kitchen">Kitchen</Label>
-                  <Input id="kitchen" value={formState.kitchen} onChange={handleChange("kitchen")} />
+                  <Select value={formState.kitchen} onValueChange={handleSelectChange("kitchen")}>
+                    <SelectTrigger id="kitchen">
+                      <SelectValue placeholder="Select kitchen access" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {kitchenOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
