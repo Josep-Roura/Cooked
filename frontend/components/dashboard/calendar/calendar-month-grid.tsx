@@ -14,6 +14,7 @@ interface CalendarMonthGridProps {
   days: Date[]
   currentDate: Date
   items: CalendarMonthItem[]
+  onSelectItem?: (item: CalendarMonthItem) => void
 }
 
 const toneStyles: Record<CalendarMonthItem["tone"], string> = {
@@ -22,7 +23,7 @@ const toneStyles: Record<CalendarMonthItem["tone"], string> = {
   event: "bg-amber-50 text-amber-700",
 }
 
-export function CalendarMonthGrid({ days, currentDate, items }: CalendarMonthGridProps) {
+export function CalendarMonthGrid({ days, currentDate, items, onSelectItem }: CalendarMonthGridProps) {
   const today = new Date()
 
   return (
@@ -61,15 +62,17 @@ export function CalendarMonthGrid({ days, currentDate, items }: CalendarMonthGri
               </div>
               <div className="flex flex-col gap-1">
                 {visibleItems.map((item) => (
-                  <div
+                  <button
                     key={item.id}
+                    type="button"
+                    onClick={() => onSelectItem?.(item)}
                     className={cn(
-                      "rounded-md px-2 py-1 text-[10px] font-semibold truncate",
+                      "rounded-md px-2 py-1 text-[10px] font-semibold truncate text-left",
                       toneStyles[item.tone],
                     )}
                   >
                     {item.label}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
