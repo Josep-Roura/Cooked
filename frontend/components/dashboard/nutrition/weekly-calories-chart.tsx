@@ -19,7 +19,6 @@ type ChartDatum = {
   displayLabel: string
   consumedKcal: number
   targetKcal: number | null
-  remainingKcal: number
 }
 
 function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
@@ -29,10 +28,6 @@ function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
     displayLabel: format(parseISO(day.date), "EEE, MMM d"),
     consumedKcal: day.consumed.kcal,
     targetKcal: day.target?.kcal ?? null,
-    remainingKcal:
-      day.target?.kcal && day.target.kcal > day.consumed.kcal
-        ? day.target.kcal - day.consumed.kcal
-        : 0,
   }))
 }
 
@@ -58,7 +53,7 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
         }}
         className="h-64 w-full"
       >
-        <BarChart data={data} margin={{ left: -16, right: 8 }}>
+        <BarChart data={data} margin={{ left: -16, right: 8 }} barGap={-28} barCategoryGap={18}>
           <XAxis dataKey="label" tickLine={false} axisLine={false} />
           <YAxis hide domain={[0, "dataMax + 200"]} />
           <Tooltip
@@ -84,32 +79,32 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
             }}
           />
           <Bar
-            dataKey="consumedKcal"
-            stackId="kcal"
-            radius={[8, 8, 0, 0]}
+            dataKey="targetKcal"
+            radius={[12, 12, 0, 0]}
+            barSize={36}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
                 key={entry.date}
-                fill="hsl(142 72% 35%)"
+                fill="hsl(142 45% 82%)"
                 stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
             ))}
           </Bar>
           <Bar
-            dataKey="remainingKcal"
-            stackId="kcal"
-            radius={[8, 8, 0, 0]}
+            dataKey="consumedKcal"
+            radius={[12, 12, 0, 0]}
+            barSize={28}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
-                key={`${entry.date}-remaining`}
-                fill="hsl(142 45% 82%)"
-                stroke="none"
-                strokeWidth={0}
+                key={`${entry.date}-consumed`}
+                fill="hsl(142 72% 35%)"
+                stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
+                strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
             ))}
           </Bar>

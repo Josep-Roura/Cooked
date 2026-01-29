@@ -5,7 +5,6 @@ import { addDays, addWeeks, format, isWithinInterval, parseISO, startOfWeek } fr
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
 import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-cards"
 import { Button } from "@/components/ui/button"
@@ -17,12 +16,12 @@ import {
   useProfile,
   useTrainingSessions,
   useUpdateNutritionDay,
-  useUpdateMealPlanItem,
   useWeekRange,
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
 import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { getMealEmoji } from "@/lib/utils/mealEmoji"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -30,7 +29,6 @@ export default function NutritionPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const profileQuery = useProfile(user?.id)
-  const [search, setSearch] = useState("")
   const [now] = useState(() => new Date())
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(now, { weekStartsOn: 1 }))
   const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
@@ -40,11 +38,11 @@ export default function NutritionPage() {
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
-  const updateMealMutation = useUpdateMealPlanItem()
   const updateNutritionDay = useUpdateNutritionDay(user?.id)
   const lastSyncedRef = useRef<string | null>(null)
   const ensureRef = useRef<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
   const [editMacros, setEditMacros] = useState(() => ({
     kcal: 0,
     protein_g: 0,
@@ -301,12 +299,6 @@ export default function NutritionPage() {
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search meals"
-              className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
-            />
             <Button
               onClick={() => setEditOpen(true)}
               variant="outline"
@@ -327,26 +319,124 @@ export default function NutritionPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 gap-6 mb-8">
           <WeeklyCaloriesChart
             days={weeklyNutritionQuery.data ?? []}
             selectedDate={selectedDate}
             isLoading={weeklyNutritionQuery.isLoading}
             onSelectDate={setSelectedDate}
           />
-          <MealCards
-            mealPlan={mealPlanQuery.data ?? null}
-            target={selectedDay.target}
-            selectedDate={selectedDate}
-            search={search}
-            isLoading={mealPlanQuery.isLoading || weeklyNutritionQuery.isLoading}
-            isUpdating={updateMealMutation.isPending}
-            dayTypeLabel={dayType}
-            dayTypeNote={carbNote}
-            onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
-          />
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Weekly nutrition calendar</h3>
+              <span className="text-xs text-muted-foreground">{weekLabel}</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+              {(weeklyNutritionQuery.data ?? []).map((day) => {
+                const dayDate = parseISO(day.date)
+                const isSelected = day.date === selectedDate
+                return (
+                  <div
+                    key={day.date}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedDate(day.date)
+                      setDetailOpen(true)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        setSelectedDate(day.date)
+                        setDetailOpen(true)
+                      }
+                    }}
+                    className={`rounded-xl border p-3 text-left transition hover:shadow-sm ${
+                      isSelected ? "border-primary/50 bg-primary/5" : "border-border"
+                    }`}
+                  >
+                    <p className="text-xs font-semibold text-foreground">
+                      {format(dayDate, "EEE")}
+                      <span className="text-muted-foreground font-normal"> · {format(dayDate, "MMM d")}</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-2">Daily targets</p>
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      <p className="text-foreground font-semibold">{day.target?.kcal ?? 0} kcal</p>
+                      <p>P {day.target?.protein_g ?? 0}g</p>
+                      <p>C {day.target?.carbs_g ?? 0}g</p>
+                      <p>F {day.target?.fat_g ?? 0}g</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       </div>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="w-full sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{format(parseISO(selectedDate), "EEEE, MMM d")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="rounded-full bg-muted px-3 py-1">
+                {selectedDay.target?.kcal ?? 0} kcal
+              </span>
+              <span className="rounded-full bg-muted px-3 py-1">P {selectedDay.target?.protein_g ?? 0}g</span>
+              <span className="rounded-full bg-muted px-3 py-1">C {selectedDay.target?.carbs_g ?? 0}g</span>
+              <span className="rounded-full bg-muted px-3 py-1">F {selectedDay.target?.fat_g ?? 0}g</span>
+              <span className="rounded-full bg-muted px-3 py-1 capitalize">{dayType}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{carbNote}</p>
+            <div className="space-y-3">
+              {(mealPlanQuery.data?.items ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">No meals planned for this day yet.</p>
+              ) : (
+                (mealPlanQuery.data?.items ?? []).map((meal) => (
+                  <div key={meal.id} className="rounded-xl border border-border p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          {getMealEmoji(meal.name, meal.meal_type)} {meal.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{meal.time ?? "Any time"}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-muted px-2 py-1">{meal.kcal} kcal</span>
+                        <span className="rounded-full bg-muted px-2 py-1">P {meal.protein_g}g</span>
+                        <span className="rounded-full bg-muted px-2 py-1">C {meal.carbs_g}g</span>
+                        <span className="rounded-full bg-muted px-2 py-1">F {meal.fat_g}g</span>
+                      </div>
+                    </div>
+                    {Array.isArray(meal.ingredients) && meal.ingredients.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold text-foreground mb-2">Ingredients</p>
+                        <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                          {meal.ingredients.map((ingredient, index) => (
+                            <li key={`${meal.id}-ingredient-${index}`}>{String(ingredient)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex items-center justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setEditOpen(true)}
+                className="rounded-full text-xs"
+                type="button"
+              >
+                Edit day
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="w-full sm:max-w-2xl">
