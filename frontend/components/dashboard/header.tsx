@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useTheme } from "next-themes"
 import { signOut } from "@/lib/auth"
 import { useSession } from "@/hooks/use-session"
-import { useProfile } from "@/lib/db/hooks"
+import { useProfile, useUpdatePreferences } from "@/lib/db/hooks"
 
 interface DashboardHeaderProps {
   onOpenSidebar: () => void
@@ -30,6 +30,7 @@ export function DashboardHeader({ onOpenSidebar }: DashboardHeaderProps) {
   const { theme, setTheme } = useTheme()
   const [loggingOut, setLoggingOut] = useState(false)
   const profileQuery = useProfile(user?.id)
+  const updatePreferences = useUpdatePreferences(user?.id)
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -51,6 +52,9 @@ export function DashboardHeader({ onOpenSidebar }: DashboardHeaderProps) {
   const handleToggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark"
     setTheme(nextTheme)
+    if (user?.id) {
+      updatePreferences.mutate({ theme: nextTheme })
+    }
   }
 
   const displayName =

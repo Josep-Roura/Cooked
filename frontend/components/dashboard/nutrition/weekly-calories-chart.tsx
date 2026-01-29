@@ -1,7 +1,7 @@
 "use client"
 
 import { format, parseISO } from "date-fns"
-import { Bar, BarChart, Cell, Line, Tooltip, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, Cell, Tooltip, XAxis, YAxis } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { WeeklyNutritionDay } from "@/lib/db/types"
@@ -18,7 +18,8 @@ type ChartDatum = {
   label: string
   displayLabel: string
   consumedKcal: number
-  targetKcal: number | null
+  targetKcal: number
+  hasTarget: boolean
 }
 
 function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
@@ -27,7 +28,8 @@ function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
     label: format(parseISO(day.date), "EEE"),
     displayLabel: format(parseISO(day.date), "EEE, MMM d"),
     consumedKcal: day.consumed.kcal,
-    targetKcal: day.target?.kcal ?? null,
+    targetKcal: day.target?.kcal ?? 0,
+    hasTarget: Boolean(day.target?.kcal),
   }))
 }
 
@@ -48,12 +50,12 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
       <h3 className="text-lg font-semibold text-foreground mb-4">Weekly Calories</h3>
       <ChartContainer
         config={{
-          consumed: { color: "hsl(var(--primary))" },
-          target: { color: "hsl(var(--muted-foreground))" },
+          consumed: { color: "var(--primary)" },
+          target: { color: "var(--primary)" },
         }}
         className="h-64 w-full"
       >
-        <BarChart data={data} margin={{ left: -16, right: 8 }}>
+        <BarChart data={data} margin={{ left: -12, right: 8 }} barSize={24} barGap={-24} barCategoryGap={18}>
           <XAxis dataKey="label" tickLine={false} axisLine={false} />
           <YAxis hide domain={[0, "dataMax + 200"]} />
           <Tooltip
@@ -61,12 +63,12 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null
               const item = payload[0].payload as ChartDatum
-              const percent = item.targetKcal ? Math.round((item.consumedKcal / item.targetKcal) * 100) : null
+              const percent = item.hasTarget ? Math.round((item.consumedKcal / item.targetKcal) * 100) : null
               return (
                 <div className="rounded-lg border border-border bg-background px-3 py-2 text-xs shadow-lg">
                   <p className="font-semibold text-foreground">{item.displayLabel}</p>
                   <p className="text-muted-foreground">Consumed: {item.consumedKcal} kcal</p>
-                  {item.targetKcal ? (
+                  {item.hasTarget ? (
                     <>
                       <p className="text-muted-foreground">Target: {item.targetKcal} kcal</p>
                       <p className="text-muted-foreground">Progress: {percent ?? 0}%</p>
@@ -78,30 +80,28 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
               )
             }}
           />
+          <Bar dataKey="targetKcal" radius={[10, 10, 10, 10]}>
+            {data.map((entry) => (
+              <Cell key={`target-${entry.date}`} fill="var(--primary)" fillOpacity={0.25} />
+            ))}
+          </Bar>
           <Bar
             dataKey="consumedKcal"
-            radius={[8, 8, 0, 0]}
+            radius={[10, 10, 10, 10]}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
                 key={entry.date}
-                fill="hsl(var(--primary))"
-                stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
+                fill="var(--primary)"
+                stroke={entry.date === selectedDate ? "var(--primary)" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
             ))}
           </Bar>
-          <Line
-            type="monotone"
-            dataKey="targetKcal"
-            stroke="hsl(var(--muted-foreground))"
-            strokeDasharray="4 4"
-            dot={false}
-          />
         </BarChart>
       </ChartContainer>
-      <p className="text-xs text-muted-foreground mt-4">Bars show calories consumed, line shows targets.</p>
+      <p className="text-xs text-muted-foreground mt-4">Bars show calories consumed against targets.</p>
     </div>
   )
 }
