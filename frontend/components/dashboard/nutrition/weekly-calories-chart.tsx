@@ -55,7 +55,7 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
         }}
         className="h-64 w-full"
       >
-        <BarChart data={data} margin={{ left: -16, right: 8 }} barSize={28} barGap={-28} barCategoryGap={18}>
+        <BarChart data={data} margin={{ left: -12, right: 8 }} barSize={24} barGap={-24} barCategoryGap={18}>
           <XAxis dataKey="label" tickLine={false} axisLine={false} />
           <YAxis hide domain={[0, "dataMax + 200"]} />
           <Tooltip
@@ -80,14 +80,14 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
               )
             }}
           />
-          <Bar dataKey="targetKcal" radius={[8, 8, 8, 8]}>
+          <Bar dataKey="targetKcal" radius={[10, 10, 10, 10]}>
             {data.map((entry) => (
               <Cell key={`target-${entry.date}`} fill="hsl(var(--primary) / 0.25)" />
             ))}
           </Bar>
           <Bar
             dataKey="consumedKcal"
-            radius={[8, 8, 8, 8]}
+            radius={[10, 10, 10, 10]}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
@@ -101,7 +101,7 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           </Bar>
         </BarChart>
       </ChartContainer>
-      <p className="text-xs text-muted-foreground mt-4">Bars show calories consumed over daily targets.</p>
+      <p className="text-xs text-muted-foreground mt-4">Bars show calories consumed against targets.</p>
     </div>
   )
 }
