@@ -1,21 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { addWeeks, format, isWithinInterval, parseISO, startOfWeek } from "date-fns"
+import { addDays, addWeeks, format, isWithinInterval, parseISO, startOfWeek } from "date-fns"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
 import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-cards"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
 import {
@@ -28,7 +22,7 @@ import {
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { ensureDailyPlan, ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 export default function NutritionPage() {
   const { user } = useSession()
@@ -40,7 +34,6 @@ export default function NutritionPage() {
   const [now] = useState(() => new Date())
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(now, { weekStartsOn: 1 }))
   const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
-  const [isGenerating, setIsGenerating] = useState(false)
   const queryClient = useQueryClient()
 
   const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(anchorDate)
@@ -50,7 +43,7 @@ export default function NutritionPage() {
   const updateMealMutation = useUpdateMealPlanItem()
   const updateNutritionDay = useUpdateNutritionDay(user?.id)
   const lastSyncedRef = useRef<string | null>(null)
-  useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
+  const ensureRef = useRef<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editMacros, setEditMacros] = useState(() => ({
     kcal: 0,
@@ -77,6 +70,12 @@ export default function NutritionPage() {
       setSelectedDate(format(weekStart, "yyyy-MM-dd"))
     }
   }, [selectedDate, weekStart, weekEnd])
+
+  useEffect(() => {
+    if (!selectedDate) return
+    const nextAnchor = startOfWeek(parseISO(selectedDate), { weekStartsOn: 1 })
+    setAnchorDate(nextAnchor)
+  }, [selectedDate])
 
   useEffect(() => {
     const urlDate = searchParams.get("date")
@@ -127,49 +126,39 @@ export default function NutritionPage() {
     ? "Carbs are higher today to fuel training sessions and recovery."
     : "Carbs ease off to match recovery needs on rest days."
 
-  const handleGenerate = async (regenerate: boolean, resetLocks = false) => {
-    if (!selectedDate) return
-    setIsGenerating(true)
-    try {
-      await ensureDailyPlan(selectedDate, regenerate, resetLocks)
-      await Promise.all([
-        weeklyNutritionQuery.refetch(),
-        mealPlanQuery.refetch(),
-        profileQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
-      ])
-    } catch (error) {
-      console.error("Failed to generate nutrition plan", error)
-      toast({
-        title: "Nutrition update failed",
-        description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
-        variant: "destructive",
+  useEffect(() => {
+    if (!user?.id || trainingWeekQuery.isLoading) return
+    const sessions = trainingWeekQuery.data ?? []
+    if (sessions.length === 0) return
+    const ensureKey = `${user.id}:${weekStartKey}:${weekEndKey}`
+    if (ensureRef.current === ensureKey) return
+    ensureRef.current = ensureKey
+    ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey })
+      .then(() => {
+        weeklyNutritionQuery.refetch()
+        mealPlanQuery.refetch()
+        queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] })
       })
-    } finally {
-      setIsGenerating(false)
-    }
-  }
-
-  const handleRegenerateRange = async (resetLocks: boolean) => {
-    setIsGenerating(true)
-    try {
-      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force: true, resetLocks })
-      await Promise.all([
-        weeklyNutritionQuery.refetch(),
-        mealPlanQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] }),
-        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
-      ])
-    } catch (error) {
-      toast({
-        title: "Plan regeneration failed",
-        description: error instanceof Error ? error.message : "Unable to regenerate the plan.",
-        variant: "destructive",
+      .catch((error) => {
+        console.error("Failed to ensure nutrition plan", error)
+        toast({
+          title: "Nutrition update failed",
+          description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
+          variant: "destructive",
+        })
       })
-    } finally {
-      setIsGenerating(false)
-    }
-  }
+  }, [
+    mealPlanQuery.refetch,
+    queryClient,
+    toast,
+    trainingWeekQuery.data,
+    trainingWeekQuery.isLoading,
+    user?.id,
+    weekEndKey,
+    weekStartKey,
+    weeklyNutritionQuery.refetch,
+  ])
 
   useEffect(() => {
     if (!editOpen) return
@@ -274,10 +263,6 @@ export default function NutritionPage() {
                 {profileQuery.data.full_name || profileQuery.data.name || "Athlete"}
               </p>
             </div>
-            <div className="ml-auto text-right">
-              <p className="text-sm text-muted-foreground">Units</p>
-              <p className="font-semibold text-primary">{profileQuery.data.units ?? "metric"}</p>
-            </div>
           </div>
         )}
 
@@ -292,12 +277,30 @@ export default function NutritionPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Meals</h2>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))}
+              className="rounded-full"
+              type="button"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
             <input
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
               className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
             />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
+              className="rounded-full"
+              type="button"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -313,31 +316,14 @@ export default function NutritionPage() {
               Edit day
             </Button>
             <Button
-              onClick={() => handleGenerate(false)}
-              disabled={isGenerating}
-              className="h-9 rounded-full px-4 text-xs"
+              variant="outline"
+              size="icon"
+              className="rounded-full"
               type="button"
+              onClick={() => router.push(`/dashboard/plans?chat=1&date=${selectedDate}`)}
             >
-              Generate today&apos;s plan
+              <MessageCircle className="h-4 w-4" />
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  disabled={isGenerating}
-                  variant="outline"
-                  className="h-9 rounded-full px-4 text-xs"
-                  type="button"
-                >
-                  Regenerate
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleGenerate(true)}>Regenerate day</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRegenerateRange(false)}>Regenerate week</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleGenerate(true, true)}>Full reset day</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRegenerateRange(true)}>Full reset week</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
@@ -362,11 +348,11 @@ export default function NutritionPage() {
         </div>
       </div>
 
-      <Sheet open={editOpen} onOpenChange={setEditOpen}>
-        <SheetContent className="w-full sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>Edit {selectedDate}</SheetTitle>
-          </SheetHeader>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="w-full sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit {selectedDate}</DialogTitle>
+          </DialogHeader>
           <div className="mt-6 space-y-6">
             <div className="flex items-center justify-between rounded-xl border border-border p-4">
               <div>
@@ -496,8 +482,8 @@ export default function NutritionPage() {
               </Button>
             </div>
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -136,11 +136,11 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Manage events</SheetTitle>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manage events</DialogTitle>
+        </DialogHeader>
 
         <div className="mt-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -220,7 +220,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
             ))
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }

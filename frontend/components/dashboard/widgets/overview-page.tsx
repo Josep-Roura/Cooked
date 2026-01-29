@@ -5,53 +5,62 @@ import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { addDays, format, parseISO } from "date-fns"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
 import { TodaysMacrosCard } from "@/components/dashboard/widgets/todays-macros-card"
 import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-training-card"
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
+import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
 import {
-  useDashboardOverview,
   useMacrosDay,
   useMealPlanDay,
   useTrainingSessions,
   useUpdateMealIngredient,
   useUpdateMealPlanItem,
   useUserEvents,
-  useProfile,
+  useWeekRange,
+  useWeeklyNutrition,
 } from "@/lib/db/hooks"
-import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
+import type { TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
-import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
+import { useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const { user } = useSession()
-  const profileQuery = useProfile(user?.id)
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [now] = useState(() => new Date())
-  const [range, setRange] = useState<DateRangeOption>("today")
-  const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
+  const todayKey = format(now, "yyyy-MM-dd")
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const param = searchParams.get("date")
+    return param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : todayKey
+  })
   const [eventsOpen, setEventsOpen] = useState(false)
   const [highlightMeals, setHighlightMeals] = useState(false)
-  const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  useEnsureNutritionPlan({ userId: user?.id, range, enabled: Boolean(user?.id) })
-  const todayKey = format(now, "yyyy-MM-dd")
+  const dateSyncRef = useRef<string | null>(null)
+  const weekRange = useWeekRange(parseISO(selectedDate))
+  useEnsureNutritionPlanRange({
+    userId: user?.id,
+    start: weekRange.startKey,
+    end: weekRange.endKey,
+    enabled: Boolean(user?.id),
+  })
   const eventsQuery = useUserEvents(
     user?.id,
     format(now, "yyyy-MM-dd"),
     format(addDays(now, 365), "yyyy-MM-dd"),
   )
-  const todayMealPlanQuery = useMealPlanDay(user?.id, todayKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
-  const todayMacrosQuery = useMacrosDay(user?.id, todayKey)
   const macrosQuery = useMacrosDay(user?.id, selectedDate)
-  const todayTrainingQuery = useTrainingSessions(user?.id, todayKey, todayKey)
+  const trainingQuery = useTrainingSessions(user?.id, selectedDate, selectedDate)
+  const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekRange.startKey, weekRange.endKey)
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
   const planRef = useRef<HTMLDivElement | null>(null)
@@ -77,10 +86,11 @@ export function OverviewPage() {
 
   const handleRefresh = async () => {
     await Promise.all([
-      overviewQuery.refetch(),
       eventsQuery.refetch(),
       mealPlanQuery.refetch(),
       macrosQuery.refetch(),
+      trainingQuery.refetch(),
+      weeklyNutritionQuery.refetch(),
     ])
     toast({ title: "Dashboard refreshed", description: "Latest data has been loaded." })
   }
@@ -101,27 +111,50 @@ export function OverviewPage() {
     }
   }, [mealPlanQuery.isError, toast])
 
+  useEffect(() => {
+    const urlDate = searchParams.get("date")
+    if (urlDate && urlDate !== selectedDate) {
+      setSelectedDate(urlDate)
+    }
+  }, [searchParams, selectedDate])
 
-  if (overviewQuery.isError) {
-    return <ErrorState onRetry={() => overviewQuery.refetch()} />
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("date", selectedDate)
+    const nextQuery = params.toString()
+    if (dateSyncRef.current === nextQuery) return
+    dateSyncRef.current = nextQuery
+    if (nextQuery !== searchParams.toString()) {
+      router.replace(`/dashboard?${nextQuery}`)
+    }
+  }, [router, searchParams, selectedDate])
+
+
+  if (weeklyNutritionQuery.isError) {
+    return <ErrorState onRetry={() => weeklyNutritionQuery.refetch()} />
   }
 
   const events = eventsQuery.data ?? []
   const mealPlanDay = mealPlanQuery.data ?? { plan: null, items: [] }
-  const todayMealPlan = todayMealPlanQuery.data ?? { plan: null, items: [] }
   const consumedMacros = macrosQuery.data?.consumed ?? null
   const targetMacros = macrosQuery.data?.target ?? null
-  const todayConsumedMacros = todayMacrosQuery.data?.consumed ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
-  const todayTargetMacros = todayMacrosQuery.data?.target ?? null
-  const todayPercent = todayMacrosQuery.data?.percent ?? 0
+  const dayConsumedMacros = macrosQuery.data?.consumed ?? {
+    kcal: 0,
+    protein_g: 0,
+    carbs_g: 0,
+    fat_g: 0,
+    intra_cho_g_per_h: 0,
+  }
+  const dayTargetMacros = macrosQuery.data?.target ?? null
+  const dayPercent = macrosQuery.data?.percent ?? 0
 
-  const totalMeals = todayMealPlan.items.length
-  const completedMeals = todayMealPlan.items.filter((meal) => meal.eaten).length
+  const totalMeals = mealPlanDay.items.length
+  const completedMeals = mealPlanDay.items.filter((meal) => meal.eaten).length
   const mealsRemaining = totalMeals > 0 && completedMeals < totalMeals
   const mealsProgressLabel = `${completedMeals}/${totalMeals}`
 
-  const trainingSessionsToday = todayTrainingQuery.data ?? []
-  const trainingSummary = trainingSessionsToday.reduce(
+  const trainingSessions = trainingQuery.data ?? []
+  const trainingSummary = trainingSessions.reduce(
     (acc, session) => {
       acc.sessions += 1
       acc.durationMinutes += session.durationMinutes
@@ -134,11 +167,11 @@ export function OverviewPage() {
   const completionPercent = totalMeals > 0 ? (completedMeals / totalMeals) * 100 : 0
 
   const status = (() => {
-    if (todayTargetMacros?.kcal && todayPercent > 125) return "Behind"
-    if (todayTargetMacros?.kcal && todayPercent < 60) return "Behind"
+    if (dayTargetMacros?.kcal && dayPercent > 125) return "Behind"
+    if (dayTargetMacros?.kcal && dayPercent < 60) return "Behind"
     if (isAfterCutoff && totalMeals > 0 && completedMeals === 0) return "Behind"
-    if (todayTargetMacros?.kcal && todayPercent >= 60 && todayPercent <= 79) return "Slightly off"
-    if (todayTargetMacros?.kcal && todayPercent >= 111 && todayPercent <= 125) return "Slightly off"
+    if (dayTargetMacros?.kcal && dayPercent >= 60 && dayPercent <= 79) return "Slightly off"
+    if (dayTargetMacros?.kcal && dayPercent >= 111 && dayPercent <= 125) return "Slightly off"
     if (!isAfterCutoff || completionPercent >= 50) return "On track"
     return "Behind"
   })()
@@ -170,12 +203,14 @@ export function OverviewPage() {
       <motion.div className="mb-6" {...animationProps}>
         <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Today</p>
-            <h2 className="text-2xl font-bold text-foreground">{format(now, "EEEE, MMMM d")}</h2>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {selectedDate === todayKey ? "Today" : "Selected day"}
+            </p>
+            <h2 className="text-2xl font-bold text-foreground">{format(parseISO(selectedDate), "EEEE, MMMM d")}</h2>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>{mealsProgressLabel} meals logged</span>
               <span>
-                {todayConsumedMacros.kcal}/{todayTargetMacros?.kcal ?? 0} kcal · {todayPercent}% of target
+                {dayConsumedMacros.kcal}/{dayTargetMacros?.kcal ?? 0} kcal · {dayPercent}% of target
               </span>
               <span>
                 {trainingSummary.sessions} sessions · {Math.round(trainingSummary.durationMinutes)} min
@@ -184,7 +219,7 @@ export function OverviewPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className={`rounded-full px-3 py-1 text-xs ${statusTone}`}>{status}</Badge>
-            {mealsRemaining ? (
+            {mealsRemaining && selectedDate === todayKey ? (
               <Button onClick={handleFinishMeals} className="rounded-full text-xs px-4" type="button">
                 Finish today&apos;s meals
               </Button>
@@ -200,7 +235,6 @@ export function OverviewPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h2 className="text-2xl font-bold text-foreground">Overview</h2>
         <div className="flex items-center gap-3">
-          <DateRangeSelector value={range} onChange={setRange} />
           <Button variant="outline" className="rounded-full px-4 text-xs" onClick={handleRefresh}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
@@ -208,15 +242,15 @@ export function OverviewPage() {
         </div>
       </div>
 
-        <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
-          <motion.div {...hoverProps}>
-            <TodaysMacrosCard
-              consumed={consumedMacros}
-              target={targetMacros}
-              isLoading={macrosQuery.isLoading}
-              label={selectedDate === format(new Date(), "yyyy-MM-dd") ? "Today's macros" : "Consumed macros"}
-            />
-          </motion.div>
+      <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
+        <motion.div {...hoverProps}>
+          <TodaysMacrosCard
+            consumed={consumedMacros}
+            target={targetMacros}
+            isLoading={macrosQuery.isLoading}
+            label={selectedDate === todayKey ? "Today's macros" : "Consumed macros"}
+          />
+        </motion.div>
         <motion.div {...hoverProps}>
           <UpcomingEventCard
             isLoading={eventsQuery.isLoading}
@@ -229,8 +263,8 @@ export function OverviewPage() {
       <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
         <motion.div {...hoverProps}>
           <TodaysTrainingCard
-            isLoading={overviewQuery.isLoading}
-            sessions={overviewQuery.data?.trainingSessions ?? []}
+            isLoading={trainingQuery.isLoading}
+            sessions={trainingSessions}
             onSelect={handleSelectSession}
           />
         </motion.div>
@@ -252,6 +286,15 @@ export function OverviewPage() {
             }
           />
         </motion.div>
+      </motion.div>
+
+      <motion.div {...animationProps} className="mb-8">
+        <WeeklyCaloriesChart
+          days={weeklyNutritionQuery.data ?? []}
+          selectedDate={selectedDate}
+          isLoading={weeklyNutritionQuery.isLoading}
+          onSelectDate={setSelectedDate}
+        />
       </motion.div>
 
       <EventManagementSheet

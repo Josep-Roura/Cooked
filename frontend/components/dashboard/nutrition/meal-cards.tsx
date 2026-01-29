@@ -1,10 +1,13 @@
 "use client"
 
+import { useState } from "react"
 import { Clock, Flame, Utensils } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { getMealEmoji } from "@/lib/utils/mealEmoji"
 import type { MealPlanDay, MealPlanItem, NutritionMacros } from "@/lib/db/types"
 
 interface MealCardsProps {
@@ -17,13 +20,6 @@ interface MealCardsProps {
   dayTypeLabel?: string
   dayTypeNote?: string
   onToggleMeal: (mealId: string, eaten: boolean) => void
-}
-
-const dayTypeIcons: Record<string, string> = {
-  training: "🏊",
-  rest: "🧘",
-  recovery: "🧘",
-  high: "⚡",
 }
 
 const dayTypeColors: Record<string, string> = {
@@ -52,6 +48,7 @@ export function MealCards({
   dayTypeNote,
   onToggleMeal,
 }: MealCardsProps) {
+  const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
   const meals = mealPlan?.items ?? []
   const filteredMeals = filterMeals(meals, search)
   const hasMeals = meals.length > 0
@@ -108,16 +105,18 @@ export function MealCards({
       ) : filteredMeals.length > 0 ? (
         <div className="space-y-3">
           {filteredMeals.map((meal) => (
-            <div
+            <button
               key={meal.id}
-              className={`p-4 rounded-xl border ${
+              type="button"
+              onClick={() => setSelectedMeal(meal)}
+              className={`w-full text-left p-4 rounded-xl border ${
                 meal.eaten
                   ? "bg-emerald-50 border-emerald-200"
                   : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
               } transition-all hover:shadow-sm`}
             >
               <div className="flex items-start gap-3">
-                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayTypeKey] ?? "🥗"}</div>
+                <div className="text-2xl">{meal.emoji ?? getMealEmoji(meal.name, meal.meal_type)}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="font-medium text-foreground">{meal.name}</h4>
@@ -142,6 +141,7 @@ export function MealCards({
                         checked={meal.eaten}
                         onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
                         disabled={isUpdating}
+                        onClick={(event) => event.stopPropagation()}
                       />
                       <span className="text-xs text-muted-foreground">I ate this</span>
                     </span>
@@ -159,10 +159,48 @@ export function MealCards({
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       ) : null}
+
+      <Dialog open={Boolean(selectedMeal)} onOpenChange={(open) => !open && setSelectedMeal(null)}>
+        <DialogContent className="w-full sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedMeal ? `${getMealEmoji(selectedMeal.name, selectedMeal.meal_type)} ${selectedMeal.name}` : "Meal"}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedMeal && (
+            <div className="space-y-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap gap-3 text-xs">
+                <span>{selectedMeal.kcal ?? 0} kcal</span>
+                <span>P {selectedMeal.protein_g ?? 0}g</span>
+                <span>C {selectedMeal.carbs_g ?? 0}g</span>
+                <span>F {selectedMeal.fat_g ?? 0}g</span>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground mb-2">Ingredients</p>
+                {Array.isArray(selectedMeal.ingredients) && selectedMeal.ingredients.length > 0 ? (
+                  <ul className="list-disc list-inside space-y-1">
+                    {selectedMeal.ingredients.map((ingredient, index) => (
+                      <li key={`${selectedMeal.id}-ingredient-${index}`}>{String(ingredient)}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No ingredients listed for this meal.</p>
+                )}
+              </div>
+              {selectedMeal.notes && (
+                <div>
+                  <p className="text-xs font-semibold text-foreground mb-2">Notes</p>
+                  <p className="text-xs text-muted-foreground">{selectedMeal.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

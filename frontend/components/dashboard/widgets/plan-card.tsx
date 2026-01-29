@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { getMealEmoji } from "@/lib/utils/mealEmoji"
 import type { MealPlanDay, MealPlanIngredient, MealPlanItem } from "@/lib/db/types"
 
 interface PlanCardProps {
@@ -122,7 +123,7 @@ export function PlanCard({
                     <div className="flex flex-1 flex-col">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-foreground">
-                          {meal.emoji ? `${meal.emoji} ` : ""}
+                          {(meal.emoji ?? getMealEmoji(meal.name, meal.meal_type)) + " "}
                           {meal.name}
                         </p>
                         {meal.locked && (

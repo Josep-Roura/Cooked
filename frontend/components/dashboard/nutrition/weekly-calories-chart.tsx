@@ -1,7 +1,7 @@
 "use client"
 
 import { format, parseISO } from "date-fns"
-import { Bar, BarChart, Cell, Line, Tooltip, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, Cell, Tooltip, XAxis, YAxis } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { WeeklyNutritionDay } from "@/lib/db/types"
@@ -19,6 +19,7 @@ type ChartDatum = {
   displayLabel: string
   consumedKcal: number
   targetKcal: number | null
+  remainingKcal: number
 }
 
 function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
@@ -28,6 +29,10 @@ function buildChartData(days: WeeklyNutritionDay[]): ChartDatum[] {
     displayLabel: format(parseISO(day.date), "EEE, MMM d"),
     consumedKcal: day.consumed.kcal,
     targetKcal: day.target?.kcal ?? null,
+    remainingKcal:
+      day.target?.kcal && day.target.kcal > day.consumed.kcal
+        ? day.target.kcal - day.consumed.kcal
+        : 0,
   }))
 }
 
@@ -48,8 +53,8 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
       <h3 className="text-lg font-semibold text-foreground mb-4">Weekly Calories</h3>
       <ChartContainer
         config={{
-          consumed: { color: "hsl(var(--primary))" },
-          target: { color: "hsl(var(--muted-foreground))" },
+          consumed: { color: "hsl(142 72% 35%)" },
+          remaining: { color: "hsl(142 45% 82%)" },
         }}
         className="h-64 w-full"
       >
@@ -80,28 +85,39 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           />
           <Bar
             dataKey="consumedKcal"
+            stackId="kcal"
             radius={[8, 8, 0, 0]}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
                 key={entry.date}
-                fill="hsl(var(--primary))"
+                fill="hsl(142 72% 35%)"
                 stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
             ))}
           </Bar>
-          <Line
-            type="monotone"
-            dataKey="targetKcal"
-            stroke="hsl(var(--muted-foreground))"
-            strokeDasharray="4 4"
-            dot={false}
-          />
+          <Bar
+            dataKey="remainingKcal"
+            stackId="kcal"
+            radius={[8, 8, 0, 0]}
+            onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
+          >
+            {data.map((entry) => (
+              <Cell
+                key={`${entry.date}-remaining`}
+                fill="hsl(142 45% 82%)"
+                stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
+                strokeWidth={entry.date === selectedDate ? 2 : 0}
+              />
+            ))}
+          </Bar>
         </BarChart>
       </ChartContainer>
-      <p className="text-xs text-muted-foreground mt-4">Bars show calories consumed, line shows targets.</p>
+      <p className="text-xs text-muted-foreground mt-4">
+        Dark green shows consumed calories. Light green shows remaining to target.
+      </p>
     </div>
   )
 }
