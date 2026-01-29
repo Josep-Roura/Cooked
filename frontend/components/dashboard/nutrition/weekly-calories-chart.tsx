@@ -50,8 +50,8 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
       <h3 className="text-lg font-semibold text-foreground mb-4">Weekly Calories</h3>
       <ChartContainer
         config={{
-          consumed: { color: "hsl(var(--primary))" },
-          target: { color: "hsl(var(--primary) / 0.25)" },
+          consumed: { color: "var(--primary)" },
+          target: { color: "var(--primary)" },
         }}
         className="h-64 w-full"
       >
@@ -82,7 +82,7 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           />
           <Bar dataKey="targetKcal" radius={[10, 10, 10, 10]}>
             {data.map((entry) => (
-              <Cell key={`target-${entry.date}`} fill="hsl(var(--primary) / 0.25)" />
+              <Cell key={`target-${entry.date}`} fill="var(--primary)" fillOpacity={0.25} />
             ))}
           </Bar>
           <Bar
@@ -93,8 +93,8 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
             {data.map((entry) => (
               <Cell
                 key={entry.date}
-                fill="hsl(var(--primary))"
-                stroke={entry.date === selectedDate ? "hsl(var(--primary))" : "transparent"}
+                fill="var(--primary)"
+                stroke={entry.date === selectedDate ? "var(--primary)" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
             ))}
