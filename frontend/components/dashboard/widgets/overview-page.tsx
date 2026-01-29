@@ -47,11 +47,9 @@ export function OverviewPage() {
     format(now, "yyyy-MM-dd"),
     format(addDays(now, 365), "yyyy-MM-dd"),
   )
-  const todayMealPlanQuery = useMealPlanDay(user?.id, todayKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
-  const todayMacrosQuery = useMacrosDay(user?.id, todayKey)
   const macrosQuery = useMacrosDay(user?.id, selectedDate)
-  const todayTrainingQuery = useTrainingSessions(user?.id, todayKey, todayKey)
+  const selectedTrainingQuery = useTrainingSessions(user?.id, selectedDate, selectedDate)
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
   const planRef = useRef<HTMLDivElement | null>(null)
@@ -108,20 +106,19 @@ export function OverviewPage() {
 
   const events = eventsQuery.data ?? []
   const mealPlanDay = mealPlanQuery.data ?? { plan: null, items: [] }
-  const todayMealPlan = todayMealPlanQuery.data ?? { plan: null, items: [] }
   const consumedMacros = macrosQuery.data?.consumed ?? null
   const targetMacros = macrosQuery.data?.target ?? null
-  const todayConsumedMacros = todayMacrosQuery.data?.consumed ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
-  const todayTargetMacros = todayMacrosQuery.data?.target ?? null
-  const todayPercent = todayMacrosQuery.data?.percent ?? 0
+  const selectedConsumedMacros = macrosQuery.data?.consumed ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
+  const selectedTargetMacros = macrosQuery.data?.target ?? null
+  const selectedPercent = macrosQuery.data?.percent ?? 0
 
-  const totalMeals = todayMealPlan.items.length
-  const completedMeals = todayMealPlan.items.filter((meal) => meal.eaten).length
+  const totalMeals = mealPlanDay.items.length
+  const completedMeals = mealPlanDay.items.filter((meal) => meal.eaten).length
   const mealsRemaining = totalMeals > 0 && completedMeals < totalMeals
   const mealsProgressLabel = `${completedMeals}/${totalMeals}`
 
-  const trainingSessionsToday = todayTrainingQuery.data ?? []
-  const trainingSummary = trainingSessionsToday.reduce(
+  const trainingSessionsSelected = selectedTrainingQuery.data ?? []
+  const trainingSummary = trainingSessionsSelected.reduce(
     (acc, session) => {
       acc.sessions += 1
       acc.durationMinutes += session.durationMinutes
@@ -130,15 +127,15 @@ export function OverviewPage() {
     { sessions: 0, durationMinutes: 0 },
   )
 
-  const isAfterCutoff = now.getHours() >= 18
+  const isAfterCutoff = selectedDate === todayKey && now.getHours() >= 18
   const completionPercent = totalMeals > 0 ? (completedMeals / totalMeals) * 100 : 0
 
   const status = (() => {
-    if (todayTargetMacros?.kcal && todayPercent > 125) return "Behind"
-    if (todayTargetMacros?.kcal && todayPercent < 60) return "Behind"
+    if (selectedTargetMacros?.kcal && selectedPercent > 125) return "Behind"
+    if (selectedTargetMacros?.kcal && selectedPercent < 60) return "Behind"
     if (isAfterCutoff && totalMeals > 0 && completedMeals === 0) return "Behind"
-    if (todayTargetMacros?.kcal && todayPercent >= 60 && todayPercent <= 79) return "Slightly off"
-    if (todayTargetMacros?.kcal && todayPercent >= 111 && todayPercent <= 125) return "Slightly off"
+    if (selectedTargetMacros?.kcal && selectedPercent >= 60 && selectedPercent <= 79) return "Slightly off"
+    if (selectedTargetMacros?.kcal && selectedPercent >= 111 && selectedPercent <= 125) return "Slightly off"
     if (!isAfterCutoff || completionPercent >= 50) return "On track"
     return "Behind"
   })()
@@ -170,12 +167,14 @@ export function OverviewPage() {
       <motion.div className="mb-6" {...animationProps}>
         <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Today</p>
-            <h2 className="text-2xl font-bold text-foreground">{format(now, "EEEE, MMMM d")}</h2>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected day</p>
+            <h2 className="text-2xl font-bold text-foreground">
+              {format(parseISO(selectedDate), "EEEE, MMMM d")}
+            </h2>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>{mealsProgressLabel} meals logged</span>
               <span>
-                {todayConsumedMacros.kcal}/{todayTargetMacros?.kcal ?? 0} kcal · {todayPercent}% of target
+                {selectedConsumedMacros.kcal}/{selectedTargetMacros?.kcal ?? 0} kcal · {selectedPercent}% of target
               </span>
               <span>
                 {trainingSummary.sessions} sessions · {Math.round(trainingSummary.durationMinutes)} min
@@ -184,13 +183,13 @@ export function OverviewPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className={`rounded-full px-3 py-1 text-xs ${statusTone}`}>{status}</Badge>
-            {mealsRemaining ? (
+            {mealsRemaining && selectedDate === todayKey ? (
               <Button onClick={handleFinishMeals} className="rounded-full text-xs px-4" type="button">
                 Finish today&apos;s meals
               </Button>
             ) : (
               <Button asChild className="rounded-full text-xs px-4">
-                <Link href={`/dashboard/nutrition?date=${todayKey}`}>View nutrition details</Link>
+                <Link href={`/dashboard/nutrition?date=${selectedDate}`}>View nutrition details</Link>
               </Button>
             )}
           </div>
@@ -214,7 +213,7 @@ export function OverviewPage() {
               consumed={consumedMacros}
               target={targetMacros}
               isLoading={macrosQuery.isLoading}
-              label={selectedDate === format(new Date(), "yyyy-MM-dd") ? "Today's macros" : "Consumed macros"}
+              label={`Macros for ${format(parseISO(selectedDate), "MMM d")}`}
             />
           </motion.div>
         <motion.div {...hoverProps}>
@@ -228,11 +227,12 @@ export function OverviewPage() {
 
       <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
         <motion.div {...hoverProps}>
-          <TodaysTrainingCard
-            isLoading={overviewQuery.isLoading}
-            sessions={overviewQuery.data?.trainingSessions ?? []}
-            onSelect={handleSelectSession}
-          />
+            <TodaysTrainingCard
+              isLoading={selectedTrainingQuery.isLoading}
+              sessions={trainingSessionsSelected}
+              onSelect={handleSelectSession}
+              title={format(parseISO(selectedDate), "EEEE, MMM d")}
+            />
         </motion.div>
         <motion.div {...hoverProps} ref={planRef}>
           <PlanCard
