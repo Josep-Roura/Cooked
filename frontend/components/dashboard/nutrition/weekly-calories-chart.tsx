@@ -108,8 +108,8 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
               <Cell
                 key={`${entry.date}-remaining`}
                 fill="hsl(142 45% 82%)"
-                stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
-                strokeWidth={entry.date === selectedDate ? 2 : 0}
+                stroke="none"
+                strokeWidth={0}
               />
             ))}
           </Bar>

@@ -105,11 +105,18 @@ export function MealCards({
       ) : filteredMeals.length > 0 ? (
         <div className="space-y-3">
           {filteredMeals.map((meal) => (
-            <button
+            <div
               key={meal.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedMeal(meal)}
-              className={`w-full text-left p-4 rounded-xl border ${
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  setSelectedMeal(meal)
+                }
+              }}
+              className={`w-full text-left p-4 rounded-xl border cursor-pointer ${
                 meal.eaten
                   ? "bg-emerald-50 border-emerald-200"
                   : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
@@ -159,7 +166,7 @@ export function MealCards({
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       ) : null}

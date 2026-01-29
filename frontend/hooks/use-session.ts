@@ -19,6 +19,18 @@ export function useSession(): SessionState {
 
   const fetchSession = useCallback(async () => {
     const supabase = getSupabaseClient()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const projectRef = supabaseUrl?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1]
+    const storageKey = projectRef ? `sb-${projectRef}-auth-token` : null
+
+    if (typeof window !== "undefined" && storageKey && !window.localStorage.getItem(storageKey)) {
+      setState({
+        session: null,
+        user: null,
+        loading: false,
+      })
+      return
+    }
 
     try {
       const {
