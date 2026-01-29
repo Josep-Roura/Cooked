@@ -7,12 +7,27 @@ import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { DayPlanCard } from "@/components/dashboard/plans/day-plan-card"
 import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
-import { PlanDetailsDrawer } from "@/components/dashboard/plans/plan-details-drawer"
+import { PlanDetailsModal } from "@/components/dashboard/plans/plan-details-modal"
 import { WeeklyPlanHeader } from "@/components/dashboard/plans/weekly-plan-header"
+import { WeeklyTimeGrid } from "@/components/dashboard/schedule/weekly-time-grid"
+import type { ScheduleItem } from "@/components/dashboard/schedule/types"
+import {
+  addMinutesToTime,
+  getMealDurationMinutes,
+  getMealFallbackTime,
+  getWorkoutDurationMinutes,
+  normalizeTime,
+} from "@/components/dashboard/schedule/utils"
 import { useSession } from "@/hooks/use-session"
-import { usePlanChat, usePlanWeek, useResetPlanChat, useSendPlanChatMessage } from "@/lib/db/hooks"
+import {
+  useNutritionPlanRowsRange,
+  usePlanChat,
+  usePlanWeek,
+  useResetPlanChat,
+  useSendPlanChatMessage,
+  useWorkoutsRange,
+} from "@/lib/db/hooks"
 import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 import type { PlanWeekMeal } from "@/lib/db/types"
 
@@ -24,7 +39,6 @@ export default function PlansPage() {
   const [chatInput, setChatInput] = useState("")
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<PlanWeekMeal | null>(null)
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
 
   const weekStart = startOfWeek(anchorDate, { weekStartsOn: 1 })
@@ -34,6 +48,8 @@ export default function PlansPage() {
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
 
   const weekMealsQuery = usePlanWeek(user?.id, weekStartKey, weekEndKey)
+  const workoutsQuery = useWorkoutsRange(user?.id, weekStartKey, weekEndKey)
+  const planRowsQuery = useNutritionPlanRowsRange(user?.id, weekStartKey, weekEndKey)
   const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
   const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
   const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
@@ -41,19 +57,25 @@ export default function PlansPage() {
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
 
-  const mealsByDate = useMemo(() => {
-    const map = new Map<string, PlanWeekMeal[]>()
-    ;(weekMealsQuery.data ?? []).forEach((meal) => {
-      if (!map.has(meal.date)) {
-        map.set(meal.date, [])
+  const workoutsByDay = useMemo(() => {
+    const map = new Map<string, { start: string; end: string }[]>()
+    ;(workoutsQuery.data ?? []).forEach((workout) => {
+      const fallback = normalizeTime(workout.start_time, "18:00")
+      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+      const endTime = addMinutesToTime(fallback.time, duration)
+      if (!map.has(workout.workout_day)) {
+        map.set(workout.workout_day, [])
       }
-      map.get(meal.date)?.push(meal)
+      map.get(workout.workout_day)?.push({ start: fallback.time, end: endTime })
     })
-    map.forEach((items) =>
-      items.sort((a, b) => (a.sort_order ?? a.slot) - (b.sort_order ?? b.slot)),
-    )
     return map
-  }, [weekMealsQuery.data])
+  }, [workoutsQuery.data])
+
+  const planRowsByDay = useMemo(() => {
+    const map = new Map<string, number>()
+    ;(planRowsQuery.data ?? []).forEach((row) => map.set(row.date, row.intra_cho_g_per_h ?? 0))
+    return map
+  }, [planRowsQuery.data])
 
   const weeklyTotals = useMemo(() => {
     return (weekMealsQuery.data ?? []).reduce(
@@ -106,7 +128,7 @@ export default function PlansPage() {
     } catch (error) {
       toast({
         title: "Reset failed",
-        description: error instanceof Error ? error.message : "Unable to reset chat.",
+        description: error instanceof Error ? error.message : "Unable to reset chat",
         variant: "destructive",
       })
     }
@@ -117,22 +139,117 @@ export default function PlansPage() {
 
   const openMealDetails = (meal: PlanWeekMeal) => {
     setSelectedMeal(meal)
-    setSelectedDay(null)
     setDetailsOpen(true)
   }
 
-  const openDayDetails = (date: Date) => {
-    setSelectedDay(date)
-    setSelectedMeal(null)
-    setDetailsOpen(true)
+  if (weekMealsQuery.isError || chatQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
+    return (
+      <ErrorState
+        onRetry={() => {
+          weekMealsQuery.refetch()
+          workoutsQuery.refetch()
+          planRowsQuery.refetch()
+          chatQuery.refetch()
+        }}
+      />
+    )
   }
 
-  if (weekMealsQuery.isError || chatQuery.isError) {
-    return <ErrorState onRetry={() => {
-      weekMealsQuery.refetch()
-      chatQuery.refetch()
-    }} />
-  }
+  const scheduleItems = useMemo<ScheduleItem[]>(() => {
+    const items: ScheduleItem[] = []
+    const workouts = workoutsQuery.data ?? []
+
+    ;(weekMealsQuery.data ?? []).forEach((meal) => {
+      const fallbackTime = getMealFallbackTime(meal.slot)
+      const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
+      const duration = getMealDurationMinutes(meal.kcal)
+      const mealType = meal.meal_type?.toLowerCase() ?? ""
+      const dayWorkouts = workoutsByDay.get(meal.date) ?? []
+      const primaryWorkout = dayWorkouts[0]
+
+      let startTime = baseTime.time
+      let endTime = addMinutesToTime(baseTime.time, duration)
+      let type: ScheduleItem["type"] = "meal"
+
+      if (primaryWorkout && mealType.includes("pre")) {
+        type = "nutrition_pre"
+        startTime = addMinutesToTime(primaryWorkout.start, -45)
+        endTime = addMinutesToTime(startTime, 20)
+      }
+      if (primaryWorkout && mealType.includes("post")) {
+        type = "nutrition_post"
+        startTime = addMinutesToTime(primaryWorkout.end, 10)
+        endTime = addMinutesToTime(startTime, 20)
+      }
+
+      items.push({
+        id: meal.id,
+        type,
+        date: meal.date,
+        startTime,
+        endTime,
+        title: meal.recipe?.title ?? meal.name,
+        emoji: meal.emoji ?? "🥗",
+        kcal: meal.kcal,
+        macros: {
+          protein_g: meal.protein_g,
+          carbs_g: meal.carbs_g,
+          fat_g: meal.fat_g,
+        },
+        timeUnknown: baseTime.isUnknown,
+        meta: { meal },
+      })
+    })
+
+    workouts.forEach((workout) => {
+      const fallback = normalizeTime(workout.start_time, "18:00")
+      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+      const endTime = addMinutesToTime(fallback.time, duration)
+      const title = workout.title ?? workout.workout_type ?? "Workout"
+      const workoutType = workout.workout_type?.toLowerCase() ?? ""
+      const emoji = workoutType.includes("swim")
+        ? "🏊"
+        : workoutType.includes("bike") || workoutType.includes("cycle")
+          ? "🚴"
+          : workoutType.includes("run")
+            ? "🏃"
+            : workoutType.includes("strength")
+              ? "🏋️"
+              : workoutType.includes("rest")
+                ? "🛌"
+                : "🏅"
+
+      items.push({
+        id: `workout-${workout.id}`,
+        type: "workout",
+        date: workout.workout_day,
+        startTime: fallback.time,
+        endTime,
+        title,
+        emoji,
+        detail: workout.planned_hours || workout.actual_hours ? `${duration} min` : null,
+        timeUnknown: fallback.isUnknown,
+        meta: { workout },
+      })
+
+      const intraFuel = planRowsByDay.get(workout.workout_day)
+      if (intraFuel && intraFuel > 0) {
+        items.push({
+          id: `fuel-${workout.id}`,
+          type: "nutrition_during",
+          date: workout.workout_day,
+          startTime: fallback.time,
+          endTime: addMinutesToTime(fallback.time, Math.min(duration, 15)),
+          title: `Fuel ${intraFuel}g/hr`,
+          emoji: "⚡",
+          timeUnknown: fallback.isUnknown,
+          meta: { workout },
+        })
+      }
+    })
+
+    return items
+  }, [weekMealsQuery.data, workoutsQuery.data, workoutsByDay, planRowsByDay])
 
   return (
     <main className="flex-1 p-8 overflow-auto">
@@ -148,13 +265,11 @@ export default function PlansPage() {
           isGenerating={isGenerating}
         />
 
-        {weekMealsQuery.isLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
-            {days.map((day) => (
-              <Skeleton key={day.toISOString()} className="h-72 w-full" />
-            ))}
+        {weekMealsQuery.isLoading || workoutsQuery.isLoading || planRowsQuery.isLoading ? (
+          <div className="rounded-3xl border border-border/60 bg-card p-6">
+            <Skeleton className="h-[520px] w-full" />
           </div>
-        ) : (weekMealsQuery.data ?? []).length === 0 ? (
+        ) : (weekMealsQuery.data ?? []).length === 0 && (workoutsQuery.data ?? []).length === 0 ? (
           <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
             <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
             <Button
@@ -167,24 +282,18 @@ export default function PlansPage() {
             </Button>
           </div>
         ) : (
-          <div className="bg-card border border-border/60 rounded-3xl p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
-              {days.map((day) => {
-                const dateKey = format(day, "yyyy-MM-dd")
-                const meals = mealsByDate.get(dateKey) ?? []
-                return (
-                  <DayPlanCard
-                    key={dateKey}
-                    date={day}
-                    meals={meals}
-                    maxMeals={3}
-                    onSelectMeal={openMealDetails}
-                    onSelectDay={openDayDetails}
-                  />
-                )
-              })}
-            </div>
-          </div>
+          <WeeklyTimeGrid
+            days={days}
+            items={scheduleItems}
+            onSelectItem={(item) => {
+              if (item.type === "meal" || item.type.startsWith("nutrition_")) {
+                const meal = item.meta?.meal as PlanWeekMeal | undefined
+                if (meal) {
+                  openMealDetails(meal)
+                }
+              }
+            }}
+          />
         )}
       </div>
 
@@ -200,13 +309,7 @@ export default function PlansPage() {
         </div>
       </div>
 
-      <PlanDetailsDrawer
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        selectedMeal={selectedMeal}
-        selectedDay={selectedDay}
-        dayMeals={selectedDay ? mealsByDate.get(format(selectedDay, "yyyy-MM-dd")) ?? [] : []}
-      />
+      <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
 
       <PlanChatDrawer
         open={chatOpen}
