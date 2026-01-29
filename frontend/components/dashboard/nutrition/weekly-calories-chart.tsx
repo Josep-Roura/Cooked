@@ -48,12 +48,12 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
       <h3 className="text-lg font-semibold text-foreground mb-4">Weekly Calories</h3>
       <ChartContainer
         config={{
-          consumed: { color: "hsl(142 72% 35%)" },
-          remaining: { color: "hsl(142 45% 82%)" },
+          consumed: { color: "hsl(var(--primary))" },
+          remaining: { color: "hsl(var(--primary) / 0.2)" },
         }}
         className="h-64 w-full"
       >
-        <BarChart data={data} margin={{ left: -16, right: 8 }} barGap={-28} barCategoryGap={18}>
+        <BarChart data={data} margin={{ left: -16, right: 8 }} barGap={-32} barCategoryGap={20}>
           <XAxis dataKey="label" tickLine={false} axisLine={false} />
           <YAxis hide domain={[0, "dataMax + 200"]} />
           <Tooltip
@@ -81,13 +81,13 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           <Bar
             dataKey="targetKcal"
             radius={[12, 12, 0, 0]}
-            barSize={36}
+            barSize={32}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
                 key={entry.date}
-                fill="hsl(142 45% 82%)"
+                fill="hsl(var(--primary) / 0.2)"
                 stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
@@ -96,13 +96,13 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           <Bar
             dataKey="consumedKcal"
             radius={[12, 12, 0, 0]}
-            barSize={28}
+            barSize={32}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
                 key={`${entry.date}-consumed`}
-                fill="hsl(142 72% 35%)"
+                fill="hsl(var(--primary))"
                 stroke={entry.date === selectedDate ? "#22c55e" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
