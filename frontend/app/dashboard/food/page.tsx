@@ -1039,14 +1039,16 @@ export default function FoodPage() {
               onChange={(event) => setRecipeForm((prev) => ({ ...prev, cook_time_min: Number(event.target.value) }))}
             />
             <Select
-              value={recipeForm.category}
-              onValueChange={(value) => setRecipeForm((prev) => ({ ...prev, category: value }))}
+              value={recipeForm.category || "none"}
+              onValueChange={(value) =>
+                setRecipeForm((prev) => ({ ...prev, category: value === "none" ? "" : value }))
+              }
             >
               <SelectTrigger>
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No category</SelectItem>
+                <SelectItem value="none">No category</SelectItem>
                 {recipeCategories.map((category) => (
                   <SelectItem key={category.value} value={category.value}>
                     {category.label}
