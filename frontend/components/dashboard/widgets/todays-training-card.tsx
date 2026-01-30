@@ -1,9 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Activity, Clock, Filter, Play } from "lucide-react"
+import { Activity, Clock, Flame, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
@@ -25,36 +24,43 @@ const typeIcons: Record<TrainingType, string> = {
   other: "🏋️",
 }
 
-const filterOptions: Array<{ label: string; value: TrainingType | "all" }> = [
-  { label: "All", value: "all" },
-  { label: "Swim", value: "swim" },
-  { label: "Bike", value: "bike" },
-  { label: "Run", value: "run" },
-  { label: "Strength", value: "strength" },
+const fuelingHints: Array<{
+  label: string
+  predicate: (session: TrainingSessionSummary) => boolean
+}> = [
+  {
+    label: "Fuel before + during. Add carbs + fluids post-session.",
+    predicate: (session) => session.durationMinutes >= 90 || session.intensity === "high",
+  },
+  {
+    label: "Have a small carb snack 30-60 min before. Rehydrate after.",
+    predicate: (session) => session.durationMinutes >= 45 || session.intensity === "moderate",
+  },
+  {
+    label: "Light session — hydrate and add protein after.",
+    predicate: () => true,
+  },
 ]
 
 export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: TodaysTrainingCardProps) {
   const [selectedSession, setSelectedSession] = useState<TrainingSessionSummary | null>(null)
-  const [filter, setFilter] = useState<TrainingType | "all">("all")
-  const [search, setSearch] = useState("")
 
-  const filteredSessions = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
-    return sessions.filter((session) => {
-      if (filter !== "all" && session.type !== filter) {
-        return false
-      }
-      if (!normalizedSearch) {
-        return true
-      }
-      return session.title.toLowerCase().includes(normalizedSearch)
-    })
-  }, [filter, search, sessions])
+  const filteredSessions = useMemo(
+    () =>
+      [...sessions].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title)),
+    [sessions],
+  )
 
   const handleOpen = (session: TrainingSessionSummary) => {
     setSelectedSession(session)
     onSelect(session)
   }
+
+  const getFuelingHint = (session: TrainingSessionSummary) =>
+    fuelingHints.find((hint) => hint.predicate(session))?.label ?? ""
+
+  const formatIntensity = (intensity: TrainingSessionSummary["intensity"]) =>
+    intensity ? intensity.charAt(0).toUpperCase() + intensity.slice(1) : null
 
   if (isLoading) {
     return (
@@ -70,36 +76,13 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: Tod
     <div className="bg-card border border-border rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">{title ?? "Today's Training"}</h3>
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <select
-            className="bg-transparent text-xs text-muted-foreground"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value as TrainingType | "all")}
-          >
-            {filterOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="relative mb-4">
-        <Input
-          placeholder="Search sessions"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="pl-4"
-        />
       </div>
 
       {filteredSessions.length === 0 ? (
         <EmptyState
           icon={Activity}
-          title="No sessions found"
-          description="Try another sport filter or clear your search."
+          title="No sessions for this day"
+          description="Your training sessions will show up here once scheduled."
         />
       ) : (
         <div className="space-y-3">
@@ -114,17 +97,23 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: Tod
               </div>
               <div className="flex-1">
                 <h4 className="font-semibold text-foreground">{session.title}</h4>
-                <p className="text-sm text-muted-foreground capitalize">{session.type} • {session.intensity}</p>
+                <p className="text-sm text-muted-foreground capitalize">
+                  {session.type}
+                  {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Fueling hint: {getFuelingHint(session)}</p>
               </div>
               <div className="text-right text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {session.durationMinutes}m
                 </div>
-                <div className="flex items-center gap-1">
-                  <Activity className="h-3 w-3" />
-                  {session.calories} kcal
-                </div>
+                {session.calories ? (
+                  <div className="flex items-center gap-1">
+                    <Flame className="h-3 w-3" />
+                    {session.calories} kcal
+                  </div>
+                ) : null}
               </div>
             </button>
           ))}
@@ -138,13 +127,15 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: Tod
               <DrawerHeader className="p-0 mb-4">
                 <DrawerTitle className="text-lg font-semibold">{selectedSession.title}</DrawerTitle>
                 <p className="text-sm text-muted-foreground capitalize">
-                  {selectedSession.type} • {selectedSession.intensity} • {selectedSession.durationMinutes}m
+                  {selectedSession.type}
+                  {formatIntensity(selectedSession.intensity) ? ` • ${formatIntensity(selectedSession.intensity)}` : ""}
+                  • {selectedSession.durationMinutes}m
                 </p>
               </DrawerHeader>
               <p className="text-sm text-muted-foreground mb-4">{selectedSession.description}</p>
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-6">
                 <span>Scheduled: {selectedSession.time}</span>
-                <span>{selectedSession.calories} kcal estimated</span>
+                {selectedSession.calories ? <span>{selectedSession.calories} kcal estimated</span> : null}
               </div>
               {!selectedSession.completed && (
                 <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
