@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react"
 import { Mail, Scale, Target, Edit2 } from "lucide-react"
+import { z } from "zod"
 import { useQueryClient } from "@tanstack/react-query"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { CenteredModal } from "@/components/ui/centered-modal"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import type { ProfileRow, Units } from "@/lib/db/types"
 
@@ -30,9 +33,11 @@ type ProfileFormState = {
   workout_time: string
   diet: string
   meals_per_day: string
-  cooking_time_min: string
-  budget: string
-  kitchen: string
+  allergies_restrictions: string
+  preferred_cuisine: string
+  cooking_time_preference: string
+  budget_preference: string
+  daily_schedule: string
 }
 
 const DEFAULT_UNITS: Units = "metric"
@@ -58,16 +63,17 @@ const dietOptions = [
   { value: "vegetarian", label: "Vegetarian" },
   { value: "vegan", label: "Vegan" },
   { value: "pescatarian", label: "Pescatarian" },
+  { value: "other", label: "Other" },
 ]
 const budgetOptions = [
-  { value: "low", label: "Low - Budget conscious" },
-  { value: "medium", label: "Medium - Balanced" },
-  { value: "high", label: "High - Premium ingredients" },
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "premium", label: "Premium" },
 ]
-const kitchenOptions = [
-  { value: "full_kitchen", label: "Full Kitchen" },
-  { value: "microwave_only", label: "Microwave Only" },
-  { value: "no_kitchen", label: "No Kitchen" },
+const cookingTimeOptions = [
+  { value: "quick", label: "Quick (15-20 min)" },
+  { value: "normal", label: "Normal (30-45 min)" },
+  { value: "batch", label: "Batch cooking" },
 ]
 const sportsOptions = [
   { value: "swim", label: "Swim" },
@@ -76,13 +82,36 @@ const sportsOptions = [
   { value: "gym", label: "Gym" },
 ]
 
+const profileSchema = z.object({
+  full_name: z.string().optional(),
+  avatar_url: z.string().url().or(z.literal("")).optional(),
+  height_cm: z.string().optional(),
+  weight_kg: z.string().optional(),
+  units: z.enum(["metric", "imperial"]),
+  primary_goal: z.string().optional(),
+  experience_level: z.string().optional(),
+  event: z.string().optional(),
+  sports: z.string().optional(),
+  workout_time: z.string().optional(),
+  diet: z.string().optional(),
+  meals_per_day: z.string().optional(),
+  allergies_restrictions: z.string().optional(),
+  preferred_cuisine: z.string().optional(),
+  cooking_time_preference: z.string().optional(),
+  budget_preference: z.string().optional(),
+  daily_schedule: z.string().optional(),
+})
+
 function buildFormState(profile: ProfileRow): ProfileFormState {
+  const units = profile.units ?? DEFAULT_UNITS
+  const heightValue = units === "imperial" ? cmToInches(profile.height_cm) : profile.height_cm
+  const weightValue = units === "imperial" ? kgToLbs(profile.weight_kg) : profile.weight_kg
   return {
     full_name: profile.full_name ?? profile.name ?? "",
     avatar_url: profile.avatar_url ?? "",
-    height_cm: profile.height_cm?.toString() ?? "",
-    weight_kg: profile.weight_kg?.toString() ?? "",
-    units: profile.units ?? DEFAULT_UNITS,
+    height_cm: formatOptionalNumber(heightValue),
+    weight_kg: formatOptionalNumber(weightValue),
+    units,
     primary_goal: profile.primary_goal ?? "",
     experience_level: profile.experience_level ?? "",
     event: profile.event ?? "",
@@ -90,9 +119,13 @@ function buildFormState(profile: ProfileRow): ProfileFormState {
     workout_time: profile.workout_time ?? "",
     diet: profile.diet ?? "",
     meals_per_day: profile.meals_per_day?.toString() ?? "",
-    cooking_time_min: profile.cooking_time_min?.toString() ?? "",
-    budget: profile.budget ?? "",
-    kitchen: profile.kitchen ?? "",
+    allergies_restrictions: Array.isArray(profile.allergies_restrictions)
+      ? profile.allergies_restrictions.join(", ")
+      : profile.allergies_restrictions ?? "",
+    preferred_cuisine: profile.preferred_cuisine ?? "",
+    cooking_time_preference: profile.cooking_time_preference ?? "",
+    budget_preference: profile.budget_preference ?? "",
+    daily_schedule: profile.daily_schedule ?? "",
   }
 }
 
@@ -104,10 +137,42 @@ function parseOptionalNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function formatOptionalNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return ""
+  }
+  const rounded = Number.isInteger(value) ? value.toString() : value.toFixed(1)
+  return rounded
+}
+
+function kgToLbs(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value * 2.2046226218
+}
+
+function lbsToKg(value: number | null): number | null {
+  if (value === null) return null
+  return value / 2.2046226218
+}
+
+function cmToInches(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value / 2.54
+}
+
+function inchesToCm(value: number | null): number | null {
+  if (value === null) return null
+  return value * 2.54
+}
+
 export function ProfileInfo({ profile }: ProfileInfoProps) {
   const displayName = profile.full_name ?? profile.name ?? "Athlete"
   const goal = profile.primary_goal ?? "—"
-  const weightUnit = profile.units === "imperial" ? "lbs" : "kg"
+  const units = profile.units ?? DEFAULT_UNITS
+  const weightUnit = units === "imperial" ? "lbs" : "kg"
+  const heightUnit = units === "imperial" ? "in" : "cm"
+  const displayWeight =
+    units === "imperial" ? formatOptionalNumber(kgToLbs(profile.weight_kg)) : formatOptionalNumber(profile.weight_kg)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -115,6 +180,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formState, setFormState] = useState<ProfileFormState>(() => buildFormState(profile))
+  const [activeTab, setActiveTab] = useState("basics")
 
   const isDirty = useMemo(() => {
     const baseline = buildFormState(profile)
@@ -125,12 +191,15 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
     if (open) {
       setFormState(buildFormState(profile))
       setError(null)
+      setActiveTab("basics")
     }
   }, [open, profile])
 
-  const handleChange = (field: keyof ProfileFormState) => (event: ChangeEvent<HTMLInputElement>) => {
-    setFormState((prev) => ({ ...prev, [field]: event.target.value }))
-  }
+  const handleChange =
+    (field: keyof ProfileFormState) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setFormState((prev) => ({ ...prev, [field]: event.target.value }))
+    }
 
   const handleSelectChange = (field: keyof ProfileFormState) => (value: string) => {
     setFormState((prev) => ({ ...prev, [field]: value }))
@@ -147,20 +216,25 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
     setFormState((prev) => ({ ...prev, sports: nextSports.join(", ") }))
   }
 
-  const handleUnitsChange = (value: Units) => {
-    setFormState((prev) => ({ ...prev, units: value }))
-  }
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setIsSaving(true)
     setError(null)
 
+    const parsed = profileSchema.safeParse(formState)
+    if (!parsed.success) {
+      setError("Please review the highlighted fields before saving.")
+      setIsSaving(false)
+      return
+    }
+
+    const parsedHeight = parseOptionalNumber(formState.height_cm)
+    const parsedWeight = parseOptionalNumber(formState.weight_kg)
     const payload = {
       full_name: formState.full_name.trim() || null,
       avatar_url: formState.avatar_url.trim() || null,
-      height_cm: parseOptionalNumber(formState.height_cm),
-      weight_kg: parseOptionalNumber(formState.weight_kg),
+      height_cm: formState.units === "imperial" ? inchesToCm(parsedHeight) : parsedHeight,
+      weight_kg: formState.units === "imperial" ? lbsToKg(parsedWeight) : parsedWeight,
       units: formState.units,
       primary_goal: formState.primary_goal.trim() || null,
       experience_level: formState.experience_level.trim() || null,
@@ -172,9 +246,14 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
       workout_time: formState.workout_time.trim() || null,
       diet: formState.diet.trim() || null,
       meals_per_day: parseOptionalNumber(formState.meals_per_day),
-      cooking_time_min: parseOptionalNumber(formState.cooking_time_min),
-      budget: formState.budget.trim() || null,
-      kitchen: formState.kitchen.trim() || null,
+      allergies_restrictions: formState.allergies_restrictions
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      preferred_cuisine: formState.preferred_cuisine.trim() || null,
+      cooking_time_preference: formState.cooking_time_preference.trim() || null,
+      budget_preference: formState.budget_preference.trim() || null,
+      daily_schedule: formState.daily_schedule.trim() || null,
     }
 
     try {
@@ -222,18 +301,48 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
             <p className="text-muted-foreground">{profile.experience_level ?? ""}</p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-              <Edit2 className="h-4 w-4" />
-              Edit Profile
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Edit profile</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
+        <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => setOpen(true)}>
+          <Edit2 className="h-4 w-4" />
+          Edit Profile
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
+          <Mail className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <p className="text-xs text-muted-foreground">Email</p>
+            <p className="text-sm font-medium text-foreground">{profile.email ?? ""}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
+          <Scale className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <p className="text-xs text-muted-foreground">Weight</p>
+            <p className="text-sm font-medium text-foreground">
+              {displayWeight || "—"} {weightUnit}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
+          <Target className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <p className="text-xs text-muted-foreground">Goal</p>
+            <p className="text-sm font-medium text-foreground">{goal}</p>
+          </div>
+        </div>
+      </div>
+
+      <CenteredModal open={open} onOpenChange={setOpen} title="Edit profile">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="basics">Basics</TabsTrigger>
+              <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
+              <TabsTrigger value="preferences">Preferences</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="basics" className="mt-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="full_name">Full name</Label>
@@ -244,24 +353,12 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                   <Input id="avatar_url" value={formState.avatar_url} onChange={handleChange("avatar_url")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="height_cm">Height (cm)</Label>
+                  <Label htmlFor="height_cm">Height ({heightUnit})</Label>
                   <Input id="height_cm" value={formState.height_cm} onChange={handleChange("height_cm")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="weight_kg">Weight (kg)</Label>
+                  <Label htmlFor="weight_kg">Weight ({weightUnit})</Label>
                   <Input id="weight_kg" value={formState.weight_kg} onChange={handleChange("weight_kg")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="units">Units</Label>
-                  <Select value={formState.units} onValueChange={handleUnitsChange}>
-                    <SelectTrigger id="units">
-                      <SelectValue placeholder="Select units" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="metric">Metric</SelectItem>
-                      <SelectItem value="imperial">Imperial</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="primary_goal">Primary goal</Label>
@@ -334,6 +431,11 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="nutrition" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="diet">Diet</Label>
                   <Select value={formState.diet} onValueChange={handleSelectChange("diet")}>
@@ -365,25 +467,51 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="cooking_time_min">Cooking time (min)</Label>
-                  <Select value={formState.cooking_time_min} onValueChange={handleSelectChange("cooking_time_min")}>
-                    <SelectTrigger id="cooking_time_min">
-                      <SelectValue placeholder="Select cooking time" />
+                  <Label htmlFor="allergies_restrictions">Allergies & restrictions</Label>
+                  <Textarea
+                    id="allergies_restrictions"
+                    value={formState.allergies_restrictions}
+                    onChange={handleChange("allergies_restrictions")}
+                    placeholder="e.g. dairy-free, peanuts"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preferred_cuisine">Preferred cuisine</Label>
+                  <Input
+                    id="preferred_cuisine"
+                    value={formState.preferred_cuisine}
+                    onChange={handleChange("preferred_cuisine")}
+                    placeholder="e.g. Mediterranean"
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="preferences" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cooking_time_preference">Cooking time preference</Label>
+                  <Select
+                    value={formState.cooking_time_preference}
+                    onValueChange={handleSelectChange("cooking_time_preference")}
+                  >
+                    <SelectTrigger id="cooking_time_preference">
+                      <SelectValue placeholder="Select preference" />
                     </SelectTrigger>
                     <SelectContent>
-                      {[10, 20, 30, 60].map((minutes) => (
-                        <SelectItem key={minutes} value={String(minutes)}>
-                          {minutes === 60 ? "60+ minutes" : `${minutes} minutes`}
+                      {cookingTimeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="budget">Budget</Label>
-                  <Select value={formState.budget} onValueChange={handleSelectChange("budget")}>
-                    <SelectTrigger id="budget">
-                      <SelectValue placeholder="Select budget level" />
+                  <Label htmlFor="budget_preference">Budget preference</Label>
+                  <Select value={formState.budget_preference} onValueChange={handleSelectChange("budget_preference")}>
+                    <SelectTrigger id="budget_preference">
+                      <SelectValue placeholder="Select budget" />
                     </SelectTrigger>
                     <SelectContent>
                       {budgetOptions.map((option) => (
@@ -394,64 +522,32 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="kitchen">Kitchen</Label>
-                  <Select value={formState.kitchen} onValueChange={handleSelectChange("kitchen")}>
-                    <SelectTrigger id="kitchen">
-                      <SelectValue placeholder="Select kitchen access" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {kitchenOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="daily_schedule">Daily schedule (optional)</Label>
+                  <Textarea
+                    id="daily_schedule"
+                    value={formState.daily_schedule}
+                    onChange={handleChange("daily_schedule")}
+                    placeholder="Breakfast 7-8am, Lunch 12-1pm, Dinner 7-8pm"
+                  />
                 </div>
               </div>
+            </TabsContent>
+          </Tabs>
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSaving || !isDirty}>
-                  {isSaving && <Spinner className="mr-2" />}
-                  Save changes
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
-          <Mail className="h-5 w-5 text-muted-foreground" />
-          <div>
-            <p className="text-xs text-muted-foreground">Email</p>
-            <p className="text-sm font-medium text-foreground">{profile.email ?? ""}</p>
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSaving || !isDirty}>
+              {isSaving && <Spinner className="mr-2" />}
+              Save changes
+            </Button>
           </div>
-        </div>
-        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
-          <Scale className="h-5 w-5 text-muted-foreground" />
-          <div>
-            <p className="text-xs text-muted-foreground">Weight</p>
-            <p className="text-sm font-medium text-foreground">
-              {profile.weight_kg ?? "—"} {weightUnit}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 p-4 bg-muted rounded-xl">
-          <Target className="h-5 w-5 text-muted-foreground" />
-          <div>
-            <p className="text-xs text-muted-foreground">Goal</p>
-            <p className="text-sm font-medium text-foreground">{goal}</p>
-          </div>
-        </div>
-      </div>
+        </form>
+      </CenteredModal>
     </div>
   )
 }

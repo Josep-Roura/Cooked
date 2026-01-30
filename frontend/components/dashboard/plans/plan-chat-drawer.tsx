@@ -21,6 +21,7 @@ interface PlanChatDrawerProps {
   onSend: () => void
   onReset: () => void
   isSending: boolean
+  onApply?: () => void
 }
 
 export function PlanChatDrawer({
@@ -35,6 +36,7 @@ export function PlanChatDrawer({
   onSend,
   onReset,
   isSending,
+  onApply,
 }: PlanChatDrawerProps) {
   const [resetOpen, setResetOpen] = React.useState(false)
 
@@ -84,9 +86,16 @@ export function PlanChatDrawer({
                 <RotateCcw className="h-3 w-3 mr-1" />
                 Reset chat
               </Button>
-              <Button className="rounded-full text-xs" onClick={onSend} disabled={isSending}>
-                Send
-              </Button>
+              <div className="flex items-center gap-2">
+                {onApply ? (
+                  <Button variant="outline" className="rounded-full text-xs" onClick={onApply}>
+                    Apply
+                  </Button>
+                ) : null}
+                <Button className="rounded-full text-xs" onClick={onSend} disabled={isSending}>
+                  Send
+                </Button>
+              </div>
             </div>
           </div>
         </SheetContent>
