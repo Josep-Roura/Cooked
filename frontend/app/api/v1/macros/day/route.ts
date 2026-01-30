@@ -50,19 +50,35 @@ export async function GET(req: NextRequest) {
 
     let consumed = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
 
-    const { data: meals, error: mealsError } = await supabase
-      .from("nutrition_meals")
-      .select("kcal, protein_g, carbs_g, fat_g, eaten")
-      .eq("user_id", user.id)
-      .eq("date", date)
+    const [{ data: meals, error: mealsError }, { data: mealLog, error: logError }] = await Promise.all([
+      supabase
+        .from("nutrition_meals")
+        .select("slot, kcal, protein_g, carbs_g, fat_g, eaten")
+        .eq("user_id", user.id)
+        .eq("date", date),
+      supabase
+        .from("meal_log")
+        .select("slot, is_eaten")
+        .eq("user_id", user.id)
+        .eq("date", date),
+    ])
 
-    if (mealsError) {
-      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
+    if (mealsError || logError) {
+      return jsonError(
+        400,
+        "db_error",
+        "Failed to load meals",
+        mealsError?.message ?? logError?.message ?? null,
+      )
     }
 
-    consumed = (meals ?? []).reduce(
-      (acc, meal) => {
-        if (!meal.eaten) return acc
+    const mealMap = new Map((meals ?? []).map((meal) => [meal.slot, meal]))
+    const logMap = new Map((mealLog ?? []).map((log) => [log.slot, log.is_eaten]))
+
+    consumed = Array.from(mealMap.entries()).reduce(
+      (acc, [slot, meal]) => {
+        const eaten = logMap.has(slot) ? Boolean(logMap.get(slot)) : meal.eaten ?? false
+        if (!eaten) return acc
         acc.kcal += meal.kcal ?? 0
         acc.protein_g += meal.protein_g ?? 0
         acc.carbs_g += meal.carbs_g ?? 0

@@ -1,6 +1,5 @@
 "use client"
 
-import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { NutritionMacros } from "@/lib/db/types"
 
@@ -25,11 +24,13 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
     )
   }
 
+  const hasTarget = Boolean(target)
   const metrics = [
     {
       label: "Calories",
       current: consumed.kcal,
       target: target?.kcal ?? 0,
+      hasTarget,
       unit: "kcal",
       color: "bg-primary",
     },
@@ -37,6 +38,7 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
       label: "Protein",
       current: consumed.protein_g,
       target: target?.protein_g ?? 0,
+      hasTarget,
       unit: "g",
       color: "bg-cyan-500",
     },
@@ -44,6 +46,7 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
       label: "Carbs",
       current: consumed.carbs_g,
       target: target?.carbs_g ?? 0,
+      hasTarget,
       unit: "g",
       color: "bg-orange-500",
     },
@@ -52,30 +55,32 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
   return (
     <>
       {metrics.map((metric) => {
-        const percentage = metric.target ? Math.round((metric.current / metric.target) * 100) : 0
-        const diff = metric.current - metric.target
-        const TrendIcon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
+        const percentage = metric.hasTarget && metric.target ? Math.round((metric.current / metric.target) * 100) : 0
+        const diff = metric.hasTarget ? metric.current - metric.target : 0
+        const remaining = Math.abs(diff)
+        const statusLabel = metric.hasTarget
+          ? diff > 0
+            ? `${remaining} ${metric.unit} over`
+            : `${remaining} ${metric.unit} left`
+          : "No target"
+        const badgeTone = !metric.hasTarget
+          ? "bg-muted text-muted-foreground"
+          : diff > 0
+            ? "bg-rose-100 text-rose-700"
+            : "bg-emerald-100 text-emerald-700"
 
         return (
           <div key={metric.label} className="bg-card border border-border rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm text-muted-foreground">{metric.label}</span>
-              {target ? (
-                <div className="flex items-center gap-1 text-xs">
-                  <TrendIcon className={`h-3 w-3 ${diff >= 0 ? "text-green-500" : "text-red-500"}`} />
-                  <span className={diff >= 0 ? "text-green-500" : "text-red-500"}>
-                    {diff >= 0 ? "+" : ""}
-                    {diff} {metric.unit}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-xs text-muted-foreground">No target</span>
-              )}
+              <span className={`text-[11px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full ${badgeTone}`}>
+                {statusLabel}
+              </span>
             </div>
             <div className="flex items-end gap-2 mb-3">
               <span className="text-3xl font-bold text-foreground">{metric.current}</span>
               <span className="text-muted-foreground text-sm mb-1">
-                / {metric.target} {metric.unit}
+                / {metric.hasTarget ? metric.target : 0} {metric.unit}
               </span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -85,7 +90,7 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
               />
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              {target ? `${percentage}% of daily target` : "Set a target to track progress"}
+              {metric.hasTarget ? `${percentage}% of daily target` : "Set a target to track progress"}
             </p>
           </div>
         )

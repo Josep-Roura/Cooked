@@ -870,6 +870,20 @@ export function useNutritionMealsRange(
   })
 }
 
+export function useWorkoutsRange(
+  userId: string | null | undefined,
+  startDate: string,
+  endDate: string,
+) {
+  return useQuery({
+    queryKey: ["db", "workouts-range", userId, startDate, endDate],
+    queryFn: () => fetchWorkoutsByDateRange(userId as string, startDate, endDate),
+    enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
+  })
+}
+
 export function useOnboardingProfileSave() {
   return {
     save: (userId: string, input: OnboardingProfileInput, email: string | null) =>

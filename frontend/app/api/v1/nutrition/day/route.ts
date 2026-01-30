@@ -26,7 +26,7 @@ function normalizeDayType(value: string | null | undefined): NutritionDayType {
   return "rest"
 }
 
-function buildMeals(meals: any[]): Meal[] {
+function buildMeals(meals: any[], logMap: Map<number, boolean>): Meal[] {
   return meals.map((meal) => ({
     slot: meal.slot,
     name: meal.name,
@@ -36,7 +36,7 @@ function buildMeals(meals: any[]): Meal[] {
     carbs_g: meal.carbs_g ?? 0,
     fat_g: meal.fat_g ?? 0,
     ingredients: Array.isArray(meal.ingredients) ? meal.ingredients.map((item: any) => item.name ?? "") : [],
-    completed: meal.eaten ?? false,
+    completed: logMap.get(meal.slot) ?? meal.eaten ?? false,
     locked: meal.locked ?? false,
   }))
 }
@@ -91,7 +91,8 @@ export async function GET(req: NextRequest) {
       return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
-    const [{ data: rows, error: rowError }, { data: meals, error: mealsError }] = await Promise.all([
+    const [{ data: rows, error: rowError }, { data: meals, error: mealsError }, { data: mealLog, error: logError }] =
+      await Promise.all([
       supabase
         .from("nutrition_plan_rows")
         .select("id, plan_id, date, day_type, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, locked")
@@ -105,14 +106,19 @@ export async function GET(req: NextRequest) {
         .eq("user_id", user.id)
         .eq("date", date)
         .order("slot", { ascending: true }),
+      supabase
+        .from("meal_log")
+        .select("slot, is_eaten")
+        .eq("user_id", user.id)
+        .eq("date", date),
     ])
 
-    if (rowError || mealsError) {
+    if (rowError || mealsError || logError) {
       return jsonError(
         400,
         "db_error",
         "Database error",
-        rowError?.message ?? mealsError?.message ?? "",
+        rowError?.message ?? mealsError?.message ?? logError?.message ?? "",
       )
     }
 
@@ -144,13 +150,15 @@ export async function GET(req: NextRequest) {
           intra_cho_g_per_h: 0,
         }
 
+    const logMap = new Map((mealLog ?? []).map((log) => [log.slot, log.is_eaten]))
+
     const payload: NutritionDayPlan = {
       plan_id: row?.plan_id ?? null,
       date: date,
       day_type: normalizeDayType(row?.day_type),
       macros,
       meals_per_day: profile?.meals_per_day ?? (meals ?? []).length,
-      meals: buildMeals(meals ?? []),
+      meals: buildMeals(meals ?? [], logMap),
     }
 
     const mealLockMap = new Map((meals ?? []).map((meal) => [meal.slot, meal.locked ?? false]))

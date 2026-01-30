@@ -52,10 +52,30 @@ export async function POST(req: Request) {
     const name = (body as any).name ?? full_name ?? null
     const email = (body as any).email ?? null
 
-    const height_cm = toNumberOrNull((body as any).height_cm)
-    const weight_kg = toNumberOrNull((body as any).weight_kg)
+    const heightParsed = parseOptionalNumber((body as any).height_cm)
+    if (heightParsed.error) {
+      return NextResponse.json({ error: "height_cm must be a number" }, { status: 400 })
+    }
+    const heightRangeError = validateRange(heightParsed.value, 100, 230, "height_cm")
+    if (heightRangeError) {
+      return NextResponse.json({ error: heightRangeError }, { status: 400 })
+    }
+    const height_cm = heightParsed.value
+
+    const weightParsed = parseOptionalNumber((body as any).weight_kg)
+    if (weightParsed.error) {
+      return NextResponse.json({ error: "weight_kg must be a number" }, { status: 400 })
+    }
+    const weightRangeError = validateRange(weightParsed.value, 20, 250, "weight_kg")
+    if (weightRangeError) {
+      return NextResponse.json({ error: weightRangeError }, { status: 400 })
+    }
+    const weight_kg = weightParsed.value
 
     const units = (body as any).units ?? "metric"
+    if (units !== "metric" && units !== "imperial") {
+      return NextResponse.json({ error: "units must be 'metric' or 'imperial'" }, { status: 400 })
+    }
     const primary_goal = (body as any).primary_goal ?? null
     const experience_level = (body as any).experience_level ?? null
 
@@ -71,11 +91,27 @@ export async function POST(req: Request) {
     // columna diet, el form usa diet_type
     const diet = (body as any).diet_type ?? null
 
-    const meals_per_day = toNumberOrNull((body as any).meals_per_day)
+    const mealsParsed = parseOptionalNumber((body as any).meals_per_day)
+    if (mealsParsed.error) {
+      return NextResponse.json({ error: "meals_per_day must be a number" }, { status: 400 })
+    }
+    const mealsRangeError = validateRange(mealsParsed.value, 1, 10, "meals_per_day")
+    if (mealsRangeError) {
+      return NextResponse.json({ error: mealsRangeError }, { status: 400 })
+    }
+    const meals_per_day = mealsParsed.value
 
     // columna cooking_time_min es int; el form usa string "cooking_time_per_day"
     // -> no lo parseamos a int porque puede venir como "15-30", lo guardamos en meta
-    const cooking_time_min = toNumberOrNull((body as any).cooking_time_min)
+    const cookingParsed = parseOptionalNumber((body as any).cooking_time_min)
+    if (cookingParsed.error) {
+      return NextResponse.json({ error: "cooking_time_min must be a number" }, { status: 400 })
+    }
+    const cookingRangeError = validateRange(cookingParsed.value, 0, 600, "cooking_time_min")
+    if (cookingRangeError) {
+      return NextResponse.json({ error: cookingRangeError }, { status: 400 })
+    }
+    const cooking_time_min = cookingParsed.value
 
     // budget/kitchen existen, pero el form usa budget_level/kitchen_access
     const budget = (body as any).budget_level ?? (body as any).budget ?? null

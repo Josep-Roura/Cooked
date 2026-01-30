@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { NotionModal } from "@/components/ui/notion-modal"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -136,13 +136,9 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Manage events</SheetTitle>
-        </SheetHeader>
-
-        <div className="mt-6 space-y-4">
+    <NotionModal open={open} onOpenChange={onOpenChange} title="Manage events">
+      <div className="max-h-[75vh] overflow-y-auto pr-2 space-y-6">
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-foreground">{editingEventId ? "Edit event" : "Add event"}</h4>
             {editingEventId && (
@@ -185,7 +181,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
           </div>
         </div>
 
-        <div className="mt-8 space-y-3">
+        <div className="space-y-3">
           <h4 className="text-sm font-semibold text-foreground">All events</h4>
           {sortedEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events yet. Add your first event above.</p>
@@ -220,7 +216,7 @@ export function EventManagementSheet({ open, onOpenChange, events, onRefresh }: 
             ))
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </NotionModal>
   )
 }

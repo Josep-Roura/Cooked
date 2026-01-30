@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardShell } from "@/components/dashboard/shell"
+import { DashboardDateProvider } from "@/components/dashboard/dashboard-date-context"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSession } from "@/hooks/use-session"
 import { useProfile } from "@/lib/db/hooks"
@@ -44,5 +45,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null
   }
 
-  return <DashboardShell>{children}</DashboardShell>
+  return (
+    <DashboardShell>
+      <DashboardDateProvider>{children}</DashboardDateProvider>
+    </DashboardShell>
+  )
 }

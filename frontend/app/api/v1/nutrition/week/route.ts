@@ -77,18 +77,33 @@ export async function GET(req: NextRequest) {
       { kcal: number; protein_g: number; carbs_g: number; fat_g: number; intra_cho_g_per_h: number }
     >()
 
-    const { data: meals, error: mealsError } = await supabase
-      .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, ingredients, eaten")
-      .eq("user_id", user.id)
-      .gte("date", start)
-      .lte("date", end)
-      .order("time", { ascending: true, nullsFirst: false })
-      .order("slot", { ascending: true })
+    const [{ data: meals, error: mealsError }, { data: mealLog, error: logError }] = await Promise.all([
+      supabase
+        .from("nutrition_meals")
+        .select("id, date, slot, name, meal_type, time, kcal, protein_g, carbs_g, fat_g, ingredients, recipe, eaten")
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end)
+        .order("time", { ascending: true, nullsFirst: false })
+        .order("slot", { ascending: true }),
+      supabase
+        .from("meal_log")
+        .select("date, slot, is_eaten")
+        .eq("user_id", user.id)
+        .gte("date", start)
+        .lte("date", end),
+    ])
 
-    if (mealsError) {
-      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
+    if (mealsError || logError) {
+      return jsonError(
+        400,
+        "db_error",
+        "Failed to load meals",
+        mealsError?.message ?? logError?.message ?? null,
+      )
     }
+
+    const logMap = new Map((mealLog ?? []).map((log) => [`${log.date}:${log.slot}`, log]))
 
     const normalizedMeals = (meals ?? []).map((meal) => ({
       ...meal,
@@ -97,6 +112,9 @@ export async function GET(req: NextRequest) {
       carbs_g: meal.carbs_g ?? 0,
       fat_g: meal.fat_g ?? 0,
       ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      recipe: meal.recipe ?? null,
+      meal_type: meal.meal_type ?? null,
+      eaten: logMap.get(`${meal.date}:${meal.slot}`)?.is_eaten ?? meal.eaten ?? false,
       macros: {
         kcal: meal.kcal ?? 0,
         protein_g: meal.protein_g ?? 0,

@@ -35,17 +35,32 @@ export async function GET(req: NextRequest) {
       return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
 
-    const { data: meals, error: mealsError } = await supabase
-      .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, created_at, updated_at, ingredients, locked")
-      .eq("user_id", user.id)
-      .eq("date", date)
-      .order("time", { ascending: true, nullsFirst: false })
-      .order("slot", { ascending: true })
+    const [{ data: meals, error: mealsError }, { data: mealLog, error: logError }] =
+      await Promise.all([
+        supabase
+          .from("nutrition_meals")
+          .select("id, date, slot, name, meal_type, time, kcal, protein_g, carbs_g, fat_g, eaten, created_at, updated_at, ingredients, recipe, locked")
+          .eq("user_id", user.id)
+          .eq("date", date)
+          .order("time", { ascending: true, nullsFirst: false })
+          .order("slot", { ascending: true }),
+        supabase
+          .from("meal_log")
+          .select("slot, is_eaten, eaten_at")
+          .eq("user_id", user.id)
+          .eq("date", date),
+      ])
 
-    if (mealsError) {
-      return jsonError(400, "db_error", "Failed to load meals", mealsError.message)
+    if (mealsError || logError) {
+      return jsonError(
+        400,
+        "db_error",
+        "Failed to load meals",
+        mealsError?.message ?? logError?.message ?? null,
+      )
     }
+
+    const logMap = new Map((mealLog ?? []).map((log) => [log.slot, log]))
 
     const items = (meals ?? [])
       .sort((a, b) => {
@@ -60,7 +75,7 @@ export async function GET(req: NextRequest) {
       id: `${meal.date}:${meal.slot}`,
       meal_plan_id: meal.id,
       slot: meal.slot,
-      meal_type: null,
+      meal_type: meal.meal_type ?? null,
       sort_order: index + 1,
       name: meal.name,
       time: meal.time,
@@ -69,9 +84,10 @@ export async function GET(req: NextRequest) {
       protein_g: meal.protein_g ?? 0,
       carbs_g: meal.carbs_g ?? 0,
       fat_g: meal.fat_g ?? 0,
-      eaten: meal.eaten ?? false,
+      eaten: logMap.get(meal.slot)?.is_eaten ?? meal.eaten ?? false,
       notes: null,
       recipe_id: null,
+      recipe: meal.recipe ?? null,
       created_at: meal.created_at,
       updated_at: meal.updated_at,
       ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],

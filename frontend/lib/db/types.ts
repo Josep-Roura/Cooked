@@ -49,6 +49,7 @@ export interface NutritionMeal {
   date: string
   slot: number
   name: string
+  meal_type?: string | null
   time: string | null
   kcal?: number
   protein_g?: number
@@ -228,6 +229,7 @@ export interface MealPlanItem {
   eaten: boolean
   notes: string | null
   recipe_id: string | null
+  recipe?: unknown
   locked?: boolean
   created_at: string
   updated_at: string
