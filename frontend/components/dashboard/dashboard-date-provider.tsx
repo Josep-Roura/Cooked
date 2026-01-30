@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { addDays, format, isSameDay, parseISO } from "date-fns"
+import { addDays, format, isSameDay } from "date-fns"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 type DashboardDateContextValue = {
@@ -19,7 +19,8 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 function parseDateParam(value: string | null) {
   if (!value || !DATE_REGEX.test(value)) return null
-  const parsed = parseISO(value)
+  const [year, month, day] = value.split("-").map(Number)
+  const parsed = new Date(year, month - 1, day)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
