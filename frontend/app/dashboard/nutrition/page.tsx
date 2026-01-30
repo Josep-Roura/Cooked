@@ -1,26 +1,23 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { addWeeks, format, isWithinInterval, parseISO, startOfWeek } from "date-fns"
-import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { addDays, addWeeks, differenceInCalendarDays, format, parseISO, startOfWeek } from "date-fns"
+import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
 import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-cards"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
+import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
+import { DayNavigator } from "@/components/dashboard/widgets/day-navigator"
 import {
   useMealPlanDay,
+  usePlanChat,
   useProfile,
+  useResetPlanChat,
+  useSendPlanChatMessage,
   useTrainingSessions,
   useUpdateNutritionDay,
   useUpdateMealPlanItem,
@@ -28,88 +25,64 @@ import {
   useWeeklyNutrition,
 } from "@/lib/db/hooks"
 import { useSession } from "@/hooks/use-session"
-import { ensureDailyPlan, ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
 
 export default function NutritionPage() {
   const { user } = useSession()
   const { toast } = useToast()
-  const router = useRouter()
-  const searchParams = useSearchParams()
   const profileQuery = useProfile(user?.id)
+  const { selectedDate, selectedDateKey, nextDay, prevDay, setSelectedDate } = useDashboardDate()
   const [search, setSearch] = useState("")
-  const [now] = useState(() => new Date())
-  const [anchorDate, setAnchorDate] = useState(() => startOfWeek(now, { weekStartsOn: 1 }))
-  const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
-  const [isGenerating, setIsGenerating] = useState(false)
   const queryClient = useQueryClient()
+  const generateLockRef = useRef<string | null>(null)
 
-  const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(anchorDate)
+  const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(selectedDate)
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
-  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const updateMealMutation = useUpdateMealPlanItem()
   const updateNutritionDay = useUpdateNutritionDay(user?.id)
-  const lastSyncedRef = useRef<string | null>(null)
-  useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
-  const [editOpen, setEditOpen] = useState(false)
-  const [editMacros, setEditMacros] = useState(() => ({
-    kcal: 0,
-    protein_g: 0,
-    carbs_g: 0,
-    fat_g: 0,
-  }))
-  const [editMeals, setEditMeals] = useState<Array<{
-    slot: number
-    name: string
-    time: string | null
-    kcal: number
-    protein_g: number
-    carbs_g: number
-    fat_g: number
-    locked?: boolean
-  }>>([])
-  const [dayLocked, setDayLocked] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInput, setChatInput] = useState("")
+  const [chatContext, setChatContext] = useState("")
+  const fuelEnsureRef = useRef<string | null>(null)
+  const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
+  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
+  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
 
   useEffect(() => {
-    if (!selectedDate) return
-    const selectedDateObj = parseISO(selectedDate)
-    if (!isWithinInterval(selectedDateObj, { start: weekStart, end: weekEnd })) {
-      setSelectedDate(format(weekStart, "yyyy-MM-dd"))
-    }
-  }, [selectedDate, weekStart, weekEnd])
-
-  useEffect(() => {
-    const urlDate = searchParams.get("date")
-    const urlWeek = searchParams.get("weekStart")
-    if (urlDate) {
-      setSelectedDate(urlDate)
-    }
-    if (urlWeek) {
-      const parsed = parseISO(urlWeek)
-      if (!Number.isNaN(parsed.getTime())) {
-        setAnchorDate(startOfWeek(parsed, { weekStartsOn: 1 }))
-      }
-    }
-  }, [searchParams])
-
-  useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set("date", selectedDate)
-    params.set("weekStart", format(weekStart, "yyyy-MM-dd"))
-    const nextQuery = params.toString()
-    if (lastSyncedRef.current === nextQuery) return
-    lastSyncedRef.current = nextQuery
-    if (nextQuery !== searchParams.toString()) {
-      router.replace(`/dashboard/nutrition?${nextQuery}`)
-    }
-  }, [router, searchParams, selectedDate, weekStart])
+    if (!user?.id) return
+    if (trainingWeekQuery.isLoading || weeklyNutritionQuery.isLoading) return
+    const workouts = trainingWeekQuery.data ?? []
+    if (workouts.length === 0) return
+    const days = weeklyNutritionQuery.data ?? []
+    const missing = days.some((day) => !day.target)
+    if (!missing) return
+    const lockKey = `${user.id}:${weekStartKey}:${weekEndKey}`
+    if (generateLockRef.current === lockKey) return
+    generateLockRef.current = lockKey
+    ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user.id, weekStartKey, weekEndKey] })
+        queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user.id, selectedDateKey] })
+      })
+      .catch((error) => {
+        generateLockRef.current = null
+        toast({
+          title: "Nutrition update failed",
+          description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
+          variant: "destructive",
+        })
+      })
+  }, [queryClient, selectedDateKey, toast, trainingWeekQuery.data, trainingWeekQuery.isLoading, user?.id, weekEndKey, weekStartKey, weeklyNutritionQuery.data, weeklyNutritionQuery.isLoading])
 
   if (weeklyNutritionQuery.isError) {
     return <ErrorState onRetry={() => weeklyNutritionQuery.refetch()} />
   }
 
-  const selectedDay = (weeklyNutritionQuery.data ?? []).find((day) => day.date === selectedDate) ?? {
-    date: selectedDate,
+  const selectedDay = (weeklyNutritionQuery.data ?? []).find((day) => day.date === selectedDateKey) ?? {
+    date: selectedDateKey,
     consumed: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 },
     target: null,
     locked: false,
@@ -119,124 +92,136 @@ export default function NutritionPage() {
 
   const dayType = useMemo(() => {
     const sessions = trainingWeekQuery.data ?? []
-    const hasTraining = sessions.some((session) => session.date === selectedDate)
+    const hasTraining = sessions.some((session) => session.date === selectedDateKey)
     return hasTraining ? "Training day" : "Rest day"
-  }, [selectedDate, trainingWeekQuery.data])
+  }, [selectedDateKey, trainingWeekQuery.data])
 
   const carbNote = dayType === "Training day"
     ? "Carbs are higher today to fuel training sessions and recovery."
     : "Carbs ease off to match recovery needs on rest days."
 
-  const handleGenerate = async (regenerate: boolean, resetLocks = false) => {
-    if (!selectedDate) return
-    setIsGenerating(true)
-    try {
-      await ensureDailyPlan(selectedDate, regenerate, resetLocks)
-      await Promise.all([
-        weeklyNutritionQuery.refetch(),
-        mealPlanQuery.refetch(),
-        profileQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
-      ])
-    } catch (error) {
-      console.error("Failed to generate nutrition plan", error)
-      toast({
-        title: "Nutrition update failed",
-        description: error instanceof Error ? error.message : "Unable to update nutrition plan.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsGenerating(false)
-    }
+  const dayOffset = differenceInCalendarDays(selectedDate, weekStart)
+  const handlePrevWeek = () => setSelectedDate(addDays(addWeeks(weekStart, -1), dayOffset))
+  const handleNextWeek = () => setSelectedDate(addDays(addWeeks(weekStart, 1), dayOffset))
+  const handleThisWeek = () => {
+    const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
+    setSelectedDate(addDays(thisWeekStart, dayOffset))
   }
 
-  const handleRegenerateRange = async (resetLocks: boolean) => {
-    setIsGenerating(true)
-    try {
-      await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force: true, resetLocks })
-      await Promise.all([
-        weeklyNutritionQuery.refetch(),
-        mealPlanQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] }),
-        queryClient.invalidateQueries({ queryKey: ["db", "calendar-events"] }),
-      ])
-    } catch (error) {
-      toast({
-        title: "Plan regeneration failed",
-        description: error instanceof Error ? error.message : "Unable to regenerate the plan.",
-        variant: "destructive",
+  const selectedWorkouts = (trainingWeekQuery.data ?? []).filter((session) => session.date === selectedDateKey)
+
+  const buildFuelItems = () => {
+    if (selectedWorkouts.length === 0) return []
+    const baseSlot = (mealPlanQuery.data?.items ?? []).reduce((max, item) => Math.max(max, item.slot), 0)
+    let slotCounter = baseSlot + 1
+    const items: Array<{
+      slot: number
+      name: string
+      time: string | null
+      kcal: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+    }> = []
+
+    const addFuel = (name: string, time: string | null, carbs: number, protein: number, fat: number) => {
+      const kcal = Math.round(carbs * 4 + protein * 4 + fat * 9)
+      items.push({
+        slot: slotCounter++,
+        name,
+        time,
+        kcal,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
       })
-    } finally {
-      setIsGenerating(false)
     }
+
+    selectedWorkouts.forEach((session) => {
+      const workoutLabel = session.title ?? "Workout"
+      const preTime = session.time ?? null
+      if (session.durationMinutes >= 60) {
+        addFuel(`Fuel: Pre · ${workoutLabel}`, preTime, 30, 5, 2)
+      }
+      if (session.durationMinutes >= 75 && ["run", "bike", "swim"].includes(session.type)) {
+        const intraCarbs = session.durationMinutes >= 90 ? 45 : 30
+        addFuel(`Fuel: During · ${workoutLabel}`, session.time ?? null, intraCarbs, 0, 0)
+      }
+      if (session.intensity === "high" || (session.type === "strength" && session.durationMinutes >= 45)) {
+        addFuel(`Fuel: Post · ${workoutLabel}`, session.time ?? null, 35, 25, 4)
+      }
+    })
+
+    return items
   }
 
   useEffect(() => {
-    if (!editOpen) return
-    const macros = selectedDay.target ?? { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, intra_cho_g_per_h: 0 }
-    setEditMacros({
-      kcal: macros.kcal ?? 0,
-      protein_g: macros.protein_g ?? 0,
-      carbs_g: macros.carbs_g ?? 0,
-      fat_g: macros.fat_g ?? 0,
-    })
-    setDayLocked(Boolean((weeklyNutritionQuery.data ?? []).find((day) => day.date === selectedDate)?.locked))
-    const items = (mealPlanQuery.data?.items ?? []).map((item) => ({
-      slot: item.slot,
-      name: item.name,
-      time: item.time ?? null,
-      kcal: item.kcal ?? 0,
-      protein_g: item.protein_g ?? 0,
-      carbs_g: item.carbs_g ?? 0,
-      fat_g: item.fat_g ?? 0,
-      locked: item.locked ?? false,
-    }))
-    setEditMeals(items)
-  }, [editOpen, mealPlanQuery.data?.items, selectedDate, selectedDay.target, weeklyNutritionQuery.data])
+    if (!selectedDateKey || selectedWorkouts.length === 0) return
+    if (mealPlanQuery.isLoading) return
+    const existing = mealPlanQuery.data?.items ?? []
+    const existingFuelNames = new Set(existing.filter((item) => item.name.startsWith("Fuel:")).map((item) => item.name))
+    const desiredFuel = buildFuelItems().filter((item) => !existingFuelNames.has(item.name))
+    if (desiredFuel.length === 0) return
+    const ensureKey = `${selectedDateKey}:${desiredFuel.map((item) => item.name).join("|")}`
+    if (fuelEnsureRef.current === ensureKey) return
+    fuelEnsureRef.current = ensureKey
+    updateNutritionDay
+      .mutateAsync({ date: selectedDateKey, meals: desiredFuel })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user?.id, selectedDateKey] })
+        queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user?.id, weekStartKey, weekEndKey] })
+      })
+      .catch((error) => {
+        console.error("Failed to add fueling items", error)
+        fuelEnsureRef.current = null
+      })
+  }, [mealPlanQuery.data?.items, mealPlanQuery.isLoading, queryClient, selectedDateKey, selectedWorkouts, updateNutritionDay, user?.id, weekEndKey, weekStartKey])
 
-  const handleAddMeal = () => {
-    setEditMeals((prev) => {
-      const nextSlot = prev.length > 0 ? Math.max(...prev.map((meal) => meal.slot)) + 1 : 1
-      return [
-        ...prev,
-        {
-          slot: nextSlot,
-          name: `Meal ${nextSlot}`,
-          time: null,
-          kcal: 0,
-          protein_g: 0,
-          carbs_g: 0,
-          fat_g: 0,
-          locked: false,
-        },
-      ]
+  const buildChatContext = (extra?: string) => {
+    const macros = selectedDay.target
+      ? `Targets: ${selectedDay.target.kcal} kcal, P ${selectedDay.target.protein_g}g, C ${selectedDay.target.carbs_g}g, F ${selectedDay.target.fat_g}g`
+      : "Targets: none"
+    const consumed = `Consumed: ${selectedDay.consumed.kcal} kcal, P ${selectedDay.consumed.protein_g}g, C ${selectedDay.consumed.carbs_g}g, F ${selectedDay.consumed.fat_g}g`
+    const workouts = selectedWorkouts.length
+      ? `Workouts: ${selectedWorkouts.map((workout) => `${workout.title} (${workout.durationMinutes}m, ${workout.intensity})`).join("; ")}`
+      : "Workouts: none"
+    const meals = (mealPlanQuery.data?.items ?? []).map((meal) => `${meal.name} (${meal.kcal} kcal)`).join("; ") || "Meals: none"
+    return [extra, `Date: ${selectedDateKey}`, workouts, macros, consumed, `Meals: ${meals}`].filter(Boolean).join("\n")
+  }
+
+  const handleSendChat = () => {
+    if (!chatInput.trim()) return
+    const contextMessage = buildChatContext(chatContext)
+    const message = `${chatInput.trim()}\n\n${contextMessage}`
+    sendChatMutation.mutate(message, {
+      onSuccess: () => {
+        setChatInput("")
+        setChatContext("")
+        queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user?.id, selectedDateKey] })
+        queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user?.id, weekStartKey, weekEndKey] })
+      },
+      onError: (error) => {
+        toast({
+          title: "Chat failed",
+          description: error instanceof Error ? error.message : "Unable to send message.",
+          variant: "destructive",
+        })
+      },
     })
   }
 
-  const handleRemoveMeal = (slot: number) => {
-    setEditMeals((prev) => prev.filter((meal) => meal.slot !== slot))
-  }
-
-  const handleSaveEdits = async () => {
-    try {
-      await updateNutritionDay.mutateAsync({
-        date: selectedDate,
-        macros: editMacros,
-        meals: editMeals,
-        removedSlots: (mealPlanQuery.data?.items ?? [])
-          .map((item) => item.slot)
-          .filter((slot) => !editMeals.some((meal) => meal.slot === slot)),
-        day_locked: dayLocked,
-      })
-      toast({ title: "Day updated", description: "Your edits have been saved." })
-      setEditOpen(false)
-    } catch (error) {
-      toast({
-        title: "Save failed",
-        description: error instanceof Error ? error.message : "Unable to save changes.",
-        variant: "destructive",
-      })
-    }
+  const handleResetChat = () => {
+    const threadId = chatQuery.data?.thread?.id
+    if (!threadId) return
+    resetChatMutation.mutate(threadId, {
+      onError: (error) => {
+        toast({
+          title: "Unable to reset chat",
+          description: error instanceof Error ? error.message : "Please try again later.",
+          variant: "destructive",
+        })
+      },
+    })
   }
 
   return (
@@ -245,24 +230,31 @@ export default function NutritionPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Nutrition</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={() => setAnchorDate(addWeeks(anchorDate, -1))}>
+            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={handlePrevWeek}>
               <ChevronLeft className="h-4 w-4 mr-1" /> Prev week
             </Button>
             <Button
               variant="outline"
               className="rounded-full px-4 text-xs"
-              onClick={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+              onClick={handleThisWeek}
             >
               This week
             </Button>
-            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={() => setAnchorDate(addWeeks(anchorDate, 1))}>
+            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={handleNextWeek}>
               Next week <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
             <span className="text-sm text-muted-foreground">{weekLabel}</span>
+            <Button
+              variant="ghost"
+              className="h-9 w-9 rounded-full"
+              onClick={() => setChatOpen(true)}
+              aria-label="Open nutrition chat"
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
-        {/* Training Link Banner */}
         {profileQuery.data && (
           <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6 flex items-center gap-4">
             <div className="h-12 w-12 rounded-full bg-primary flex items-center justify-center">
@@ -273,10 +265,6 @@ export default function NutritionPage() {
               <p className="font-semibold text-foreground">
                 {profileQuery.data.full_name || profileQuery.data.name || "Athlete"}
               </p>
-            </div>
-            <div className="ml-auto text-right">
-              <p className="text-sm text-muted-foreground">Units</p>
-              <p className="font-semibold text-primary">{profileQuery.data.units ?? "metric"}</p>
             </div>
           </div>
         )}
@@ -292,11 +280,12 @@ export default function NutritionPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Meals</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
+            <DayNavigator
+              date={selectedDate}
+              onPreviousDay={prevDay}
+              onNextDay={nextDay}
+              onSelectDate={setSelectedDate}
+              onToday={() => setSelectedDate(new Date())}
             />
             <input
               value={search}
@@ -304,200 +293,57 @@ export default function NutritionPage() {
               placeholder="Search meals"
               className="h-9 rounded-full border border-border bg-transparent px-4 text-xs text-muted-foreground"
             />
-            <Button
-              onClick={() => setEditOpen(true)}
-              variant="outline"
-              className="h-9 rounded-full px-4 text-xs"
-              type="button"
-            >
-              Edit day
-            </Button>
-            <Button
-              onClick={() => handleGenerate(false)}
-              disabled={isGenerating}
-              className="h-9 rounded-full px-4 text-xs"
-              type="button"
-            >
-              Generate today&apos;s plan
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  disabled={isGenerating}
-                  variant="outline"
-                  className="h-9 rounded-full px-4 text-xs"
-                  type="button"
-                >
-                  Regenerate
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleGenerate(true)}>Regenerate day</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRegenerateRange(false)}>Regenerate week</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleGenerate(true, true)}>Full reset day</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRegenerateRange(true)}>Full reset week</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <WeeklyCaloriesChart
             days={weeklyNutritionQuery.data ?? []}
-            selectedDate={selectedDate}
+            selectedDate={selectedDateKey}
             isLoading={weeklyNutritionQuery.isLoading}
-            onSelectDate={setSelectedDate}
+            onSelectDate={(dateKey) => setSelectedDate(parseISO(dateKey))}
           />
           <MealCards
             mealPlan={mealPlanQuery.data ?? null}
             target={selectedDay.target}
-            selectedDate={selectedDate}
+            selectedDate={selectedDateKey}
             search={search}
             isLoading={mealPlanQuery.isLoading || weeklyNutritionQuery.isLoading}
             isUpdating={updateMealMutation.isPending}
             dayTypeLabel={dayType}
             dayTypeNote={carbNote}
             onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
+            onAdaptMeal={(meal) => {
+              const ingredientList = (meal.ingredients ?? [])
+                .map((ingredient) => (typeof ingredient === "string" ? ingredient : ingredient.name))
+                .join(", ")
+              setChatContext(
+                `Meal: ${meal.name}\nIngredients: ${ingredientList || "None"}\nNotes: ${meal.notes ?? "None"}`,
+              )
+              setChatOpen(true)
+            }}
           />
         </div>
       </div>
 
-      <Sheet open={editOpen} onOpenChange={setEditOpen}>
-        <SheetContent className="w-full sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>Edit {selectedDate}</SheetTitle>
-          </SheetHeader>
-          <div className="mt-6 space-y-6">
-            <div className="flex items-center justify-between rounded-xl border border-border p-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Lock day</p>
-                <p className="text-xs text-muted-foreground">Locked days won&apos;t be changed by regeneration.</p>
-              </div>
-              <Button
-                variant={dayLocked ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDayLocked((prev) => !prev)}
-              >
-                {dayLocked ? "Locked" : "Unlocked"}
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-foreground">Macro targets</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {(["kcal", "protein_g", "carbs_g", "fat_g"] as const).map((key) => (
-                  <label key={key} className="text-xs text-muted-foreground flex flex-col gap-1">
-                    {key.replace("_g", "").toUpperCase()}
-                    <input
-                      type="number"
-                      value={editMacros[key]}
-                      onChange={(event) =>
-                        setEditMacros((prev) => ({ ...prev, [key]: Number(event.target.value) }))
-                      }
-                      className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">Meals</h3>
-                <Button variant="outline" size="sm" onClick={handleAddMeal}>
-                  Add meal
-                </Button>
-              </div>
-              <div className="space-y-4">
-                {editMeals.map((meal) => (
-                  <div key={meal.slot} className="rounded-xl border border-border p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-foreground">Slot {meal.slot}</p>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant={meal.locked ? "default" : "outline"}
-                          size="sm"
-                          onClick={() =>
-                            setEditMeals((prev) =>
-                              prev.map((item) =>
-                                item.slot === meal.slot ? { ...item, locked: !item.locked } : item,
-                              ),
-                            )
-                          }
-                        >
-                          {meal.locked ? "Locked" : "Unlocked"}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleRemoveMeal(meal.slot)}>
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="text-xs text-muted-foreground flex flex-col gap-1">
-                        Name
-                        <input
-                          value={meal.name}
-                          onChange={(event) =>
-                            setEditMeals((prev) =>
-                              prev.map((item) =>
-                                item.slot === meal.slot ? { ...item, name: event.target.value } : item,
-                              ),
-                            )
-                          }
-                          className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
-                        />
-                      </label>
-                      <label className="text-xs text-muted-foreground flex flex-col gap-1">
-                        Time
-                        <input
-                          value={meal.time ?? ""}
-                          onChange={(event) =>
-                            setEditMeals((prev) =>
-                              prev.map((item) =>
-                                item.slot === meal.slot ? { ...item, time: event.target.value || null } : item,
-                              ),
-                            )
-                          }
-                          placeholder="HH:MM"
-                          className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
-                        />
-                      </label>
-                      {(["kcal", "protein_g", "carbs_g", "fat_g"] as const).map((key) => (
-                        <label key={key} className="text-xs text-muted-foreground flex flex-col gap-1">
-                          {key.replace("_g", "").toUpperCase()}
-                          <input
-                            type="number"
-                            value={meal[key]}
-                            onChange={(event) =>
-                              setEditMeals((prev) =>
-                                prev.map((item) =>
-                                  item.slot === meal.slot
-                                    ? { ...item, [key]: Number(event.target.value) }
-                                    : item,
-                                ),
-                              )
-                            }
-                            className="h-9 rounded-lg border border-border bg-transparent px-3 text-sm text-foreground"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveEdits} disabled={updateNutritionDay.isPending}>
-                Save changes
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <PlanChatDrawer
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        weekLabel={weekLabel}
+        isLoading={chatQuery.isLoading}
+        thread={chatQuery.data?.thread ?? null}
+        messages={chatQuery.data?.messages ?? []}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onSend={handleSendChat}
+        onReset={handleResetChat}
+        isSending={sendChatMutation.isPending}
+        onApply={() => {
+          queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user?.id, selectedDateKey] })
+          queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user?.id, weekStartKey, weekEndKey] })
+          toast({ title: "Plan refreshed", description: "Latest updates applied." })
+        }}
+      />
     </main>
   )
 }

@@ -82,7 +82,11 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           />
           <Bar dataKey="targetKcal" radius={[12, 12, 12, 12]}>
             {data.map((entry) => (
-              <Cell key={`target-${entry.date}`} fill="var(--primary)" fillOpacity={0.2} />
+              <Cell
+                key={`target-${entry.date}`}
+                fill="var(--primary)"
+                fillOpacity={entry.hasTarget ? 0.2 : 0.08}
+              />
             ))}
           </Bar>
           <Bar
@@ -94,6 +98,7 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
               <Cell
                 key={entry.date}
                 fill="var(--primary)"
+                fillOpacity={entry.hasTarget ? 1 : 0.35}
                 stroke={entry.date === selectedDate ? "var(--primary)" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
               />
