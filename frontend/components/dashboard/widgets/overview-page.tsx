@@ -28,31 +28,32 @@ import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-cal
 import type { TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
+import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const { user } = useSession()
   const [now] = useState(() => new Date())
-  const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
+  const { selectedDate, selectedDateKey, nextDay, prevDay, setSelectedDate } = useDashboardDate()
   const [eventsOpen, setEventsOpen] = useState(false)
   const [highlightMeals, setHighlightMeals] = useState(false)
   const todayKey = format(now, "yyyy-MM-dd")
   useEnsureNutritionPlanRange({
     userId: user?.id,
-    start: selectedDate,
-    end: selectedDate,
-    enabled: Boolean(user?.id) && Boolean(selectedDate),
+    start: selectedDateKey,
+    end: selectedDateKey,
+    enabled: Boolean(user?.id) && Boolean(selectedDateKey),
   })
   const eventsQuery = useUserEvents(
     user?.id,
     format(now, "yyyy-MM-dd"),
     format(addDays(now, 365), "yyyy-MM-dd"),
   )
-  const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
-  const macrosQuery = useMacrosDay(user?.id, selectedDate)
-  const selectedTrainingQuery = useTrainingSessions(user?.id, selectedDate, selectedDate)
-  const weekRange = useWeekRange(parseISO(selectedDate))
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
+  const macrosQuery = useMacrosDay(user?.id, selectedDateKey)
+  const selectedTrainingQuery = useTrainingSessions(user?.id, selectedDateKey, selectedDateKey)
+  const weekRange = useWeekRange(selectedDate)
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekRange.startKey, weekRange.endKey)
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
@@ -136,7 +137,7 @@ export function OverviewPage() {
     { sessions: 0, durationMinutes: 0 },
   )
 
-  const isAfterCutoff = selectedDate === todayKey && now.getHours() >= 18
+  const isAfterCutoff = selectedDateKey === todayKey && now.getHours() >= 18
   const completionPercent = totalMeals > 0 ? (completedMeals / totalMeals) * 100 : 0
 
   const status = (() => {
@@ -152,7 +153,7 @@ export function OverviewPage() {
   const statusTone = status === "On track" ? "bg-emerald-100 text-emerald-700" : status === "Slightly off" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
 
   const handleFinishMeals = () => {
-    setSelectedDate(todayKey)
+    setSelectedDate(now)
     setHighlightMeals(true)
     planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     window.setTimeout(() => setHighlightMeals(false), 2500)
@@ -178,7 +179,7 @@ export function OverviewPage() {
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected day</p>
             <h2 className="text-2xl font-bold text-foreground">
-              {format(parseISO(selectedDate), "EEEE, MMMM d")}
+              {format(selectedDate, "EEEE, MMMM d")}
             </h2>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>{mealsProgressLabel} meals logged</span>
@@ -192,13 +193,13 @@ export function OverviewPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className={`rounded-full px-3 py-1 text-xs ${statusTone}`}>{status}</Badge>
-            {mealsRemaining && selectedDate === todayKey ? (
+            {mealsRemaining && selectedDateKey === todayKey ? (
               <Button onClick={handleFinishMeals} className="rounded-full text-xs px-4" type="button">
                 Finish today&apos;s meals
               </Button>
             ) : (
               <Button asChild className="rounded-full text-xs px-4">
-                <Link href={`/dashboard/nutrition?date=${selectedDate}`}>View nutrition details</Link>
+                <Link href={`/dashboard/nutrition?date=${selectedDateKey}`}>View nutrition details</Link>
               </Button>
             )}
           </div>
@@ -209,10 +210,10 @@ export function OverviewPage() {
         <h2 className="text-2xl font-bold text-foreground">Overview</h2>
         <DayNavigator
           date={selectedDate}
-          onPreviousDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))}
-          onNextDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
+          onPreviousDay={prevDay}
+          onNextDay={nextDay}
           onSelectDate={setSelectedDate}
-          onToday={() => setSelectedDate(todayKey)}
+          onToday={() => setSelectedDate(now)}
         />
       </div>
 
@@ -222,15 +223,15 @@ export function OverviewPage() {
               consumed={consumedMacros}
               target={targetMacros}
               isLoading={macrosQuery.isLoading}
-              label={`Macros for ${format(parseISO(selectedDate), "MMM d")}`}
+              label={`Macros for ${format(selectedDate, "MMM d")}`}
             />
           </motion.div>
         <motion.div {...hoverProps}>
           <WeeklyCaloriesChart
             days={weeklyNutritionQuery.data ?? []}
-            selectedDate={selectedDate}
+            selectedDate={selectedDateKey}
             isLoading={weeklyNutritionQuery.isLoading}
-            onSelectDate={setSelectedDate}
+            onSelectDate={(dateKey) => setSelectedDate(parseISO(dateKey))}
           />
         </motion.div>
         <motion.div {...hoverProps}>
@@ -248,16 +249,16 @@ export function OverviewPage() {
               isLoading={selectedTrainingQuery.isLoading}
               sessions={trainingSessionsSelected}
               onSelect={handleSelectSession}
-              title={format(parseISO(selectedDate), "EEEE, MMM d")}
+              title={format(selectedDate, "EEEE, MMM d")}
             />
         </motion.div>
         <motion.div {...hoverProps} ref={planRef}>
           <PlanCard
-            date={selectedDate}
+            date={selectedDateKey}
             plan={mealPlanDay}
             isLoading={mealPlanQuery.isLoading}
             isUpdating={updateMealItemMutation.isPending || updateMealIngredientMutation.isPending}
-            highlightUnchecked={highlightMeals && selectedDate === todayKey}
+            highlightUnchecked={highlightMeals && selectedDateKey === todayKey}
             onToggleMeal={(itemId, eaten) => updateMealItemMutation.mutate({ id: itemId, payload: { eaten } })}
             onToggleIngredient={(ingredientId, checked) =>
               updateMealIngredientMutation.mutate({ id: ingredientId, checked })
