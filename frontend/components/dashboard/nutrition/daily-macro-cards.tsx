@@ -1,6 +1,6 @@
 "use client"
 
-import { TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { NutritionMacros } from "@/lib/db/types"
 
@@ -54,20 +54,15 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
       {metrics.map((metric) => {
         const percentage = metric.target ? Math.round((metric.current / metric.target) * 100) : 0
         const diff = metric.current - metric.target
-        const TrendIcon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
+        const remaining = Math.abs(diff)
+        const statusLabel = diff > 0 ? `Over ${remaining}${metric.unit}` : `Remaining ${remaining}${metric.unit}`
 
         return (
           <div key={metric.label} className="bg-card border border-border rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm text-muted-foreground">{metric.label}</span>
               {target ? (
-                <div className="flex items-center gap-1 text-xs">
-                  <TrendIcon className={`h-3 w-3 ${diff >= 0 ? "text-green-500" : "text-red-500"}`} />
-                  <span className={diff >= 0 ? "text-green-500" : "text-red-500"}>
-                    {diff >= 0 ? "+" : ""}
-                    {diff} {metric.unit}
-                  </span>
-                </div>
+                <Badge variant={diff > 0 ? "destructive" : "secondary"}>{statusLabel}</Badge>
               ) : (
                 <span className="text-xs text-muted-foreground">No target</span>
               )}
@@ -78,9 +73,9 @@ export function DailyMacroCards({ consumed, target, isLoading }: DailyMacroCards
                 / {metric.target} {metric.unit}
               </span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div className="relative h-2 rounded-full bg-primary/15 overflow-hidden">
               <div
-                className={`h-full ${metric.color} rounded-full transition-all duration-500`}
+                className={`absolute inset-y-0 left-0 ${metric.color} rounded-full transition-all duration-500`}
                 style={{ width: `${Math.min(percentage, 100)}%` }}
               />
             </div>

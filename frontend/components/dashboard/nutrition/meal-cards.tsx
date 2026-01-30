@@ -1,10 +1,14 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import { Clock, Flame, Utensils } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/components/ui/use-toast"
+import { RecipeDetailsDialog } from "@/components/dashboard/nutrition/recipe-details-dialog"
 import type { MealPlanDay, MealPlanItem, NutritionMacros } from "@/lib/db/types"
 
 interface MealCardsProps {
@@ -17,13 +21,7 @@ interface MealCardsProps {
   dayTypeLabel?: string
   dayTypeNote?: string
   onToggleMeal: (mealId: string, eaten: boolean) => void
-}
-
-const dayTypeIcons: Record<string, string> = {
-  training: "🏊",
-  rest: "🧘",
-  recovery: "🧘",
-  high: "⚡",
+  onAdaptMeal: (meal: MealPlanItem) => void
 }
 
 const dayTypeColors: Record<string, string> = {
@@ -41,6 +39,25 @@ function filterMeals(meals: MealPlanItem[], search: string) {
   return meals.filter((meal) => meal.name.toLowerCase().includes(query) || (meal.time ?? "").includes(query))
 }
 
+function getMealEmoji(meal: MealPlanItem) {
+  const label = meal.name.toLowerCase()
+  if (label.includes("shake") || label.includes("protein")) return "🥤"
+  if (label.includes("breakfast")) return "🍳"
+  if (label.includes("snack")) return "🍌"
+  if (label.includes("lunch")) return "🥗"
+  if (label.includes("dinner")) return "🍝"
+  return meal.emoji ?? "🍽️"
+}
+
+function normalizeIngredients(ingredients: MealPlanItem["ingredients"]) {
+  return (ingredients ?? []).map((ingredient) => {
+    if (typeof ingredient === "string") {
+      return { name: ingredient, quantity: null }
+    }
+    return { name: ingredient.name, quantity: ingredient.quantity ?? null }
+  })
+}
+
 export function MealCards({
   mealPlan,
   target,
@@ -51,7 +68,10 @@ export function MealCards({
   dayTypeLabel,
   dayTypeNote,
   onToggleMeal,
+  onAdaptMeal,
 }: MealCardsProps) {
+  const { toast } = useToast()
+  const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
   const meals = mealPlan?.items ?? []
   const filteredMeals = filterMeals(meals, search)
   const hasMeals = meals.length > 0
@@ -63,6 +83,17 @@ export function MealCards({
   const carbs = target?.carbs_g ?? 0
   const fat = target?.fat_g ?? 0
   const formattedDate = selectedDate ? format(parseISO(selectedDate), "EEE, MMM d") : ""
+  const fuelMeals = filteredMeals.filter((meal) => meal.name.startsWith("Fuel:"))
+  const regularMeals = filteredMeals.filter((meal) => !meal.name.startsWith("Fuel:"))
+  const fuelGroups = useMemo(() => {
+    return fuelMeals.reduce<Record<string, MealPlanItem[]>>((acc, meal) => {
+      const parts = meal.name.split("·")
+      const workoutLabel = parts[1]?.trim() || "Workout"
+      if (!acc[workoutLabel]) acc[workoutLabel] = []
+      acc[workoutLabel].push(meal)
+      return acc
+    }, {})
+  }, [fuelMeals])
 
   if (isLoading) {
     return (
@@ -105,64 +136,126 @@ export function MealCards({
           title="No meals yet"
           description="Once your nutrition plan is loaded, meals will appear here."
         />
-      ) : filteredMeals.length > 0 ? (
-        <div className="space-y-3">
-          {filteredMeals.map((meal) => (
-            <div
-              key={meal.id}
-              className={`p-4 rounded-xl border ${
-                meal.eaten
-                  ? "bg-emerald-50 border-emerald-200"
-                  : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
-              } transition-all hover:shadow-sm`}
-            >
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">{meal.emoji ?? dayTypeIcons[dayTypeKey] ?? "🥗"}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-foreground">{meal.name}</h4>
-                    {meal.eaten && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                        Eaten
-                      </span>
-                    )}
-                    {meal.notes && <span className="text-xs text-muted-foreground">{meal.notes}</span>}
+      ) : regularMeals.length > 0 || fuelMeals.length > 0 ? (
+        <div className="space-y-6">
+          {regularMeals.length > 0 ? (
+            <div className="space-y-3">
+              {regularMeals.map((meal) => (
+                <button
+                  key={meal.id}
+                  type="button"
+                  onClick={() => setSelectedMeal(meal)}
+                  className={`w-full text-left p-4 rounded-xl border ${
+                    meal.eaten
+                      ? "bg-emerald-50 border-emerald-200"
+                      : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
+                  } transition-all hover:shadow-sm`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">{getMealEmoji(meal)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-medium text-foreground">{meal.name}</h4>
+                        {meal.eaten && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            Eaten
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {meal.time ?? "Any time"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Flame className="h-3 w-3" />
+                          {meal.kcal} kcal
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <Checkbox
+                            checked={meal.eaten}
+                            onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
+                            disabled={isUpdating}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                          <span className="text-xs text-muted-foreground">I ate this</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge variant="secondary">P {meal.protein_g}g</Badge>
+                        <Badge variant="secondary">C {meal.carbs_g}g</Badge>
+                        <Badge variant="secondary">F {meal.fat_g}g</Badge>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {meal.time ?? "Any time"}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Flame className="h-3 w-3" />
-                      {meal.kcal} kcal
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <Checkbox
-                        checked={meal.eaten}
-                        onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
-                        disabled={isUpdating}
-                      />
-                      <span className="text-xs text-muted-foreground">I ate this</span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-xs px-2 py-1 bg-cyan-500/20 text-cyan-700 rounded-full">
-                      P: {meal.protein_g}g
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-orange-500/20 text-orange-700 rounded-full">
-                      C: {meal.carbs_g}g
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-purple-500/20 text-purple-700 rounded-full">
-                      F: {meal.fat_g}g
-                    </span>
-                  </div>
-                </div>
-              </div>
+                </button>
+              ))}
             </div>
-          ))}
+          ) : null}
+
+          {Object.keys(fuelGroups).length > 0 ? (
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-foreground">Workout fuel</h4>
+              {Object.entries(fuelGroups).map(([workout, items]) => (
+                <div key={workout} className="space-y-2">
+                  <p className="text-xs text-muted-foreground">{workout}</p>
+                  {items.map((meal) => {
+                    const fuelLabel = meal.name.toLowerCase()
+                    const fuelIcon = fuelLabel.includes("pre")
+                      ? "⚡️"
+                      : fuelLabel.includes("during")
+                        ? "💧"
+                        : fuelLabel.includes("post")
+                          ? "🍯"
+                          : "⚡️"
+                    return (
+                    <div key={meal.id} className="bg-muted rounded-xl p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          {fuelIcon} {meal.name.replace("Fuel:", "").trim()}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{meal.kcal} kcal</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={meal.eaten}
+                          onCheckedChange={(checked) => onToggleMeal(meal.id, Boolean(checked))}
+                          disabled={isUpdating}
+                        />
+                        <span className="text-xs text-muted-foreground">I took this</span>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
+
+      <RecipeDetailsDialog
+        open={Boolean(selectedMeal)}
+        onOpenChange={(open) => (open ? null : setSelectedMeal(null))}
+        meal={selectedMeal}
+        emoji={selectedMeal ? getMealEmoji(selectedMeal) : "🍽️"}
+        onAdapt={() => {
+          if (!selectedMeal) return
+          onAdaptMeal(selectedMeal)
+        }}
+        onCopyIngredients={async () => {
+          if (!selectedMeal) return
+          const ingredients = normalizeIngredients(selectedMeal.ingredients)
+          const text = ingredients.length
+            ? ingredients.map((ingredient) => `${ingredient.name}${ingredient.quantity ? ` (${ingredient.quantity})` : ""}`).join("\n")
+            : "No ingredients listed."
+          try {
+            await navigator.clipboard.writeText(text)
+            toast({ title: "Ingredients copied", description: "Ready to paste into your shopping list." })
+          } catch {
+            toast({ title: "Unable to copy ingredients", variant: "destructive" })
+          }
+        }}
+      />
     </div>
   )
 }
