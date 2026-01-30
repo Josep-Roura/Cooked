@@ -1,92 +1,33 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { addWeeks, endOfWeek, format, isWithinInterval, startOfWeek } from "date-fns"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
-import { TrainingList } from "@/components/dashboard/widgets/training-list"
+import { useMemo } from "react"
+import { endOfWeek, format, startOfWeek } from "date-fns"
+import { ChevronLeft, ChevronRight, Clock } from "lucide-react"
 import { WeeklyHistory } from "@/components/dashboard/training/weekly-history"
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useTrainingSessions } from "@/lib/db/hooks"
-import type { DateRangeOption, TrainingType } from "@/lib/db/types"
+import type { TrainingIntensity, TrainingSessionSummary, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
-
-const PAGE_SIZE = 3
+import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
 
 export default function TrainingPage() {
   const { user } = useSession()
-  const [now] = useState(() => new Date())
-  const [range, setRange] = useState<DateRangeOption>("week")
-  const [filter, setFilter] = useState<TrainingType | "all">("all")
-  const [search, setSearch] = useState("")
-  const [page, setPage] = useState(0)
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
-  const ensuredRangeRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    setPage(0)
-  }, [range, filter, search])
-
-  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
+  const { selectedDate, selectedDateKey, nextDay, prevDay, setFromWeekDayClick } = useDashboardDate()
+  const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 })
+  const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 })
   const weekStartKey = format(weekStart, "yyyy-MM-dd")
   const weekEndKey = format(weekEnd, "yyyy-MM-dd")
-  const todayKey = format(now, "yyyy-MM-dd")
-
-  useEffect(() => {
-    setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
-  }, [range])
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
-  const listStart = isWithinInterval(now, { start: weekStart, end: weekEnd })
-    ? now
-    : weekStart
-  const listStartKey = format(listStart, "yyyy-MM-dd")
-  const listEndKey = format(endOfWeek(addWeeks(weekStart, page), { weekStartsOn: 1 }), "yyyy-MM-dd")
-  const listQuery = useTrainingSessions(user?.id, listStartKey, listEndKey)
-  useEffect(() => {
-    if (!user?.id || trainingQuery.isLoading) return
+
+  const sessionsForDay = useMemo(() => {
     const sessions = trainingQuery.data ?? []
-    if (sessions.length === 0) return
-    const ensureKey = `${user.id}:${weekStartKey}:${weekEndKey}`
-    if (ensuredRangeRef.current === ensureKey) return
-    ensuredRangeRef.current = ensureKey
-  }, [trainingQuery.data, trainingQuery.isLoading, user?.id, weekEndKey, weekStartKey])
-
-  const filteredSessions = useMemo(() => {
-    const sessions = listQuery.data ?? []
-    const visibleSessions = sessions.filter((session) => {
-      if (session.date < listStartKey) {
-        return false
-      }
-      if (filter !== "all" && session.type !== filter) {
-        return false
-      }
-      if (!search.trim()) {
-        return true
-      }
-      return session.title.toLowerCase().includes(search.trim().toLowerCase())
-    })
-
-    return visibleSessions.sort((a, b) => {
-      if (a.date !== b.date) {
-        return a.date.localeCompare(b.date)
-      }
-      if (!a.time && !b.time) return 0
-      if (!a.time) return 1
-      if (!b.time) return -1
-      return a.time.localeCompare(b.time)
-    })
-  }, [filter, listQuery.data, listStartKey, search])
-
-  const paginatedSessions = filteredSessions
-  const hasMore = (listQuery.data?.length ?? 0) >= PAGE_SIZE * (page + 1)
-
-  const handleLoadMore = () => {
-    if (hasMore) {
-      setPage((prev) => prev + 1)
-    }
-  }
+    return sessions
+      .filter((session) => session.date === selectedDateKey)
+      .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title))
+  }, [selectedDateKey, trainingQuery.data])
 
   const weeklyTotals = useMemo(() => {
     const sessions = trainingQuery.data ?? []
@@ -117,18 +58,54 @@ export default function TrainingPage() {
         displayLabel: format(date, "EEE dd MMM"),
         totalsByType,
         totalMinutes,
-        isToday: dateKey === todayKey,
       }
     })
 
     const totalDurationMinutes = days.reduce((sum, day) => sum + day.totalMinutes, 0)
-    const totalCalories = sessions.reduce((sum, session) => sum + session.calories, 0)
+    const totalSessions = sessions.length
 
-    return { totalDurationMinutes, totalCalories, days }
-  }, [todayKey, trainingQuery.data, weekStart])
+    return { totalDurationMinutes, totalSessions, days }
+  }, [trainingQuery.data, weekStart])
 
   if (trainingQuery.isError) {
     return <ErrorState onRetry={() => trainingQuery.refetch()} />
+  }
+
+  const typeIcons: Record<TrainingType, string> = {
+    swim: "🏊",
+    bike: "🚴",
+    run: "🏃",
+    strength: "💪",
+    rest: "🧘",
+    other: "🏋️",
+  }
+
+  const formatIntensity = (intensity: TrainingIntensity) =>
+    intensity ? intensity.charAt(0).toUpperCase() + intensity.slice(1) : null
+
+  const getFuelingHints = (session: TrainingSessionSummary) => {
+    if (session.type === "rest") {
+      return { before: null, during: null, after: null }
+    }
+
+    const before =
+      session.durationMinutes >= 60 ? "Carbs 30–60 min before" : null
+
+    let during: string | null = null
+    if (session.durationMinutes >= 90) {
+      during = "Carbs + fluids + sodium during"
+    } else if (session.durationMinutes >= 75 && ["run", "bike", "swim"].includes(session.type)) {
+      during = "Fuel during with carbs + fluids"
+    }
+
+    let after: string | null = null
+    if (session.intensity === "high") {
+      after = "Recovery meal with carbs + protein"
+    } else if (session.type === "strength" && session.durationMinutes >= 45) {
+      after = "Protein-focused recovery"
+    }
+
+    return { before, during, after }
   }
 
   return (
@@ -137,32 +114,70 @@ export default function TrainingPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Training</h1>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setWeekStart(addWeeks(weekStart, -1))}>
+            <Button variant="outline" size="icon" onClick={prevDay} aria-label="Previous day">
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => setWeekStart(addWeeks(weekStart, 1))}>
+            <span className="text-sm font-semibold text-foreground min-w-[120px] text-center">
+              {format(selectedDate, "EEE, MMM d")}
+            </span>
+            <Button variant="outline" size="icon" onClick={nextDay} aria-label="Next day">
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="rounded-full px-4 text-xs" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
-              Today
-            </Button>
-            <DateRangeSelector value={range} onChange={setRange} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrainingList
-            sessions={paginatedSessions}
-            total={filteredSessions.length}
-            hasMore={hasMore}
-            isLoading={trainingQuery.isLoading || listQuery.isLoading}
-            onLoadMore={handleLoadMore}
-            filter={filter}
-            onFilterChange={setFilter}
-            search={search}
-            onSearchChange={setSearch}
-          />
-          <WeeklyHistory weeklyData={weeklyTotals} />
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4">Sessions</h2>
+            {trainingQuery.isLoading ? (
+              <div className="text-sm text-muted-foreground">Loading sessions...</div>
+            ) : sessionsForDay.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No training planned for this day.</div>
+            ) : (
+              <div className="space-y-3">
+                {sessionsForDay.map((session) => {
+                  const hints = getFuelingHints(session)
+                  return (
+                    <div key={session.id} className="bg-muted rounded-xl p-4 flex gap-4">
+                      <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl">
+                        {typeIcons[session.type]}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-foreground">{session.title}</h3>
+                          <span className="text-xs text-muted-foreground capitalize">
+                            {session.type}
+                            {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span>{session.durationMinutes} min</span>
+                          {session.time ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {session.time}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
+                          {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
+                          {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          <div className="max-w-xl">
+            <WeeklyHistory
+              weeklyData={weeklyTotals}
+              selectedDateKey={selectedDateKey}
+              onSelectDate={setFromWeekDayClick}
+            />
+          </div>
         </div>
 
       </div>

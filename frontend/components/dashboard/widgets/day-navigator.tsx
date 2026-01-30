@@ -6,15 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 interface DayNavigatorProps {
-  date: string
+  date: Date
   onPreviousDay: () => void
   onNextDay: () => void
-  onSelectDate: (date: string) => void
+  onSelectDate: (date: Date) => void
   onToday?: () => void
 }
 
 export function DayNavigator({ date, onPreviousDay, onNextDay, onSelectDate, onToday }: DayNavigatorProps) {
-  const formatted = format(parseISO(date), "MMM d, yyyy")
+  const formatted = format(date, "MMM d, yyyy")
+  const inputValue = format(date, "yyyy-MM-dd")
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -31,8 +32,12 @@ export function DayNavigator({ date, onPreviousDay, onNextDay, onSelectDate, onT
         <CalendarDays className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="date"
-          value={date}
-          onChange={(event) => onSelectDate(event.target.value)}
+          value={inputValue}
+          onChange={(event) => {
+            const value = event.target.value
+            if (!value) return
+            onSelectDate(parseISO(value))
+          }}
           className="h-9 w-[150px] rounded-full pl-9 text-xs"
           aria-label={`Selected day ${formatted}`}
         />
