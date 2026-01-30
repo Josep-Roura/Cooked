@@ -12,6 +12,24 @@ type IngredientInput =
       category?: string
     }
 
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  produce: ["lettuce", "spinach", "kale", "tomato", "onion", "garlic", "pepper", "avocado", "broccoli", "carrot"],
+  dairy: ["milk", "yogurt", "cheese", "butter", "cream"],
+  "meat/fish": ["chicken", "beef", "pork", "salmon", "tuna", "fish", "turkey"],
+  pantry: ["rice", "pasta", "bread", "oats", "beans", "lentils", "oil", "flour", "salt", "spice"],
+  frozen: ["frozen"],
+}
+
+function inferCategory(name: string) {
+  const normalized = name.toLowerCase()
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      return category
+    }
+  }
+  return "other"
+}
+
 function normalizeIngredient(raw: IngredientInput) {
   if (typeof raw === "string") {
     const name = raw.trim()
@@ -24,11 +42,13 @@ function normalizeIngredient(raw: IngredientInput) {
   if (!name) {
     return null
   }
+  const category =
+    typeof raw.category === "string" && raw.category.trim() ? raw.category.trim().toLowerCase() : inferCategory(name)
   return {
     name,
     quantity: typeof raw.quantity === "number" ? raw.quantity : null,
     unit: typeof raw.unit === "string" ? raw.unit : null,
-    category: typeof raw.category === "string" ? raw.category : "other",
+    category,
   }
 }
 
@@ -77,22 +97,17 @@ export async function POST(req: NextRequest) {
       .gte("date_range_start", start)
       .lte("date_range_end", end)
 
+    const aggregated = new Map<string, { name: string; quantity: number | null; unit: string | null; category: string }>()
     const items = (schedule ?? []).flatMap((meal) => {
       const ingredients = Array.isArray(meal.ingredients) ? (meal.ingredients as IngredientInput[]) : []
       return ingredients
         .map((ingredient) => normalizeIngredient(ingredient))
         .filter(Boolean)
         .map((ingredient) => ({
-          user_id: user.id,
           name: ingredient?.name ?? "",
           quantity: ingredient?.quantity ?? null,
           unit: ingredient?.unit ?? null,
           category: ingredient?.category ?? "other",
-          is_bought: false,
-          source: "schedule",
-          recipe_id: meal.recipe_id ?? null,
-          date_range_start: start,
-          date_range_end: end,
         }))
     })
 
@@ -100,7 +115,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ items: [] }, { status: 200 })
     }
 
-    const { data: inserted, error: insertError } = await supabase.from("grocery_items").insert(items).select("*")
+    items.forEach((item) => {
+      const key = `${item.name.toLowerCase()}|${item.unit ?? ""}|${item.category ?? "other"}`
+      const existing = aggregated.get(key)
+      if (!existing) {
+        aggregated.set(key, { ...item })
+        return
+      }
+      if (typeof existing.quantity === "number" && typeof item.quantity === "number") {
+        existing.quantity += item.quantity
+      } else if (existing.quantity === null && typeof item.quantity === "number") {
+        existing.quantity = item.quantity
+      }
+    })
+
+    const payload = Array.from(aggregated.values()).map((item) => ({
+      user_id: user.id,
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      category: item.category,
+      is_bought: false,
+      notes: null,
+      source: "schedule",
+      recipe_id: null,
+      date_range_start: start,
+      date_range_end: end,
+    }))
+
+    const { data: inserted, error: insertError } = await supabase.from("grocery_items").insert(payload).select("*")
     if (insertError) {
       return NextResponse.json({ error: "Failed to generate grocery list", details: insertError.message }, { status: 400 })
     }
