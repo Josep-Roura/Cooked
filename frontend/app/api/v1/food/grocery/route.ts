@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
       unit: typeof body.unit === "string" ? body.unit : null,
       category: typeof body.category === "string" ? body.category : "other",
       is_bought: Boolean(body.is_bought),
+      notes: typeof body.notes === "string" ? body.notes.trim() : null,
       source: typeof body.source === "string" ? body.source : "manual",
       recipe_id: typeof body.recipe_id === "string" ? body.recipe_id : null,
       date_range_start: typeof body.date_range_start === "string" ? body.date_range_start : null,

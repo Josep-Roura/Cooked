@@ -425,6 +425,7 @@ export interface GroceryItem {
   unit: string | null
   category: string | null
   is_bought: boolean
+  notes: string | null
   source: string | null
   recipe_id: string | null
   date_range_start: string | null
