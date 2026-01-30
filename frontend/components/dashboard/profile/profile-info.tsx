@@ -103,12 +103,15 @@ const profileSchema = z.object({
 })
 
 function buildFormState(profile: ProfileRow): ProfileFormState {
+  const units = profile.units ?? DEFAULT_UNITS
+  const heightValue = units === "imperial" ? cmToInches(profile.height_cm) : profile.height_cm
+  const weightValue = units === "imperial" ? kgToLbs(profile.weight_kg) : profile.weight_kg
   return {
     full_name: profile.full_name ?? profile.name ?? "",
     avatar_url: profile.avatar_url ?? "",
-    height_cm: profile.height_cm?.toString() ?? "",
-    weight_kg: profile.weight_kg?.toString() ?? "",
-    units: profile.units ?? DEFAULT_UNITS,
+    height_cm: formatOptionalNumber(heightValue),
+    weight_kg: formatOptionalNumber(weightValue),
+    units,
     primary_goal: profile.primary_goal ?? "",
     experience_level: profile.experience_level ?? "",
     event: profile.event ?? "",
@@ -134,10 +137,42 @@ function parseOptionalNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function formatOptionalNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return ""
+  }
+  const rounded = Number.isInteger(value) ? value.toString() : value.toFixed(1)
+  return rounded
+}
+
+function kgToLbs(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value * 2.2046226218
+}
+
+function lbsToKg(value: number | null): number | null {
+  if (value === null) return null
+  return value / 2.2046226218
+}
+
+function cmToInches(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value / 2.54
+}
+
+function inchesToCm(value: number | null): number | null {
+  if (value === null) return null
+  return value * 2.54
+}
+
 export function ProfileInfo({ profile }: ProfileInfoProps) {
   const displayName = profile.full_name ?? profile.name ?? "Athlete"
   const goal = profile.primary_goal ?? "—"
-  const weightUnit = profile.units === "imperial" ? "lbs" : "kg"
+  const units = profile.units ?? DEFAULT_UNITS
+  const weightUnit = units === "imperial" ? "lbs" : "kg"
+  const heightUnit = units === "imperial" ? "in" : "cm"
+  const displayWeight =
+    units === "imperial" ? formatOptionalNumber(kgToLbs(profile.weight_kg)) : formatOptionalNumber(profile.weight_kg)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -193,11 +228,13 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
       return
     }
 
+    const parsedHeight = parseOptionalNumber(formState.height_cm)
+    const parsedWeight = parseOptionalNumber(formState.weight_kg)
     const payload = {
       full_name: formState.full_name.trim() || null,
       avatar_url: formState.avatar_url.trim() || null,
-      height_cm: parseOptionalNumber(formState.height_cm),
-      weight_kg: parseOptionalNumber(formState.weight_kg),
+      height_cm: formState.units === "imperial" ? inchesToCm(parsedHeight) : parsedHeight,
+      weight_kg: formState.units === "imperial" ? lbsToKg(parsedWeight) : parsedWeight,
       units: formState.units,
       primary_goal: formState.primary_goal.trim() || null,
       experience_level: formState.experience_level.trim() || null,
@@ -283,7 +320,7 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
           <div>
             <p className="text-xs text-muted-foreground">Weight</p>
             <p className="text-sm font-medium text-foreground">
-              {profile.weight_kg ?? "—"} {weightUnit}
+              {displayWeight || "—"} {weightUnit}
             </p>
           </div>
         </div>
@@ -316,11 +353,11 @@ export function ProfileInfo({ profile }: ProfileInfoProps) {
                   <Input id="avatar_url" value={formState.avatar_url} onChange={handleChange("avatar_url")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="height_cm">Height (cm)</Label>
+                  <Label htmlFor="height_cm">Height ({heightUnit})</Label>
                   <Input id="height_cm" value={formState.height_cm} onChange={handleChange("height_cm")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="weight_kg">Weight (kg)</Label>
+                  <Label htmlFor="weight_kg">Weight ({weightUnit})</Label>
                   <Input id="weight_kg" value={formState.weight_kg} onChange={handleChange("weight_kg")} />
                 </div>
                 <div className="space-y-2">
