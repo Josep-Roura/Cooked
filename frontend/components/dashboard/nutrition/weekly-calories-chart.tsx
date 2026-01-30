@@ -53,9 +53,9 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
           consumed: { color: "var(--primary)" },
           target: { color: "var(--primary)" },
         }}
-        className="h-64 w-full"
+        className="h-48 w-full"
       >
-        <BarChart data={data} margin={{ left: -12, right: 8 }} barSize={24} barGap={-24} barCategoryGap={18}>
+        <BarChart data={data} margin={{ left: -12, right: 8 }} barSize={26} barGap={-26} barCategoryGap={18}>
           <XAxis dataKey="label" tickLine={false} axisLine={false} />
           <YAxis hide domain={[0, "dataMax + 200"]} />
           <Tooltip
@@ -80,14 +80,14 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
               )
             }}
           />
-          <Bar dataKey="targetKcal" radius={[10, 10, 10, 10]}>
+          <Bar dataKey="targetKcal" radius={[12, 12, 12, 12]}>
             {data.map((entry) => (
-              <Cell key={`target-${entry.date}`} fill="var(--primary)" fillOpacity={0.25} />
+              <Cell key={`target-${entry.date}`} fill="var(--primary)" fillOpacity={0.2} />
             ))}
           </Bar>
           <Bar
             dataKey="consumedKcal"
-            radius={[10, 10, 10, 10]}
+            radius={[12, 12, 12, 12]}
             onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (

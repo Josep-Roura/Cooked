@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { RefreshCw } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { addDays, format, parseISO } from "date-fns"
 import Link from "next/link"
@@ -9,39 +8,42 @@ import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { DateRangeSelector } from "@/components/dashboard/widgets/date-range-selector"
+import { DayNavigator } from "@/components/dashboard/widgets/day-navigator"
 import { TodaysMacrosCard } from "@/components/dashboard/widgets/todays-macros-card"
 import { TodaysTrainingCard } from "@/components/dashboard/widgets/todays-training-card"
 import { UpcomingEventCard } from "@/components/dashboard/widgets/upcoming-event-card"
 import { EventManagementSheet } from "@/components/dashboard/widgets/event-management-sheet"
 import { PlanCard } from "@/components/dashboard/widgets/plan-card"
 import {
-  useDashboardOverview,
   useMacrosDay,
   useMealPlanDay,
   useTrainingSessions,
   useUpdateMealIngredient,
   useUpdateMealPlanItem,
   useUserEvents,
-  useProfile,
+  useWeekRange,
+  useWeeklyNutrition,
 } from "@/lib/db/hooks"
-import type { DateRangeOption, TrainingSessionSummary } from "@/lib/db/types"
+import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
+import type { TrainingSessionSummary } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
-import { useEnsureNutritionPlan } from "@/lib/nutrition/ensure"
+import { useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 
 export function OverviewPage() {
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const { user } = useSession()
-  const profileQuery = useProfile(user?.id)
   const [now] = useState(() => new Date())
-  const [range, setRange] = useState<DateRangeOption>("today")
   const [selectedDate, setSelectedDate] = useState(() => format(now, "yyyy-MM-dd"))
   const [eventsOpen, setEventsOpen] = useState(false)
   const [highlightMeals, setHighlightMeals] = useState(false)
-  const overviewQuery = useDashboardOverview(user?.id, profileQuery.data, range)
-  useEnsureNutritionPlan({ userId: user?.id, range, enabled: Boolean(user?.id) })
   const todayKey = format(now, "yyyy-MM-dd")
+  useEnsureNutritionPlanRange({
+    userId: user?.id,
+    start: selectedDate,
+    end: selectedDate,
+    enabled: Boolean(user?.id) && Boolean(selectedDate),
+  })
   const eventsQuery = useUserEvents(
     user?.id,
     format(now, "yyyy-MM-dd"),
@@ -50,6 +52,8 @@ export function OverviewPage() {
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDate)
   const macrosQuery = useMacrosDay(user?.id, selectedDate)
   const selectedTrainingQuery = useTrainingSessions(user?.id, selectedDate, selectedDate)
+  const weekRange = useWeekRange(parseISO(selectedDate))
+  const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekRange.startKey, weekRange.endKey)
   const updateMealItemMutation = useUpdateMealPlanItem()
   const updateMealIngredientMutation = useUpdateMealIngredient()
   const planRef = useRef<HTMLDivElement | null>(null)
@@ -73,16 +77,6 @@ export function OverviewPage() {
         transition: { duration: 0.2 },
       }
 
-  const handleRefresh = async () => {
-    await Promise.all([
-      overviewQuery.refetch(),
-      eventsQuery.refetch(),
-      mealPlanQuery.refetch(),
-      macrosQuery.refetch(),
-    ])
-    toast({ title: "Dashboard refreshed", description: "Latest data has been loaded." })
-  }
-
   const handleSelectSession = (session: TrainingSessionSummary) => {
     toast({ title: "Session selected", description: `${session.title} details opened.` })
   }
@@ -99,9 +93,24 @@ export function OverviewPage() {
     }
   }, [mealPlanQuery.isError, toast])
 
+  useEffect(() => {
+    if (macrosQuery.isError) {
+      toast({ title: "Unable to load macros", description: "Please try again later.", variant: "destructive" })
+    }
+  }, [macrosQuery.isError, toast])
 
-  if (overviewQuery.isError) {
-    return <ErrorState onRetry={() => overviewQuery.refetch()} />
+  useEffect(() => {
+    if (weeklyNutritionQuery.isError) {
+      toast({
+        title: "Unable to load weekly calories",
+        description: "Please try again later.",
+        variant: "destructive",
+      })
+    }
+  }, [weeklyNutritionQuery.isError, toast])
+
+  if (eventsQuery.isError && mealPlanQuery.isError && macrosQuery.isError) {
+    return <ErrorState onRetry={() => Promise.all([eventsQuery.refetch(), mealPlanQuery.refetch(), macrosQuery.refetch()])} />
   }
 
   const events = eventsQuery.data ?? []
@@ -198,16 +207,16 @@ export function OverviewPage() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h2 className="text-2xl font-bold text-foreground">Overview</h2>
-        <div className="flex items-center gap-3">
-          <DateRangeSelector value={range} onChange={setRange} />
-          <Button variant="outline" className="rounded-full px-4 text-xs" onClick={handleRefresh}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+        <DayNavigator
+          date={selectedDate}
+          onPreviousDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))}
+          onNextDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
+          onSelectDate={setSelectedDate}
+          onToday={() => setSelectedDate(todayKey)}
+        />
       </div>
 
-        <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" {...animationProps}>
+        <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8" {...animationProps}>
           <motion.div {...hoverProps}>
             <TodaysMacrosCard
               consumed={consumedMacros}
@@ -216,6 +225,14 @@ export function OverviewPage() {
               label={`Macros for ${format(parseISO(selectedDate), "MMM d")}`}
             />
           </motion.div>
+        <motion.div {...hoverProps}>
+          <WeeklyCaloriesChart
+            days={weeklyNutritionQuery.data ?? []}
+            selectedDate={selectedDate}
+            isLoading={weeklyNutritionQuery.isLoading}
+            onSelectDate={setSelectedDate}
+          />
+        </motion.div>
         <motion.div {...hoverProps}>
           <UpcomingEventCard
             isLoading={eventsQuery.isLoading}
@@ -237,11 +254,6 @@ export function OverviewPage() {
         <motion.div {...hoverProps} ref={planRef}>
           <PlanCard
             date={selectedDate}
-            onPreviousDay={() =>
-              setSelectedDate(format(addDays(parseISO(selectedDate), -1), "yyyy-MM-dd"))
-            }
-            onNextDay={() => setSelectedDate(format(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"))}
-            onToday={() => setSelectedDate(todayKey)}
             plan={mealPlanDay}
             isLoading={mealPlanQuery.isLoading}
             isUpdating={updateMealItemMutation.isPending || updateMealIngredientMutation.isPending}
