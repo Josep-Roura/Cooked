@@ -37,6 +37,11 @@ export function TodaysMacrosCard({ consumed, target, isLoading, label = "Today's
   }
 
   const caloriePercent = target.kcal > 0 ? Math.min((consumed.kcal / target.kcal) * 100, 100) : 0
+  const macroItems = [
+    { label: "Protein", consumed: consumed.protein_g, target: target.protein_g, unit: "g" },
+    { label: "Carbs", consumed: consumed.carbs_g, target: target.carbs_g, unit: "g" },
+    { label: "Fat", consumed: consumed.fat_g, target: target.fat_g, unit: "g" },
+  ]
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
@@ -49,28 +54,24 @@ export function TodaysMacrosCard({ consumed, target, isLoading, label = "Today's
         <span className="text-muted-foreground text-sm mb-1">/ {target.kcal} kcal</span>
       </div>
       <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground mb-4">
-        <div className="bg-muted rounded-xl p-3 text-center">
-          <p className="font-semibold text-foreground">{consumed.protein_g}g</p>
-          <p>Protein</p>
-        </div>
-        <div className="bg-muted rounded-xl p-3 text-center">
-          <p className="font-semibold text-foreground">{consumed.carbs_g}g</p>
-          <p>Carbs</p>
-        </div>
-        <div className="bg-muted rounded-xl p-3 text-center">
-          <p className="font-semibold text-foreground">{consumed.fat_g}g</p>
-          <p>Fat</p>
-        </div>
+        {macroItems.map((macro) => (
+          <div key={macro.label} className="bg-muted rounded-xl p-3 text-center">
+            <p className="font-semibold text-foreground">
+              {macro.consumed}
+              {macro.unit}
+              <span className="text-muted-foreground"> / {macro.target}{macro.unit}</span>
+            </p>
+            <p>{macro.label}</p>
+          </div>
+        ))}
       </div>
-      <div className="h-2 bg-muted rounded-full overflow-hidden">
+      <div className="relative h-2 rounded-full bg-primary/15 overflow-hidden">
         <div
-          className="h-full bg-primary rounded-full transition-all duration-500"
+          className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-500"
           style={{ width: `${caloriePercent}%` }}
         />
       </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        {Math.round(caloriePercent)}% of target
-      </p>
+      <p className="text-xs text-muted-foreground mt-2">{Math.round(caloriePercent)}% of target</p>
     </div>
   )
 }

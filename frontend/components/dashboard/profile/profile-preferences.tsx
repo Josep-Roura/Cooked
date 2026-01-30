@@ -17,7 +17,7 @@ interface ProfilePreferencesProps {
 
 export function ProfilePreferences({ preferences, isSaving, onUpdate }: ProfilePreferencesProps) {
   const { theme, setTheme } = useTheme()
-  const isDark = preferences.theme === "dark"
+  const isDark = theme === "dark"
 
   useEffect(() => {
     if (preferences.theme && theme !== preferences.theme) {

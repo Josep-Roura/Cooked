@@ -584,6 +584,17 @@ async function fetchMealLog(date: string) {
   return Array.isArray(data.meal_log) ? data.meal_log : []
 }
 
+async function fetchMealLogRange(start: string, end: string) {
+  const params = new URLSearchParams({ start, end })
+  const response = await fetch(`/api/v1/food/meal-log?${params.toString()}`)
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody?.error ?? "Failed to load meal log")
+  }
+  const data = (await response.json()) as MealLogPayload
+  return Array.isArray(data.meal_log) ? data.meal_log : []
+}
+
 async function fetchMealPrep(start?: string, end?: string) {
   const params = new URLSearchParams()
   if (start && end) {
@@ -1374,6 +1385,15 @@ export function useMealLog(userId: string | null | undefined, date: string) {
     queryFn: () => fetchMealLog(date),
     enabled: Boolean(userId) && Boolean(date),
     staleTime: 1000 * 15,
+  })
+}
+
+export function useMealLogRange(userId: string | null | undefined, start: string, end: string) {
+  return useQuery({
+    queryKey: ["db", "food-meal-log-range", userId, start, end],
+    queryFn: () => fetchMealLogRange(start, end),
+    enabled: Boolean(userId) && Boolean(start) && Boolean(end),
+    staleTime: 1000 * 30,
   })
 }
 

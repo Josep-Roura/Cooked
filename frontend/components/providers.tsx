@@ -13,7 +13,7 @@ export function Providers({ children }: ProvidersProps) {
   const [client] = useState(() => new QueryClient())
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <QueryClientProvider client={client}>
         {children}
         <Toaster />

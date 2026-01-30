@@ -7,8 +7,13 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const date = searchParams.get("date")
-    if (!date || !DATE_REGEX.test(date)) {
+    const start = searchParams.get("start")
+    const end = searchParams.get("end")
+    if (date && !DATE_REGEX.test(date)) {
       return NextResponse.json({ error: "Invalid date." }, { status: 400 })
+    }
+    if ((start && !DATE_REGEX.test(start)) || (end && !DATE_REGEX.test(end))) {
+      return NextResponse.json({ error: "Invalid date range." }, { status: 400 })
     }
 
     const supabase = await createServerClient()
@@ -24,12 +29,16 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const { data, error } = await supabase
-      .from("meal_log")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("date", date)
-      .order("slot", { ascending: true })
+    let query = supabase.from("meal_log").select("*").eq("user_id", user.id)
+    if (date) {
+      query = query.eq("date", date)
+    } else if (start && end) {
+      query = query.gte("date", start).lte("date", end)
+    } else {
+      return NextResponse.json({ error: "Invalid date." }, { status: 400 })
+    }
+
+    const { data, error } = await query.order("date", { ascending: true }).order("slot", { ascending: true })
 
     if (error) {
       return NextResponse.json({ error: "Failed to load meal log", details: error.message }, { status: 400 })

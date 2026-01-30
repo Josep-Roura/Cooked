@@ -31,6 +31,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (typeof body.category === "string") updates.category = body.category.trim()
     if (body.category === null) updates.category = null
     if (typeof body.is_bought === "boolean") updates.is_bought = body.is_bought
+    if (typeof body.notes === "string") updates.notes = body.notes.trim()
+    if (body.notes === null) updates.notes = null
 
     const { data, error } = await supabase
       .from("grocery_items")
@@ -47,6 +49,38 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ item: data }, { status: 200 })
   } catch (error) {
     console.error("PATCH /api/v1/food/grocery/:id error:", error)
+    return NextResponse.json(
+      { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    )
+  }
+}
+
+export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params
+    const supabase = await createServerClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Not authenticated", details: authError?.message ?? null },
+        { status: 401 },
+      )
+    }
+
+    const { error } = await supabase.from("grocery_items").delete().eq("id", id).eq("user_id", user.id)
+
+    if (error) {
+      return NextResponse.json({ error: "Failed to delete grocery item", details: error.message }, { status: 400 })
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 })
+  } catch (error) {
+    console.error("DELETE /api/v1/food/grocery/:id error:", error)
     return NextResponse.json(
       { error: "Internal error", details: error instanceof Error ? error.message : String(error) },
       { status: 500 },
