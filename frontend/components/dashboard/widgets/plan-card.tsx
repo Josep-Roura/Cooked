@@ -98,6 +98,9 @@ export function PlanCard({
     () => (selectedMeal ? normalizeIngredients(selectedMeal) : []),
     [selectedMeal],
   )
+  const instructionText =
+    selectedMeal?.notes?.trim() ||
+    "Prep the ingredients, cook or assemble, and plate to match your nutrition plan."
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
@@ -219,14 +222,14 @@ export function PlanCard({
             <div>
               <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Instructions</h4>
               <p className="text-sm text-muted-foreground">
-                No instructions provided for this meal yet.
+                {instructionText}
               </p>
             </div>
 
             <div>
               <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Notes</h4>
               <p className="text-sm text-muted-foreground">
-                {selectedMeal.notes ? selectedMeal.notes : "No additional notes."}
+                {selectedMeal.notes ? "See instructions for details." : "No additional notes."}
               </p>
             </div>
           </div>
