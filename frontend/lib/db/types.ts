@@ -18,6 +18,11 @@ export interface ProfileRow {
   workout_time: string | null
   diet: string | null
   meals_per_day: number | null
+  allergies_restrictions: string[] | null
+  preferred_cuisine: string | null
+  cooking_time_preference: string | null
+  budget_preference: string | null
+  daily_schedule: string | null
   cooking_time_min: number | null
   budget: string | null
   kitchen: string | null
