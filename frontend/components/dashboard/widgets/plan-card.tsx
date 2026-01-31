@@ -83,6 +83,14 @@ export function PlanCard({
   onToggleIngredient,
 }: PlanCardProps) {
   const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
+  const dateLabel = format(parseISO(date), "EEEE, MMM d")
+  const selectedIngredients = useMemo(
+    () => (selectedMeal ? normalizeIngredients(selectedMeal) : []),
+    [selectedMeal],
+  )
+  const instructionText =
+    selectedMeal?.notes?.trim() ||
+    "Prep the ingredients, cook or assemble, and plate to match your nutrition plan."
 
   if (isLoading) {
     return (
@@ -92,15 +100,6 @@ export function PlanCard({
       </div>
     )
   }
-
-  const dateLabel = format(parseISO(date), "EEEE, MMM d")
-  const selectedIngredients = useMemo(
-    () => (selectedMeal ? normalizeIngredients(selectedMeal) : []),
-    [selectedMeal],
-  )
-  const instructionText =
-    selectedMeal?.notes?.trim() ||
-    "Prep the ingredients, cook or assemble, and plate to match your nutrition plan."
 
   return (
     <div className="bg-card border border-border rounded-2xl p-6">
