@@ -1,4 +1,3 @@
-import PDFDocument from "pdfkit"
 import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
@@ -22,44 +21,66 @@ function formatItemLine(item: { name: string; quantity: number | null; unit: str
   return `${item.quantity}${unit} ${item.name}`
 }
 
+function escapePdfText(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)")
+}
+
 async function buildPdfBuffer(payload: {
   title: string
   subtitle: string
   items: Array<{ name: string; quantity: number | null; unit: string | null; category: string | null }>
 }) {
-  return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 48, size: "LETTER" })
-    const chunks: Buffer[] = []
+  const marginLeft = 72
+  let cursorY = 740
+  const lineGap = 6
+  const lines: Array<{ text: string; size: number; x: number; y: number }> = []
 
-    doc.on("data", (chunk) => chunks.push(chunk))
-    doc.on("end", () => resolve(Buffer.concat(chunks)))
-    doc.on("error", (err) => reject(err))
+  const addLine = (text: string, size: number, indent = 0, spacing = lineGap) => {
+    lines.push({ text, size, x: marginLeft + indent, y: cursorY })
+    cursorY -= size + spacing
+  }
 
-    doc.fontSize(20).fillColor("#0f172a").text(payload.title)
-    doc.moveDown(0.5)
-    doc.fontSize(11).fillColor("#475569").text(payload.subtitle)
-    doc.moveDown(1)
+  addLine(payload.title, 20, 0, 10)
+  addLine(payload.subtitle, 11, 0, 14)
 
-    const grouped = groupItems(payload.items)
-    Array.from(grouped.keys())
-      .sort()
-      .forEach((category) => {
-        const items = grouped.get(category) ?? []
-        doc.fontSize(13).fillColor("#0f172a").text(category.toUpperCase())
-        doc.moveDown(0.4)
-        items.forEach((item) => {
-          doc
-            .fontSize(11)
-            .fillColor("#1f2937")
-            .text(`☐ ${formatItemLine(item)}`, {
-              indent: 8,
-            })
-        })
-        doc.moveDown(0.8)
+  const grouped = groupItems(payload.items)
+  Array.from(grouped.keys())
+    .sort()
+    .forEach((category) => {
+      addLine(category.toUpperCase(), 12, 0, 8)
+      const items = grouped.get(category) ?? []
+      items.forEach((item) => {
+        addLine(`[ ] ${formatItemLine(item)}`, 11, 12, 4)
       })
+      cursorY -= 6
+    })
 
-    doc.end()
+  const content = lines
+    .map(({ text, size, x, y }) => `BT /F1 ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET`)
+    .join("\n")
+
+  const header = "%PDF-1.4\n%\xFF\xFF\xFF\xFF\n"
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
+    `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`,
+    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+  ]
+
+  let offset = header.length
+  const xrefEntries = ["0000000000 65535 f \n"]
+  objects.forEach((object) => {
+    xrefEntries.push(`${String(offset).padStart(10, "0")} 00000 n \n`)
+    offset += object.length
   })
+
+  const xrefOffset = offset
+  const xref = `xref\n0 ${objects.length + 1}\n${xrefEntries.join("")}`
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+  const output = header + objects.join("") + xref + trailer
+
+  return Buffer.from(output, "latin1")
 }
 
 export async function GET(req: NextRequest) {

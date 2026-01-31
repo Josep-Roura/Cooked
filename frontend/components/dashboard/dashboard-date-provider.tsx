@@ -1,7 +1,7 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { addDays, format, isSameDay, parseISO } from "date-fns"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { addDays, format, isSameDay } from "date-fns"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 type DashboardDateContextValue = {
@@ -19,7 +19,8 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 function parseDateParam(value: string | null) {
   if (!value || !DATE_REGEX.test(value)) return null
-  const parsed = parseISO(value)
+  const [year, month, day] = value.split("-").map(Number)
+  const parsed = new Date(year, month - 1, day)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -29,6 +30,7 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
   const searchParams = useSearchParams()
   const paramDate = parseDateParam(searchParams.get("date"))
   const [selectedDate, setSelectedDateState] = useState<Date>(() => paramDate ?? new Date())
+  const lastReplacedRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!paramDate) return
@@ -39,14 +41,18 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
 
   const selectedDateKey = useMemo(() => format(selectedDate, "yyyy-MM-dd"), [selectedDate])
 
+  const searchParamsString = searchParams.toString()
+
   useEffect(() => {
-    const current = searchParams.get("date")
+    const params = new URLSearchParams(searchParamsString)
+    const current = params.get("date")
     if (current === selectedDateKey) return
-    const params = new URLSearchParams(searchParams.toString())
     params.set("date", selectedDateKey)
     const nextUrl = `${pathname}?${params.toString()}`
+    if (lastReplacedRef.current === nextUrl) return
+    lastReplacedRef.current = nextUrl
     router.replace(nextUrl, { scroll: false })
-  }, [pathname, router, searchParams, selectedDateKey])
+  }, [pathname, router, searchParamsString, selectedDateKey])
 
   const setSelectedDate = useCallback((date: Date) => {
     setSelectedDateState(date)
