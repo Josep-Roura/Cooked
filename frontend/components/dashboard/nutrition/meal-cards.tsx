@@ -139,15 +139,22 @@ export function MealCards({
           {regularMeals.length > 0 ? (
             <div className="space-y-3">
               {regularMeals.map((meal) => (
-                <button
+                <div
                   key={meal.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedMeal(meal)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      setSelectedMeal(meal)
+                    }
+                  }}
                   className={`w-full text-left p-4 rounded-xl border ${
                     meal.eaten
                       ? "bg-emerald-50 border-emerald-200"
                       : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
-                  } transition-all hover:shadow-sm`}
+                  } transition-all hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="text-2xl">{getMealEmoji(meal)}</div>
@@ -186,7 +193,7 @@ export function MealCards({
                       </div>
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           ) : null}
