@@ -11,7 +11,6 @@ interface RecipeDetailsDialogProps {
   meal: MealPlanItem | null
   emoji: string
   onCopyIngredients: () => void
-  onAdapt: () => void
 }
 
 export function RecipeDetailsDialog({
@@ -20,7 +19,6 @@ export function RecipeDetailsDialog({
   meal,
   emoji,
   onCopyIngredients,
-  onAdapt,
 }: RecipeDetailsDialogProps) {
   if (!meal) {
     return (
@@ -81,9 +79,6 @@ export function RecipeDetailsDialog({
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" className="rounded-full text-xs" onClick={onCopyIngredients}>
             Add ingredients to shopping list
-          </Button>
-          <Button className="rounded-full text-xs" onClick={onAdapt}>
-            Adapt with AI
           </Button>
         </div>
       </div>

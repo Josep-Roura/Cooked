@@ -5,9 +5,8 @@ import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
 import { Badge } from "@/components/ui/badge"
-import { useAiStatus, usePlanChat, useResetPlanChat, useSendPlanChatMessage, useWeekRange } from "@/lib/db/hooks"
+import { useAiStatus, useWeekRange } from "@/lib/db/hooks"
 import { ensureNutritionPlanRange } from "@/lib/nutrition/ensure"
 import { useSession } from "@/hooks/use-session"
 
@@ -16,13 +15,8 @@ export function AiStatusCard() {
   const { toast } = useToast()
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState("")
   const statusQuery = useAiStatus(user?.id)
   const { startKey, endKey } = useWeekRange(new Date())
-  const chatQuery = usePlanChat(user?.id, startKey, endKey)
-  const sendChatMutation = useSendPlanChatMessage(user?.id, startKey, endKey)
-  const resetChatMutation = useResetPlanChat(user?.id, startKey, endKey)
 
   const lastRun = statusQuery.data?.last_run ?? null
   const lastRunTime = lastRun?.created_at ? format(new Date(lastRun.created_at), "PPpp") : "No runs yet"
@@ -45,22 +39,6 @@ export function AiStatusCard() {
     } finally {
       setIsRegenerating(false)
     }
-  }
-
-  const handleSendChat = () => {
-    if (!chatInput.trim()) return
-    sendChatMutation.mutate(chatInput.trim(), {
-      onSuccess: () => {
-        setChatInput("")
-      },
-      onError: (error) => {
-        toast({
-          title: "Chat failed",
-          description: error instanceof Error ? error.message : "Unable to send message.",
-          variant: "destructive",
-        })
-      },
-    })
   }
 
   return (
@@ -97,13 +75,10 @@ export function AiStatusCard() {
           </div>
           {lastError && (
             <p className="text-xs text-rose-600">
-              Something went wrong with the last run. Try retrying the generation or open plan chat.
+              Something went wrong with the last run. Try retrying the generation.
             </p>
           )}
           <div className="flex items-center gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={() => setChatOpen(true)}>
-              Open plan chat
-            </Button>
             {isLocalEnv && lastRun ? (
               <Button variant="ghost" size="sm" onClick={() => setDetailsOpen((prev) => !prev)}>
                 {detailsOpen ? "Hide details" : "View details"}
@@ -120,25 +95,6 @@ export function AiStatusCard() {
           ) : null}
         </div>
       )}
-
-      <PlanChatDrawer
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        weekLabel={`${format(new Date(startKey), "MMM d")} – ${format(new Date(endKey), "MMM d, yyyy")}`}
-        isLoading={chatQuery.isLoading}
-        thread={chatQuery.data?.thread ?? null}
-        messages={chatQuery.data?.messages ?? []}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        onReset={() => {
-          const threadId = chatQuery.data?.thread?.id
-          if (!threadId) return
-          resetChatMutation.mutate(threadId)
-        }}
-        isSending={sendChatMutation.isPending}
-        onApply={() => statusQuery.refetch()}
-      />
     </div>
   )
 }
