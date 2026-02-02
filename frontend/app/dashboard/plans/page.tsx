@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { addWeeks, eachDayOfInterval, endOfWeek, format, startOfWeek } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,6 +9,7 @@ import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { PlanDetailsModal } from "@/components/dashboard/plans/plan-details-modal"
+import { WorkoutDetailsModal } from "@/components/dashboard/plans/workout-details-modal"
 import { WeeklyPlanHeader } from "@/components/dashboard/plans/weekly-plan-header"
 import { WeeklyTimeGrid } from "@/components/dashboard/schedule/weekly-time-grid"
 import type { ScheduleItem } from "@/components/dashboard/schedule/types"
@@ -25,15 +27,19 @@ import {
   useWorkoutsRange,
 } from "@/lib/db/hooks"
 import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
-import type { PlanWeekMeal } from "@/lib/db/types"
+import type { PlanWeekMeal, TpWorkout } from "@/lib/db/types"
 
 export default function PlansPage() {
   const { user } = useSession()
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<PlanWeekMeal | null>(null)
+  const [workoutDetailsOpen, setWorkoutDetailsOpen] = useState(false)
+  const [selectedWorkout, setSelectedWorkout] = useState<TpWorkout | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+
 
   const weekStart = startOfWeek(anchorDate, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(anchorDate, { weekStartsOn: 1 })
@@ -105,6 +111,63 @@ export default function PlansPage() {
     setDetailsOpen(true)
   }
 
+  const openWorkoutDetails = (workout: TpWorkout) => {
+    setSelectedWorkout(workout)
+    setWorkoutDetailsOpen(true)
+  }
+
+  const handleDragEnd = async (item: ScheduleItem, newDate: string, newStartTime: string) => {
+    // Check if item actually moved
+    if (item.date === newDate && item.startTime === newStartTime) {
+      console.log("Item didn't move, skipping update")
+      return
+    }
+
+    console.log(`Moving item ${item.id} (${item.type}) to ${newDate} at ${newStartTime}`)
+
+    try {
+      const response = await fetch("/api/v1/plans/update-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId: item.id,
+          itemType: item.type === "workout" ? "workout" : "meal",
+          newDate,
+          newStartTime,
+        }),
+      })
+
+      console.log("API response status:", response.status)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        console.error("API error:", errorData)
+        throw new Error(errorData.error || `Failed to update item (${response.status})`)
+      }
+
+      const result = await response.json()
+      console.log("API success:", result)
+
+      // Invalidate queries to force fresh data fetch
+      console.log("Invalidating queries...")
+      await queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+      await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+      console.log("Queries invalidated successfully")
+
+      toast({
+        title: "Item moved",
+        description: `${item.title} moved to ${format(new Date(newDate), "EEEE")} at ${newStartTime}`,
+      })
+    } catch (error) {
+      console.error("Drag error:", error)
+      toast({
+        title: "Failed to move item",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      })
+    }
+  }
+
   if (weekMealsQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
     return (
       <ErrorState
@@ -117,16 +180,63 @@ export default function PlansPage() {
     )
   }
 
+  // Group workouts by day and distribute them (morning/afternoon)
+  const workoutsByDayDistributed = useMemo(() => {
+    const map = new Map<string, { workout: typeof workouts[0]; startTime: string; endTime: string }[]>()
+    const workouts = workoutsQuery.data ?? []
+    
+    // Group by day first
+    const grouped = new Map<string, typeof workouts>()
+    workouts.forEach((workout) => {
+      if (!grouped.has(workout.workout_day)) {
+        grouped.set(workout.workout_day, [])
+      }
+      grouped.get(workout.workout_day)?.push(workout)
+    })
+    
+    // Distribute workouts within each day
+    grouped.forEach((dayWorkouts, day) => {
+      const distributed: { workout: typeof workouts[0]; startTime: string; endTime: string }[] = []
+      
+      dayWorkouts.forEach((workout, index) => {
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+        
+        // If multiple workouts, distribute: first morning (08:00), second afternoon (17:00)
+        let startTime: string
+        if (dayWorkouts.length > 1) {
+          if (index === 0) {
+            startTime = "08:00" // Morning workout
+          } else if (index === 1) {
+            startTime = "17:00" // Afternoon workout
+          } else {
+            // Additional workouts spaced by 3 hours
+            startTime = `${8 + index * 3}:00`.padStart(5, "0")
+          }
+        } else {
+          // Single workout - use original time or default to 18:00
+          const fallback = normalizeTime(workout.start_time, "18:00")
+          startTime = fallback.time
+        }
+        
+        const endTime = addMinutesToTime(startTime, duration)
+        distributed.push({ workout, startTime, endTime })
+      })
+      
+      map.set(day, distributed)
+    })
+    
+    return map
+  }, [workoutsQuery.data])
+
   const scheduleItems = useMemo<ScheduleItem[]>(() => {
     const items: ScheduleItem[] = []
-    const workouts = workoutsQuery.data ?? []
 
     ;(weekMealsQuery.data ?? []).forEach((meal) => {
       const fallbackTime = getMealFallbackTime(meal.slot)
       const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
       const duration = getMealDurationMinutes(meal.kcal)
       const mealType = meal.meal_type?.toLowerCase() ?? ""
-      const dayWorkouts = workoutsByDay.get(meal.date) ?? []
+      const dayWorkouts = workoutsByDayDistributed.get(meal.date) ?? []
       const primaryWorkout = dayWorkouts[0]
 
       let startTime = baseTime.time
@@ -135,12 +245,12 @@ export default function PlansPage() {
 
       if (primaryWorkout && mealType.includes("pre")) {
         type = "nutrition_pre"
-        startTime = addMinutesToTime(primaryWorkout.start, -45)
+        startTime = addMinutesToTime(primaryWorkout.startTime, -45)
         endTime = addMinutesToTime(startTime, 20)
       }
       if (primaryWorkout && mealType.includes("post")) {
         type = "nutrition_post"
-        startTime = addMinutesToTime(primaryWorkout.end, 10)
+        startTime = addMinutesToTime(primaryWorkout.endTime, 10)
         endTime = addMinutesToTime(startTime, 20)
       }
 
@@ -159,59 +269,64 @@ export default function PlansPage() {
           fat_g: meal.fat_g,
         },
         timeUnknown: baseTime.isUnknown,
+        locked: meal.locked ?? false,
         meta: { meal },
       })
     })
 
-    workouts.forEach((workout) => {
-      const fallback = normalizeTime(workout.start_time, "18:00")
-      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
-      const endTime = addMinutesToTime(fallback.time, duration)
-      const title = workout.title ?? workout.workout_type ?? "Workout"
-      const workoutType = workout.workout_type?.toLowerCase() ?? ""
-      const emoji = workoutType.includes("swim")
-        ? "🏊"
-        : workoutType.includes("bike") || workoutType.includes("cycle")
-          ? "🚴"
-          : workoutType.includes("run")
-            ? "🏃"
-            : workoutType.includes("strength")
-              ? "🏋️"
-              : workoutType.includes("rest")
-                ? "🛌"
-                : "🏅"
+    // Add distributed workouts
+    workoutsByDayDistributed.forEach((dayWorkouts) => {
+      dayWorkouts.forEach(({ workout, startTime, endTime }) => {
+        const title = workout.title ?? workout.workout_type ?? "Workout"
+        const workoutType = workout.workout_type?.toLowerCase() ?? ""
+        const emoji = workoutType.includes("swim")
+          ? "🏊"
+          : workoutType.includes("bike") || workoutType.includes("cycle")
+            ? "🚴"
+            : workoutType.includes("run")
+              ? "🏃"
+              : workoutType.includes("strength")
+                ? "🏋️"
+                : workoutType.includes("rest")
+                  ? "🛌"
+                  : "🏅"
+        
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
 
-      items.push({
-        id: `workout-${workout.id}`,
-        type: "workout",
-        date: workout.workout_day,
-        startTime: fallback.time,
-        endTime,
-        title,
-        emoji,
-        detail: workout.planned_hours || workout.actual_hours ? `${duration} min` : null,
-        timeUnknown: fallback.isUnknown,
-        meta: { workout },
-      })
-
-      const intraFuel = planRowsByDay.get(workout.workout_day)
-      if (intraFuel && intraFuel > 0) {
         items.push({
-          id: `fuel-${workout.id}`,
-          type: "nutrition_during",
+          id: `workout-${workout.id}`,
+          type: "workout",
           date: workout.workout_day,
-          startTime: fallback.time,
-          endTime: addMinutesToTime(fallback.time, Math.min(duration, 15)),
-          title: `Fuel ${intraFuel}g/hr`,
-          emoji: "⚡",
-          timeUnknown: fallback.isUnknown,
+          startTime,
+          endTime,
+          title,
+          emoji,
+          detail: `${duration} min`,
+          timeUnknown: false,
+          locked: false, // Workouts are not locked by default
           meta: { workout },
         })
-      }
+
+        const intraFuel = planRowsByDay.get(workout.workout_day)
+        if (intraFuel && intraFuel > 0) {
+          items.push({
+            id: `fuel-${workout.id}`,
+            type: "nutrition_during",
+            date: workout.workout_day,
+            startTime,
+            endTime: addMinutesToTime(startTime, Math.min(duration, 15)),
+            title: `Fuel ${intraFuel}g/hr`,
+            emoji: "⚡",
+            timeUnknown: false,
+            locked: false,
+            meta: { workout },
+          })
+        }
+      })
     })
 
     return items
-  }, [weekMealsQuery.data, workoutsQuery.data, workoutsByDay, planRowsByDay])
+  }, [weekMealsQuery.data, workoutsByDayDistributed, planRowsByDay])
 
   return (
     <main className="flex-1 p-8 overflow-auto">
@@ -252,8 +367,14 @@ export default function PlansPage() {
                 if (meal) {
                   openMealDetails(meal)
                 }
+              } else if (item.type === "workout") {
+                const workout = item.meta?.workout as TpWorkout | undefined
+                if (workout) {
+                  openWorkoutDetails(workout)
+                }
               }
             }}
+            onDragEnd={handleDragEnd}
           />
         )}
       </div>
@@ -271,6 +392,7 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
+      <WorkoutDetailsModal open={workoutDetailsOpen} onOpenChange={setWorkoutDetailsOpen} workout={selectedWorkout} />
     </main>
   )
 }
