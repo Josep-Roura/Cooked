@@ -27,18 +27,33 @@ export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalP
   }
 
   const title = meal.recipe?.title ?? meal.name
-  const description = meal.time ? `Planned for ${meal.time}` : "Meal time flexible"
+  const description = meal.time ? `Planned for ${meal.time} · Duration: 60 min` : "Meal time flexible · Duration: 60 min"
   const ingredients = recipeQuery.data?.ingredients ?? meal.recipe_ingredients ?? []
   const steps = recipeQuery.data?.steps ?? []
 
   return (
     <NotionModal open={open} onOpenChange={onOpenChange} title={title} description={description}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{meal.kcal} kcal</Badge>
-          <Badge variant="secondary">P {meal.protein_g}g</Badge>
-          <Badge variant="secondary">C {meal.carbs_g}g</Badge>
-          <Badge variant="secondary">F {meal.fat_g}g</Badge>
+        <div className="bg-muted/50 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Nutrition Information</h3>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="text-center">
+              <div className="text-lg font-bold text-foreground">{meal.kcal}</div>
+              <div className="text-xs text-muted-foreground">kcal</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-blue-600">{meal.protein_g}g</div>
+              <div className="text-xs text-muted-foreground">Protein</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-emerald-600">{meal.carbs_g}g</div>
+              <div className="text-xs text-muted-foreground">Carbs</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-amber-600">{meal.fat_g}g</div>
+              <div className="text-xs text-muted-foreground">Fat</div>
+            </div>
+          </div>
         </div>
 
         {meal.notes ? (

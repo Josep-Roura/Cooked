@@ -133,9 +133,31 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: Tod
                 </p>
               </DrawerHeader>
               <p className="text-sm text-muted-foreground mb-4">{selectedSession.description}</p>
+              
+              {/* Nutrition Section */}
+              <div className="bg-muted rounded-xl p-4 mb-4">
+                <h4 className="text-sm font-semibold text-foreground mb-3">Workout Nutrition</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Flame className="h-4 w-4 text-orange-500" />
+                    <span className="text-muted-foreground">Calories:</span>
+                    <span className="font-medium">{selectedSession.calories ?? "N/A"} kcal</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-blue-500" />
+                    <span className="text-muted-foreground">Duration:</span>
+                    <span className="font-medium">{selectedSession.durationMinutes} min</span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Fueling Strategy:</span> {getFuelingHint(selectedSession)}
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-6">
                 <span>Scheduled: {selectedSession.time}</span>
-                {selectedSession.calories ? <span>{selectedSession.calories} kcal estimated</span> : null}
               </div>
               {!selectedSession.completed && (
                 <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">

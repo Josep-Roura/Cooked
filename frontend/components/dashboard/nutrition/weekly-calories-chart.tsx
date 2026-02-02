@@ -86,13 +86,14 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
                 key={`target-${entry.date}`}
                 fill="var(--primary)"
                 fillOpacity={entry.hasTarget ? 0.2 : 0.08}
+                onClick={() => onSelectDate(entry.date)}
+                className="cursor-pointer"
               />
             ))}
           </Bar>
           <Bar
             dataKey="consumedKcal"
             radius={[12, 12, 12, 12]}
-            onClick={(dataPoint) => onSelectDate((dataPoint as ChartDatum).date)}
           >
             {data.map((entry) => (
               <Cell
@@ -101,6 +102,8 @@ export function WeeklyCaloriesChart({ days, selectedDate, isLoading, onSelectDat
                 fillOpacity={entry.hasTarget ? 1 : 0.35}
                 stroke={entry.date === selectedDate ? "var(--primary)" : "transparent"}
                 strokeWidth={entry.date === selectedDate ? 2 : 0}
+                onClick={() => onSelectDate(entry.date)}
+                className="cursor-pointer"
               />
             ))}
           </Bar>

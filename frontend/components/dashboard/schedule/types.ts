@@ -24,6 +24,7 @@ export interface ScheduleItem {
   } | null
   detail?: string | null
   timeUnknown?: boolean
+  locked?: boolean
   meta?: {
     meal?: PlanWeekMeal | NutritionMeal
     workout?: TpWorkout
