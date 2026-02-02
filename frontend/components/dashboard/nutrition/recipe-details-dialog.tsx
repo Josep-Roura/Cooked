@@ -116,7 +116,7 @@ export function RecipeDetailsDialog({
               ))}
             </ol>
           ) : (
-            <p>{meal.notes ?? recipeNotes || "Prepare, cook, and plate to match your nutrition plan."}</p>
+            <p>{(meal.notes ?? recipeNotes) || "Prepare, cook, and plate to match your nutrition plan."}</p>
           )}
           {recipeNotes ? <p className="text-xs text-muted-foreground mt-2">Notes: {recipeNotes}</p> : null}
         </div>
