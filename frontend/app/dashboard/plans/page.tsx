@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
 import { PlanDetailsModal } from "@/components/dashboard/plans/plan-details-modal"
 import { WeeklyPlanHeader } from "@/components/dashboard/plans/weekly-plan-header"
 import { WeeklyTimeGrid } from "@/components/dashboard/schedule/weekly-time-grid"
@@ -22,10 +21,7 @@ import {
 import { useSession } from "@/hooks/use-session"
 import {
   useNutritionPlanRowsRange,
-  usePlanChat,
   usePlanWeek,
-  useResetPlanChat,
-  useSendPlanChatMessage,
   useWorkoutsRange,
 } from "@/lib/db/hooks"
 import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
@@ -35,8 +31,6 @@ export default function PlansPage() {
   const { user } = useSession()
   const { toast } = useToast()
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState("")
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<PlanWeekMeal | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -50,9 +44,6 @@ export default function PlansPage() {
   const weekMealsQuery = usePlanWeek(user?.id, weekStartKey, weekEndKey)
   const workoutsQuery = useWorkoutsRange(user?.id, weekStartKey, weekEndKey)
   const planRowsQuery = useNutritionPlanRowsRange(user?.id, weekStartKey, weekEndKey)
-  const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
-  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
-  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
   useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
@@ -90,20 +81,6 @@ export default function PlansPage() {
     )
   }, [weekMealsQuery.data])
 
-  const handleSendChat = async () => {
-    if (!chatInput.trim()) return
-    try {
-      await sendChatMutation.mutateAsync(chatInput.trim())
-      setChatInput("")
-    } catch (error) {
-      toast({
-        title: "Message failed",
-        description: error instanceof Error ? error.message : "Unable to send message.",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleGenerateWeek = async (resetLocks = false, force = true) => {
     setIsGenerating(true)
     try {
@@ -120,20 +97,6 @@ export default function PlansPage() {
     }
   }
 
-  const handleResetChat = async () => {
-    if (!chatQuery.data?.thread?.id) return
-    try {
-      await resetChatMutation.mutateAsync(chatQuery.data.thread.id)
-      toast({ title: "Chat cleared", description: "This week’s chat has been reset." })
-    } catch (error) {
-      toast({
-        title: "Reset failed",
-        description: error instanceof Error ? error.message : "Unable to reset chat",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleRegenerateWeek = () => handleGenerateWeek(false, true)
   const handleResetWeek = () => handleGenerateWeek(true, true)
 
@@ -142,14 +105,13 @@ export default function PlansPage() {
     setDetailsOpen(true)
   }
 
-  if (weekMealsQuery.isError || chatQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
+  if (weekMealsQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
     return (
       <ErrorState
         onRetry={() => {
           weekMealsQuery.refetch()
           workoutsQuery.refetch()
           planRowsQuery.refetch()
-          chatQuery.refetch()
         }}
       />
     )
@@ -259,7 +221,6 @@ export default function PlansPage() {
           onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
           onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
           onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-          onOpenChat={() => setChatOpen(true)}
           onRegenerateWeek={handleRegenerateWeek}
           onResetWeek={handleResetWeek}
           isGenerating={isGenerating}
@@ -310,20 +271,6 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
-
-      <PlanChatDrawer
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        weekLabel={weekLabel}
-        isLoading={chatQuery.isLoading}
-        thread={chatQuery.data?.thread ?? null}
-        messages={chatQuery.data?.messages ?? []}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        onReset={handleResetChat}
-        isSending={sendChatMutation.isPending}
-      />
     </main>
   )
 }
