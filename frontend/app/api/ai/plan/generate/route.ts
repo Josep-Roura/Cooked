@@ -497,32 +497,39 @@ async function callOpenAI({
   const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
   const startedAt = Date.now()
 
-  try {
-    const response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "X-Request-Id": requestId,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-      }),
-      signal: controller.signal,
-    })
+    try {
+      console.log(`[${requestId}] Starting OpenAI request to ${OPENAI_URL}`)
+      console.log(`[${requestId}] Model: ${model}, API Key length: ${apiKey.length}`)
+      
+      const response = await fetch(OPENAI_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "X-Request-Id": requestId,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: JSON.stringify(payload) },
+          ],
+        }),
+        signal: controller.signal,
+      })
 
-    const data = await response.json().catch(() => null)
-    const latencyMs = Date.now() - startedAt
-    return { response, data, latencyMs }
-  } finally {
-    clearTimeout(timeout)
-  }
+      console.log(`[${requestId}] OpenAI response status: ${response.status}`)
+      const data = await response.json().catch((err) => {
+        console.error(`[${requestId}] Error parsing OpenAI response:`, err)
+        return null
+      })
+      const latencyMs = Date.now() - startedAt
+      console.log(`[${requestId}] OpenAI response received in ${latencyMs}ms`)
+      return { response, data, latencyMs }
+    } finally {
+      clearTimeout(timeout)
+    }
 }
 
 async function callOpenAIWithRetry(args: {
@@ -534,17 +541,22 @@ async function callOpenAIWithRetry(args: {
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= OPENAI_MAX_RETRIES; attempt += 1) {
     try {
+      console.log(`[${args.requestId}] OpenAI attempt ${attempt + 1}/${OPENAI_MAX_RETRIES + 1}`)
       const { response, data, latencyMs } = await callOpenAI(args)
       if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status)) {
+        console.log(`[${args.requestId}] OpenAI attempt ${attempt + 1} succeeded (status ${response.status})`)
         return { response, data, latencyMs }
       }
       lastError = new Error(`OpenAI retryable error: ${response.status}`)
+      console.warn(`[${args.requestId}] OpenAI attempt ${attempt + 1} failed with retryable status ${response.status}`)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[${args.requestId}] OpenAI attempt ${attempt + 1} error:`, lastError.message)
     }
 
     if (attempt < OPENAI_MAX_RETRIES) {
       const waitMs = OPENAI_RETRY_BASE_MS * (attempt + 1)
+      console.log(`[${args.requestId}] Waiting ${waitMs}ms before retry...`)
       await sleep(waitMs)
     }
   }
@@ -588,20 +600,35 @@ export async function POST(req: NextRequest) {
   let requestId = "unknown"
   try {
     requestId = crypto.randomUUID()
-    const body = await req.json().catch(() => null)
+    console.log(`[${requestId}] POST /api/ai/plan/generate started`)
+    
+    const body = await req.json().catch((err) => {
+      console.error(`[${requestId}] Error parsing request body:`, err)
+      return null
+    })
+    
+    console.log(`[${requestId}] Request body parsed:`, { start: body?.start, end: body?.end, force: body?.force })
+    
     const parsed = payloadSchema.safeParse(body)
     if (!parsed.success) {
+      console.error(`[${requestId}] Payload validation failed:`, parsed.error.issues)
       return jsonError(400, "invalid_payload", "Invalid payload", parsed.error.issues)
     }
 
     const { start, end, force = false, resetLocks = false } = parsed.data
+    console.log(`[${requestId}] Validated payload: start=${start}, end=${end}, force=${force}, resetLocks=${resetLocks}`)
+    
     if (start > end) {
+      console.error(`[${requestId}] Invalid date range: start > end`)
       return jsonError(400, "invalid_range", "Invalid date range")
     }
     const range = buildDateRange(start, end)
     if (!range) {
+      console.error(`[${requestId}] Invalid date range after parsing`)
       return jsonError(400, "invalid_range", "Invalid date range")
     }
+
+    console.log(`[${requestId}] Date range: ${range.days} days (${start} to ${end})`)
 
     const supabase = await createServerClient()
     const {
@@ -610,8 +637,11 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
+      console.error(`[${requestId}] Auth error:`, authError?.message ?? "No user")
       return jsonError(401, "unauthorized", "Not authenticated", authError?.message ?? null)
     }
+
+    console.log(`[${requestId}] Authenticated user: ${user.id}`)
 
     const effectiveForce = force || resetLocks
     const rateLimit = await enforceRateLimit({
@@ -620,12 +650,15 @@ export async function POST(req: NextRequest) {
       limit: effectiveForce ? RATE_LIMIT_FORCE_PER_MIN : RATE_LIMIT_ENSURE_PER_MIN,
     })
     if (!rateLimit.ok) {
+      console.warn(`[${requestId}] Rate limit exceeded for user ${user.id}`)
       return jsonError(
         429,
         "rate_limited",
         "Too many requests. Please wait a moment before trying again.",
       )
     }
+
+    console.log(`[${requestId}] Rate limit OK. Remaining: ${rateLimit.remaining}`)
 
     const dateKeys = buildDateKeys(start, end)
     const [{ data: existingRows }, { data: existingMeals }] = await Promise.all([
@@ -702,10 +735,14 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
+      console.error(`[${requestId}] OPENAI_API_KEY is not configured`)
       return jsonError(500, "config_missing", "OPENAI_API_KEY is not configured")
     }
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
+    console.log(`[${requestId}] Using model: ${model}`)
+    console.log(`[${requestId}] API key configured: ${apiKey.slice(0, 20)}...`)
+    
     const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
     const payload = {
       start,
@@ -721,6 +758,8 @@ export async function POST(req: NextRequest) {
       schema:
         'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
     }
+
+    console.log(`[${requestId}] Calling OpenAI with payload (payload size: ${JSON.stringify(payload).length} bytes)`)
 
     let aiResponse: AiResponse | null = null
     let aiRaw: unknown = null
@@ -738,29 +777,40 @@ export async function POST(req: NextRequest) {
       latencyMs = callLatency
       aiRaw = data
 
+      console.log(`[${requestId}] OpenAI call completed in ${latencyMs}ms. Response OK: ${response.ok}`)
+
       if (!response.ok || !data) {
         const message = data?.error?.message ?? "OpenAI request failed"
+        console.error(`[${requestId}] OpenAI error: ${message} (status: ${response.status})`)
         aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
         throw new Error(message)
       }
 
       const content = data.choices?.[0]?.message?.content ?? ""
+      console.log(`[${requestId}] OpenAI content length: ${content.length} bytes`)
+      
       let parsedJson: unknown
       try {
         parsedJson = JSON.parse(content)
+        console.log(`[${requestId}] JSON parsed successfully`)
       } catch {
+        console.error(`[${requestId}] Failed to parse JSON response`)
         aiErrorCode = "INVALID_JSON"
         throw new Error("Invalid JSON response")
       }
       const parsed = aiResponseSchema.safeParse(parsedJson)
       if (!parsed.success) {
+        console.error(`[${requestId}] Schema validation failed:`, parsed.error.issues)
         aiErrorCode = "VALIDATION_ERROR"
         throw new Error("Invalid AI response")
       }
 
+      console.log(`[${requestId}] AI response validated. Days: ${parsed.data.days.length}`)
+
       tokens = data?.usage?.total_tokens ?? null
       aiResponse = parsed.data
     } catch (error) {
+      console.error(`[${requestId}] AI error caught:`, error instanceof Error ? error.message : String(error))
       if (!aiErrorCode) {
         const message = error instanceof Error ? error.message : String(error)
         aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
@@ -778,6 +828,7 @@ export async function POST(req: NextRequest) {
         weightKg: profile?.weight_kg ?? 70,
         mealsPerDay: profile?.meals_per_day ?? 3,
       })
+      console.log(`[${requestId}] Using fallback plan. Days: ${fallback.days.length}`)
       aiResponse = fallback
       aiRaw = { fallback: true, error: error instanceof Error ? error.message : String(error) }
     }
@@ -807,10 +858,14 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (aiLogError) {
+      console.error(`[${requestId}] Failed to log AI request to database:`, aiLogError.message)
       return jsonError(500, "ai_log_failed", "Failed to log AI request", aiLogError.message)
     }
 
+    console.log(`[${requestId}] AI request logged with ID: ${aiLogRow?.id}`)
+
     if (!aiResponse || aiResponse.days.length === 0) {
+      console.error(`[${requestId}] AI response invalid: no days or missing response`)
       return jsonError(500, "ai_response_invalid", "AI response missing days")
     }
 
@@ -987,21 +1042,27 @@ export async function POST(req: NextRequest) {
       .from("nutrition_plan_rows")
       .upsert(planRows, { onConflict: "user_id,date" })
     if (rowError) {
+      console.error(`[${requestId}] Failed to save plan rows:`, rowError.message)
       if (aiLogRow?.id) {
         await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
       }
       return jsonError(500, "plan_rows_save_failed", "Failed to save plan rows", rowError.message)
     }
 
+    console.log(`[${requestId}] Saved ${planRows.length} nutrition plan rows`)
+
     const { error: mealError } = await supabase
       .from("nutrition_meals")
       .upsert(mealRows, { onConflict: "user_id,date,slot" })
     if (mealError) {
+      console.error(`[${requestId}] Failed to save meals:`, mealError.message)
       if (aiLogRow?.id) {
         await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
       }
       return jsonError(500, "meals_save_failed", "Failed to save meals", mealError.message)
     }
+
+    console.log(`[${requestId}] Saved ${mealRows.length} nutrition meals`)
 
     const { error: revisionError } = await supabase.from("plan_revisions").insert({
       user_id: user.id,
@@ -1011,19 +1072,25 @@ export async function POST(req: NextRequest) {
     })
 
     if (revisionError) {
+      console.error(`[${requestId}] Failed to save revision:`, revisionError.message)
       if (aiLogRow?.id) {
         await supabase.from("ai_requests").update({ error_code: "DB_WRITE_FAIL" }).eq("id", aiLogRow.id)
       }
       return jsonError(500, "plan_revision_failed", "Failed to save revision", revisionError.message)
     }
 
+    console.log(`[${requestId}] Plan revision saved successfully`)
+
     const usedFallback = Boolean((aiRaw as { fallback?: boolean } | null)?.fallback)
+    console.log(`[${requestId}] POST /api/ai/plan/generate completed. Fallback: ${usedFallback}`)
+    
     return NextResponse.json(
       { ok: true, start, end, usedFallback, diff },
       { status: 200 },
     )
   } catch (error) {
-    console.error("POST /api/ai/plan/generate error:", error)
+    console.error(`[${requestId}] POST /api/ai/plan/generate error:`, error instanceof Error ? error.message : String(error))
+    console.error(`[${requestId}] Stack:`, error instanceof Error ? error.stack : "No stack")
     return jsonError(
       500,
       "internal_error",
