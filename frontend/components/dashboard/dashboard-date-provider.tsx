@@ -35,10 +35,8 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     if (!paramDate) return
-    if (!isSameDay(paramDate, selectedDate)) {
-      setSelectedDateState(paramDate)
-    }
-  }, [paramDate, selectedDate])
+    setSelectedDateState((prev) => (isSameDay(prev, paramDate) ? prev : paramDate))
+  }, [paramDate])
 
   const selectedDateKey = useMemo(() => format(selectedDate, "yyyy-MM-dd"), [selectedDate])
 
