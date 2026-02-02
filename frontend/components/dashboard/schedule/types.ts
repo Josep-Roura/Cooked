@@ -25,6 +25,11 @@ export interface ScheduleItem {
   detail?: string | null
   timeUnknown?: boolean
   locked?: boolean
+  source?: {
+    type: "meal" | "workout"
+    sourceTable: "nutrition_meals" | "tp_workouts"
+    sourceId: string
+  }
   meta?: {
     meal?: PlanWeekMeal | NutritionMeal
     workout?: TpWorkout

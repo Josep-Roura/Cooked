@@ -46,64 +46,29 @@ export async function POST(req: NextRequest) {
 
     // Handle meal updates
     if (itemType === "meal") {
-      // The itemId from the frontend is in format "date:slot" (e.g., "2026-02-04:1")
-      // We need to parse it to find the actual meal in the database
-      const idParts = itemId.split(":")
-      let mealQuery
-      
-      if (idParts.length === 2 && DATE_REGEX.test(idParts[0]) && !isNaN(Number(idParts[1]))) {
-        // ID is in "date:slot" format - search by date, slot, and user_id
-        const [originalDate, originalSlot] = idParts
-        mealQuery = supabase
-          .from("nutrition_meals")
-          .select("id, locked, kcal, protein_g, carbs_g, fat_g, slot, date")
-          .eq("user_id", user.id)
-          .eq("date", originalDate)
-          .eq("slot", Number(originalSlot))
-          .single()
-      } else {
-        // ID is a direct UUID - search by id
-        mealQuery = supabase
-          .from("nutrition_meals")
-          .select("id, locked, kcal, protein_g, carbs_g, fat_g, slot, date")
-          .eq("id", itemId)
-          .eq("user_id", user.id)
-          .single()
-      }
-      
-      const { data: existingMeal, error: fetchError } = await mealQuery
-
-      if (fetchError || !existingMeal) {
-        console.error("Meal fetch error:", fetchError)
-        return NextResponse.json(
-          { error: "Meal not found or access denied", details: fetchError?.message },
-          { status: 404 }
-        )
-      }
-
-      if (existingMeal.locked) {
-        return NextResponse.json(
-          { error: "Cannot update locked meal" },
-          { status: 403 }
-        )
-      }
-
-      // Update the meal with new date and time using the actual database ID
-      const { error: updateError } = await supabase
+      const { data: updatedMeal, error: updateError } = await supabase
         .from("nutrition_meals")
         .update({
           date: newDate,
           time: newStartTime,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", existingMeal.id)
+        .eq("id", itemId)
         .eq("user_id", user.id)
+        .eq("locked", false)
+        .select("id")
 
       if (updateError) {
-        console.error("Meal update error:", updateError)
         return NextResponse.json(
           { error: "Failed to update meal", details: updateError.message },
           { status: 500 }
+        )
+      }
+
+      if (!updatedMeal || updatedMeal.length === 0) {
+        return NextResponse.json(
+          { error: "Meal not found or locked" },
+          { status: 404 }
         )
       }
 
@@ -116,45 +81,38 @@ export async function POST(req: NextRequest) {
     // Handle workout updates
     if (itemType === "workout") {
       // Extract workout ID (format: "workout-{id}")
-      const workoutId = itemId.replace("workout-", "")
-      
-      if (!workoutId || isNaN(Number(workoutId))) {
+      const workoutId = Number(itemId)
+
+      if (!workoutId || Number.isNaN(workoutId)) {
         return NextResponse.json(
           { error: "Invalid workout ID format" },
           { status: 400 }
         )
       }
 
-      // Check if workout exists and belongs to user
-      const { data: existingWorkout, error: fetchError } = await supabase
-        .from("tp_workouts")
-        .select("id, planned_hours, actual_hours")
-        .eq("id", Number(workoutId))
-        .eq("user_id", user.id)
-        .single()
-
-      if (fetchError) {
-        return NextResponse.json(
-          { error: "Workout not found or access denied", details: fetchError.message },
-          { status: 404 }
-        )
-      }
-
       // Update the workout with new date and time
-      const { error: updateError } = await supabase
+      const { data: updatedWorkout, error: updateError } = await supabase
         .from("tp_workouts")
         .update({
           workout_day: newDate,
           start_time: newStartTime,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", Number(workoutId))
+        .eq("id", workoutId)
         .eq("user_id", user.id)
+        .select("id")
 
       if (updateError) {
         return NextResponse.json(
           { error: "Failed to update workout", details: updateError.message },
           { status: 500 }
+        )
+      }
+
+      if (!updatedWorkout || updatedWorkout.length === 0) {
+        return NextResponse.json(
+          { error: "Workout not found or access denied" },
+          { status: 404 }
         )
       }
 

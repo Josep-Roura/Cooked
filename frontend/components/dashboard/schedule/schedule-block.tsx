@@ -24,7 +24,7 @@ export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
   const isCompact = item.type.startsWith("nutrition_")
   const isWorkout = item.type === "workout"
   const isLocked = item.locked === true
-  const isDraggable = (item.type === "meal" || item.type === "workout") && !isLocked
+  const isDraggable = (item.source?.type === "meal" || item.source?.type === "workout") && !isLocked
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
