@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { addWeeks, eachDayOfInterval, endOfWeek, format, startOfWeek } from "date-fns"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +29,17 @@ import {
 import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
 import type { PlanWeekMeal, TpWorkout } from "@/lib/db/types"
 
+type CalendarItem = {
+  id: string
+  type: "meal" | "workout"
+  date: string
+  startTime: string
+  durationMin: number
+  locked?: boolean
+  timeUnknown?: boolean
+  manualOverride?: boolean
+}
+
 export default function PlansPage() {
   const { user } = useSession()
   const { toast } = useToast()
@@ -53,20 +64,6 @@ export default function PlansPage() {
   useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
-
-  const workoutsByDay = useMemo(() => {
-    const map = new Map<string, { start: string; end: string }[]>()
-    ;(workoutsQuery.data ?? []).forEach((workout) => {
-      const fallback = normalizeTime(workout.start_time, "18:00")
-      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
-      const endTime = addMinutesToTime(fallback.time, duration)
-      if (!map.has(workout.workout_day)) {
-        map.set(workout.workout_day, [])
-      }
-      map.get(workout.workout_day)?.push({ start: fallback.time, end: endTime })
-    })
-    return map
-  }, [workoutsQuery.data])
 
   const planRowsByDay = useMemo(() => {
     const map = new Map<string, number>()
@@ -116,57 +113,177 @@ export default function PlansPage() {
     setWorkoutDetailsOpen(true)
   }
 
-  const handleDragEnd = async (item: ScheduleItem, newDate: string, newStartTime: string) => {
-    // Check if item actually moved
+  const workoutsByDayDistributed = useMemo(() => {
+    const map = new Map<string, { workout: TpWorkout; startTime: string; endTime: string }[]>()
+    const workouts = workoutsQuery.data ?? []
+
+    const grouped = new Map<string, TpWorkout[]>()
+    workouts.forEach((workout) => {
+      if (!grouped.has(workout.workout_day)) {
+        grouped.set(workout.workout_day, [])
+      }
+      grouped.get(workout.workout_day)?.push(workout)
+    })
+
+    grouped.forEach((dayWorkouts, day) => {
+      const distributed: { workout: TpWorkout; startTime: string; endTime: string }[] = []
+
+      dayWorkouts.forEach((workout, index) => {
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+
+        let startTime: string
+        if (dayWorkouts.length > 1) {
+          if (index === 0) {
+            startTime = "08:00"
+          } else if (index === 1) {
+            startTime = "17:00"
+          } else {
+            startTime = `${8 + index * 3}:00`.padStart(5, "0")
+          }
+        } else {
+          const fallback = normalizeTime(workout.start_time, "18:00")
+          startTime = fallback.time
+        }
+
+        const endTime = addMinutesToTime(startTime, duration)
+        distributed.push({ workout, startTime, endTime })
+      })
+
+      map.set(day, distributed)
+    })
+
+    return map
+  }, [workoutsQuery.data])
+
+  const baseCalendarItems = useMemo<CalendarItem[]>(() => {
+    const items: CalendarItem[] = []
+
+    ;(weekMealsQuery.data ?? []).forEach((meal) => {
+      const fallbackTime = getMealFallbackTime(meal.slot)
+      const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
+      const duration = getMealDurationMinutes(meal.kcal)
+      items.push({
+        id: meal.id,
+        type: "meal",
+        date: meal.date,
+        startTime: baseTime.time,
+        durationMin: duration,
+        locked: meal.locked ?? false,
+        timeUnknown: baseTime.isUnknown,
+        manualOverride: false,
+      })
+    })
+
+    workoutsByDayDistributed.forEach((dayWorkouts) => {
+      dayWorkouts.forEach(({ workout, startTime }) => {
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+        items.push({
+          id: `workout-${workout.id}`,
+          type: "workout",
+          date: workout.workout_day,
+          startTime,
+          durationMin: duration,
+        })
+      })
+    })
+
+    return items
+  }, [weekMealsQuery.data, workoutsByDayDistributed])
+
+  const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([])
+
+  useEffect(() => {
+    setCalendarItems(baseCalendarItems)
+  }, [baseCalendarItems])
+
+  const calendarById = useMemo(() => {
+    const map = new Map<string, CalendarItem>()
+    calendarItems.forEach((item) => map.set(item.id, item))
+    return map
+  }, [calendarItems])
+
+  const workoutsById = useMemo(() => {
+    const map = new Map<number, TpWorkout>()
+    ;(workoutsQuery.data ?? []).forEach((workout) => map.set(workout.id, workout))
+    return map
+  }, [workoutsQuery.data])
+
+  const workoutsByDayForRender = useMemo(() => {
+    const map = new Map<string, { workout: TpWorkout; startTime: string; endTime: string; duration: number }[]>()
+    calendarItems.forEach((item) => {
+      if (item.type !== "workout") return
+      const workoutId = Number(item.id.replace("workout-", ""))
+      const workout = workoutsById.get(workoutId)
+      if (!workout) return
+      const endTime = addMinutesToTime(item.startTime, item.durationMin)
+      if (!map.has(item.date)) {
+        map.set(item.date, [])
+      }
+      map.get(item.date)?.push({ workout, startTime: item.startTime, endTime, duration: item.durationMin })
+    })
+    map.forEach((entries) => {
+      entries.sort((a, b) => a.startTime.localeCompare(b.startTime))
+    })
+    return map
+  }, [calendarItems, workoutsById])
+
+  const handleDragEnd = useCallback(async (item: ScheduleItem, newDate: string, newStartTime: string) => {
+    if (!item.source || item.locked) return
     if (item.date === newDate && item.startTime === newStartTime) {
-      console.log("Item didn't move, skipping update")
       return
     }
 
-    console.log(`Moving item ${item.id} (${item.type}) to ${newDate} at ${newStartTime}`)
+    const previousItems = calendarItems
+    setCalendarItems((prev) =>
+      prev.map((entry) =>
+        entry.id === item.id
+          ? {
+              ...entry,
+              date: newDate,
+              startTime: newStartTime,
+              timeUnknown: item.source?.type === "meal" ? false : entry.timeUnknown,
+              manualOverride: item.source?.type === "meal" ? true : entry.manualOverride,
+            }
+          : entry,
+      ),
+    )
 
+    // Check if item actually moved
     try {
       const response = await fetch("/api/v1/plans/update-item", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          itemId: item.id,
-          itemType: item.type === "workout" ? "workout" : "meal",
+          itemId: item.source.sourceId,
+          itemType: item.source.type,
+          sourceTable: item.source.sourceTable,
           newDate,
           newStartTime,
         }),
       })
 
-      console.log("API response status:", response.status)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
-        console.error("API error:", errorData)
         throw new Error(errorData.error || `Failed to update item (${response.status})`)
       }
-
-      const result = await response.json()
-      console.log("API success:", result)
-
-      // Invalidate queries to force fresh data fetch
-      console.log("Invalidating queries...")
-      await queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
-      await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
-      console.log("Queries invalidated successfully")
+      await response.json().catch(() => null)
 
       toast({
         title: "Item moved",
         description: `${item.title} moved to ${format(new Date(newDate), "EEEE")} at ${newStartTime}`,
       })
     } catch (error) {
-      console.error("Drag error:", error)
+      setCalendarItems(previousItems)
       toast({
         title: "Failed to move item",
         description: error instanceof Error ? error.message : "An error occurred",
         variant: "destructive",
       })
+      return
     }
-  }
+    await queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+    await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+  }, [calendarItems, queryClient, toast])
 
   if (weekMealsQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
     return (
@@ -180,85 +297,42 @@ export default function PlansPage() {
     )
   }
 
-  // Group workouts by day and distribute them (morning/afternoon)
-  const workoutsByDayDistributed = useMemo(() => {
-    const map = new Map<string, { workout: typeof workouts[0]; startTime: string; endTime: string }[]>()
-    const workouts = workoutsQuery.data ?? []
-    
-    // Group by day first
-    const grouped = new Map<string, typeof workouts>()
-    workouts.forEach((workout) => {
-      if (!grouped.has(workout.workout_day)) {
-        grouped.set(workout.workout_day, [])
-      }
-      grouped.get(workout.workout_day)?.push(workout)
-    })
-    
-    // Distribute workouts within each day
-    grouped.forEach((dayWorkouts, day) => {
-      const distributed: { workout: typeof workouts[0]; startTime: string; endTime: string }[] = []
-      
-      dayWorkouts.forEach((workout, index) => {
-        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
-        
-        // If multiple workouts, distribute: first morning (08:00), second afternoon (17:00)
-        let startTime: string
-        if (dayWorkouts.length > 1) {
-          if (index === 0) {
-            startTime = "08:00" // Morning workout
-          } else if (index === 1) {
-            startTime = "17:00" // Afternoon workout
-          } else {
-            // Additional workouts spaced by 3 hours
-            startTime = `${8 + index * 3}:00`.padStart(5, "0")
-          }
-        } else {
-          // Single workout - use original time or default to 18:00
-          const fallback = normalizeTime(workout.start_time, "18:00")
-          startTime = fallback.time
-        }
-        
-        const endTime = addMinutesToTime(startTime, duration)
-        distributed.push({ workout, startTime, endTime })
-      })
-      
-      map.set(day, distributed)
-    })
-    
-    return map
-  }, [workoutsQuery.data])
-
   const scheduleItems = useMemo<ScheduleItem[]>(() => {
     const items: ScheduleItem[] = []
 
     ;(weekMealsQuery.data ?? []).forEach((meal) => {
       const fallbackTime = getMealFallbackTime(meal.slot)
       const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
-      const duration = getMealDurationMinutes(meal.kcal)
+      const calendarItem = calendarById.get(meal.id)
+      const duration = calendarItem?.durationMin ?? getMealDurationMinutes(meal.kcal)
       const mealType = meal.meal_type?.toLowerCase() ?? ""
-      const dayWorkouts = workoutsByDayDistributed.get(meal.date) ?? []
+      const startTime = calendarItem?.startTime ?? baseTime.time
+      const mealDate = calendarItem?.date ?? meal.date
+      const dayWorkouts = workoutsByDayForRender.get(mealDate) ?? []
       const primaryWorkout = dayWorkouts[0]
 
-      let startTime = baseTime.time
-      let endTime = addMinutesToTime(baseTime.time, duration)
-      let type: ScheduleItem["type"] = "meal"
+      let itemStartTime = startTime
+      let endTime = addMinutesToTime(startTime, duration)
+      const isPreMeal = mealType.includes("pre")
+      const isPostMeal = mealType.includes("post")
+      let type: ScheduleItem["type"] = isPreMeal ? "nutrition_pre" : isPostMeal ? "nutrition_post" : "meal"
 
-      if (primaryWorkout && mealType.includes("pre")) {
-        type = "nutrition_pre"
-        startTime = addMinutesToTime(primaryWorkout.startTime, -45)
-        endTime = addMinutesToTime(startTime, 20)
+      const allowAutoOffset = !calendarItem?.manualOverride
+
+      if (primaryWorkout && isPreMeal && allowAutoOffset) {
+        itemStartTime = addMinutesToTime(primaryWorkout.startTime, -45)
+        endTime = addMinutesToTime(itemStartTime, 20)
       }
-      if (primaryWorkout && mealType.includes("post")) {
-        type = "nutrition_post"
-        startTime = addMinutesToTime(primaryWorkout.endTime, 10)
-        endTime = addMinutesToTime(startTime, 20)
+      if (primaryWorkout && isPostMeal && allowAutoOffset) {
+        itemStartTime = addMinutesToTime(primaryWorkout.endTime, 10)
+        endTime = addMinutesToTime(itemStartTime, 20)
       }
 
       items.push({
         id: meal.id,
         type,
-        date: meal.date,
-        startTime,
+        date: mealDate,
+        startTime: itemStartTime,
         endTime,
         title: meal.recipe?.title ?? meal.name,
         emoji: meal.emoji ?? "🥗",
@@ -268,15 +342,20 @@ export default function PlansPage() {
           carbs_g: meal.carbs_g,
           fat_g: meal.fat_g,
         },
-        timeUnknown: baseTime.isUnknown,
+        timeUnknown: calendarItem?.timeUnknown ?? baseTime.isUnknown,
         locked: meal.locked ?? false,
+        source: {
+          type: "meal",
+          sourceTable: "nutrition_meals",
+          sourceId: meal.id,
+        },
         meta: { meal },
       })
     })
 
     // Add distributed workouts
-    workoutsByDayDistributed.forEach((dayWorkouts) => {
-      dayWorkouts.forEach(({ workout, startTime, endTime }) => {
+    workoutsByDayForRender.forEach((dayWorkouts, day) => {
+      dayWorkouts.forEach(({ workout, startTime, endTime, duration }) => {
         const title = workout.title ?? workout.workout_type ?? "Workout"
         const workoutType = workout.workout_type?.toLowerCase() ?? ""
         const emoji = workoutType.includes("swim")
@@ -291,30 +370,35 @@ export default function PlansPage() {
                   ? "🛌"
                   : "🏅"
         
-        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+        const workoutDuration = duration
 
         items.push({
           id: `workout-${workout.id}`,
           type: "workout",
-          date: workout.workout_day,
+          date: day,
           startTime,
           endTime,
           title,
           emoji,
-          detail: `${duration} min`,
+          detail: `${workoutDuration} min`,
           timeUnknown: false,
           locked: false, // Workouts are not locked by default
+          source: {
+            type: "workout",
+            sourceTable: "tp_workouts",
+            sourceId: String(workout.id),
+          },
           meta: { workout },
         })
 
-        const intraFuel = planRowsByDay.get(workout.workout_day)
+        const intraFuel = planRowsByDay.get(day)
         if (intraFuel && intraFuel > 0) {
           items.push({
             id: `fuel-${workout.id}`,
             type: "nutrition_during",
-            date: workout.workout_day,
+            date: day,
             startTime,
-            endTime: addMinutesToTime(startTime, Math.min(duration, 15)),
+            endTime: addMinutesToTime(startTime, Math.min(workoutDuration, 15)),
             title: `Fuel ${intraFuel}g/hr`,
             emoji: "⚡",
             timeUnknown: false,
@@ -326,7 +410,7 @@ export default function PlansPage() {
     })
 
     return items
-  }, [weekMealsQuery.data, workoutsByDayDistributed, planRowsByDay])
+  }, [calendarById, planRowsByDay, weekMealsQuery.data, workoutsByDayForRender])
 
   return (
     <main className="flex-1 p-8 overflow-auto">
