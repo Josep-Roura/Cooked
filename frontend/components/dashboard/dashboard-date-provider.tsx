@@ -28,41 +28,53 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const paramDate = parseDateParam(searchParams.get("date"))
-  const [selectedDate, setSelectedDateState] = useState<Date>(() => paramDate ?? new Date())
-  const lastReplacedRef = useRef<string | null>(null)
-  const replaceTimeoutRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (!paramDate) return
-    setSelectedDateState((prev) => (isSameDay(prev, paramDate) ? prev : paramDate))
-  }, [paramDate])
-
+  
+  // Read initial date from URL or default to today - only once on mount
+  const initialDate = useMemo(() => {
+    const paramDate = parseDateParam(searchParams.get("date"))
+    return paramDate ?? new Date()
+  }, []) // Empty deps = only on mount
+  
+  const [selectedDate, setSelectedDateState] = useState<Date>(initialDate)
+  
+  // Track if we're currently updating to prevent loops
+  const isUpdatingRef = useRef(false)
+  const lastUpdatedUrlRef = useRef<string | null>(null)
+  
+  // Compute selectedDateKey from state
   const selectedDateKey = useMemo(() => format(selectedDate, "yyyy-MM-dd"), [selectedDate])
-
-  const searchParamsString = searchParams.toString()
-
+  
+  // Single effect to sync URL when state changes
   useEffect(() => {
-    const params = new URLSearchParams(searchParamsString)
-    const current = params.get("date")
-    if (current === selectedDateKey) return
+    // Skip if we're already in the middle of an update
+    if (isUpdatingRef.current) return
+    
+    const currentUrlDate = searchParams.get("date")
+    
+    // Only update URL if the date is actually different
+    if (currentUrlDate === selectedDateKey) return
+    
+    // Prevent duplicate updates
+    if (lastUpdatedUrlRef.current === selectedDateKey) return
+    
+    // Mark that we're updating
+    isUpdatingRef.current = true
+    lastUpdatedUrlRef.current = selectedDateKey
+    
+    // Build new URL
+    const params = new URLSearchParams(searchParams.toString())
     params.set("date", selectedDateKey)
-    const nextUrl = `${pathname}?${params.toString()}`
-    if (lastReplacedRef.current === nextUrl) return
-    if (replaceTimeoutRef.current) {
-      window.clearTimeout(replaceTimeoutRef.current)
-    }
-    replaceTimeoutRef.current = window.setTimeout(() => {
-      lastReplacedRef.current = nextUrl
-      router.replace(nextUrl, { scroll: false })
-    }, 100)
-    return () => {
-      if (replaceTimeoutRef.current) {
-        window.clearTimeout(replaceTimeoutRef.current)
-        replaceTimeoutRef.current = null
-      }
-    }
-  }, [pathname, router, searchParamsString, selectedDateKey])
+    const newUrl = `${pathname}?${params.toString()}`
+    
+    // Use setTimeout to break the synchronous cycle
+    setTimeout(() => {
+      router.replace(newUrl, { scroll: false })
+      // Reset flag after a short delay
+      setTimeout(() => {
+        isUpdatingRef.current = false
+      }, 50)
+    }, 0)
+  }, [pathname, router, selectedDateKey]) // Removed searchParams dependency
 
   const setSelectedDate = useCallback((date: Date) => {
     setSelectedDateState(date)
