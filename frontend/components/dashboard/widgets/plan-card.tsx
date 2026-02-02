@@ -17,7 +17,6 @@ interface PlanCardProps {
   isUpdating: boolean
   highlightUnchecked?: boolean
   onToggleMeal: (itemId: string, eaten: boolean) => void
-  onToggleIngredient: (ingredientId: string, checked: boolean) => void
 }
 
 function formatMealMacros(meal: MealPlanItem) {
@@ -80,7 +79,6 @@ export function PlanCard({
   isUpdating,
   highlightUnchecked = false,
   onToggleMeal,
-  onToggleIngredient,
 }: PlanCardProps) {
   const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
   const dateLabel = format(parseISO(date), "EEEE, MMM d")
@@ -201,10 +199,7 @@ export function PlanCard({
                       <Checkbox
                         id={`ingredient-${ingredient.id}`}
                         checked={ingredient.checked}
-                        onCheckedChange={(checked) =>
-                          ingredient._missingId ? null : onToggleIngredient(ingredient.id, Boolean(checked))
-                        }
-                        disabled={isUpdating || ingredient._missingId}
+                        disabled
                       />
                       <label htmlFor={`ingredient-${ingredient.id}`} className="text-sm text-muted-foreground">
                         {ingredient.name}

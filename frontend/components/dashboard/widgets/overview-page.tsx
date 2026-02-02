@@ -18,7 +18,6 @@ import {
   useMacrosDay,
   useMealPlanDay,
   useTrainingSessions,
-  useUpdateMealIngredient,
   useUpdateMealPlanItem,
   useUserEvents,
   useWeekRange,
@@ -56,7 +55,6 @@ export function OverviewPage() {
   const weekRange = useWeekRange(selectedDate)
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekRange.startKey, weekRange.endKey)
   const updateMealItemMutation = useUpdateMealPlanItem()
-  const updateMealIngredientMutation = useUpdateMealIngredient()
   const planRef = useRef<HTMLDivElement | null>(null)
 
   const animationProps = useMemo(
@@ -257,12 +255,9 @@ export function OverviewPage() {
             date={selectedDateKey}
             plan={mealPlanDay}
             isLoading={mealPlanQuery.isLoading}
-            isUpdating={updateMealItemMutation.isPending || updateMealIngredientMutation.isPending}
+            isUpdating={updateMealItemMutation.isPending}
             highlightUnchecked={highlightMeals && selectedDateKey === todayKey}
             onToggleMeal={(itemId, eaten) => updateMealItemMutation.mutate({ id: itemId, payload: { eaten } })}
-            onToggleIngredient={(ingredientId, checked) =>
-              updateMealIngredientMutation.mutate({ id: ingredientId, checked })
-            }
           />
         </motion.div>
       </motion.div>

@@ -31,6 +31,7 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
   const paramDate = parseDateParam(searchParams.get("date"))
   const [selectedDate, setSelectedDateState] = useState<Date>(() => paramDate ?? new Date())
   const lastReplacedRef = useRef<string | null>(null)
+  const replaceTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!paramDate) return
@@ -50,8 +51,19 @@ export function DashboardDateProvider({ children }: { children: React.ReactNode 
     params.set("date", selectedDateKey)
     const nextUrl = `${pathname}?${params.toString()}`
     if (lastReplacedRef.current === nextUrl) return
-    lastReplacedRef.current = nextUrl
-    router.replace(nextUrl, { scroll: false })
+    if (replaceTimeoutRef.current) {
+      window.clearTimeout(replaceTimeoutRef.current)
+    }
+    replaceTimeoutRef.current = window.setTimeout(() => {
+      lastReplacedRef.current = nextUrl
+      router.replace(nextUrl, { scroll: false })
+    }, 100)
+    return () => {
+      if (replaceTimeoutRef.current) {
+        window.clearTimeout(replaceTimeoutRef.current)
+        replaceTimeoutRef.current = null
+      }
+    }
   }, [pathname, router, searchParamsString, selectedDateKey])
 
   const setSelectedDate = useCallback((date: Date) => {

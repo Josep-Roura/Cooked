@@ -21,7 +21,6 @@ interface MealCardsProps {
   dayTypeLabel?: string
   dayTypeNote?: string
   onToggleMeal: (mealId: string, eaten: boolean) => void
-  onAdaptMeal: (meal: MealPlanItem) => void
 }
 
 const dayTypeColors: Record<string, string> = {
@@ -68,7 +67,6 @@ export function MealCards({
   dayTypeLabel,
   dayTypeNote,
   onToggleMeal,
-  onAdaptMeal,
 }: MealCardsProps) {
   const { toast } = useToast()
   const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
@@ -238,10 +236,6 @@ export function MealCards({
         onOpenChange={(open) => (open ? null : setSelectedMeal(null))}
         meal={selectedMeal}
         emoji={selectedMeal ? getMealEmoji(selectedMeal) : "🍽️"}
-        onAdapt={() => {
-          if (!selectedMeal) return
-          onAdaptMeal(selectedMeal)
-        }}
         onCopyIngredients={async () => {
           if (!selectedMeal) return
           const ingredients = normalizeIngredients(selectedMeal.ingredients)

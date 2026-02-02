@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { addDays, addWeeks, differenceInCalendarDays, format, parseISO, startOfWeek } from "date-fns"
-import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { MealCards } from "@/components/dashboard/nutrition/meal-cards"
 import { WeeklyCaloriesChart } from "@/components/dashboard/nutrition/weekly-calories-chart"
@@ -10,14 +10,10 @@ import { DailyMacroCards } from "@/components/dashboard/nutrition/daily-macro-ca
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/components/ui/use-toast"
-import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
 import { DayNavigator } from "@/components/dashboard/widgets/day-navigator"
 import {
   useMealPlanDay,
-  usePlanChat,
   useProfile,
-  useResetPlanChat,
-  useSendPlanChatMessage,
   useTrainingSessions,
   useUpdateNutritionDay,
   useUpdateMealPlanItem,
@@ -43,13 +39,7 @@ export default function NutritionPage() {
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const updateMealMutation = useUpdateMealPlanItem()
   const updateNutritionDay = useUpdateNutritionDay(user?.id)
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState("")
-  const [chatContext, setChatContext] = useState("")
   const fuelEnsureRef = useRef<string | null>(null)
-  const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
-  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
-  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
 
   useEffect(() => {
     if (!user?.id) return
@@ -177,53 +167,6 @@ export default function NutritionPage() {
       })
   }, [mealPlanQuery.data?.items, mealPlanQuery.isLoading, queryClient, selectedDateKey, selectedWorkouts, updateNutritionDay, user?.id, weekEndKey, weekStartKey])
 
-  const buildChatContext = (extra?: string) => {
-    const macros = selectedDay.target
-      ? `Targets: ${selectedDay.target.kcal} kcal, P ${selectedDay.target.protein_g}g, C ${selectedDay.target.carbs_g}g, F ${selectedDay.target.fat_g}g`
-      : "Targets: none"
-    const consumed = `Consumed: ${selectedDay.consumed.kcal} kcal, P ${selectedDay.consumed.protein_g}g, C ${selectedDay.consumed.carbs_g}g, F ${selectedDay.consumed.fat_g}g`
-    const workouts = selectedWorkouts.length
-      ? `Workouts: ${selectedWorkouts.map((workout) => `${workout.title} (${workout.durationMinutes}m, ${workout.intensity})`).join("; ")}`
-      : "Workouts: none"
-    const meals = (mealPlanQuery.data?.items ?? []).map((meal) => `${meal.name} (${meal.kcal} kcal)`).join("; ") || "Meals: none"
-    return [extra, `Date: ${selectedDateKey}`, workouts, macros, consumed, `Meals: ${meals}`].filter(Boolean).join("\n")
-  }
-
-  const handleSendChat = () => {
-    if (!chatInput.trim()) return
-    const contextMessage = buildChatContext(chatContext)
-    const message = `${chatInput.trim()}\n\n${contextMessage}`
-    sendChatMutation.mutate(message, {
-      onSuccess: () => {
-        setChatInput("")
-        setChatContext("")
-        queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user?.id, selectedDateKey] })
-        queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user?.id, weekStartKey, weekEndKey] })
-      },
-      onError: (error) => {
-        toast({
-          title: "Chat failed",
-          description: error instanceof Error ? error.message : "Unable to send message.",
-          variant: "destructive",
-        })
-      },
-    })
-  }
-
-  const handleResetChat = () => {
-    const threadId = chatQuery.data?.thread?.id
-    if (!threadId) return
-    resetChatMutation.mutate(threadId, {
-      onError: (error) => {
-        toast({
-          title: "Unable to reset chat",
-          description: error instanceof Error ? error.message : "Please try again later.",
-          variant: "destructive",
-        })
-      },
-    })
-  }
-
   return (
     <main className="flex-1 p-8 overflow-auto">
       <div className="max-w-6xl">
@@ -244,14 +187,6 @@ export default function NutritionPage() {
               Next week <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
             <span className="text-sm text-muted-foreground">{weekLabel}</span>
-            <Button
-              variant="ghost"
-              className="h-9 w-9 rounded-full"
-              onClick={() => setChatOpen(true)}
-              aria-label="Open nutrition chat"
-            >
-              <MessageCircle className="h-4 w-4" />
-            </Button>
           </div>
         </div>
 
@@ -313,37 +248,9 @@ export default function NutritionPage() {
             dayTypeLabel={dayType}
             dayTypeNote={carbNote}
             onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
-            onAdaptMeal={(meal) => {
-              const ingredientList = (meal.ingredients ?? [])
-                .map((ingredient) => (typeof ingredient === "string" ? ingredient : ingredient.name))
-                .join(", ")
-              setChatContext(
-                `Meal: ${meal.name}\nIngredients: ${ingredientList || "None"}\nNotes: ${meal.notes ?? "None"}`,
-              )
-              setChatOpen(true)
-            }}
           />
         </div>
       </div>
-
-      <PlanChatDrawer
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        weekLabel={weekLabel}
-        isLoading={chatQuery.isLoading}
-        thread={chatQuery.data?.thread ?? null}
-        messages={chatQuery.data?.messages ?? []}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        onReset={handleResetChat}
-        isSending={sendChatMutation.isPending}
-        onApply={() => {
-          queryClient.invalidateQueries({ queryKey: ["db", "meal-plan-day", user?.id, selectedDateKey] })
-          queryClient.invalidateQueries({ queryKey: ["db", "nutrition-week", user?.id, weekStartKey, weekEndKey] })
-          toast({ title: "Plan refreshed", description: "Latest updates applied." })
-        }}
-      />
     </main>
   )
 }
