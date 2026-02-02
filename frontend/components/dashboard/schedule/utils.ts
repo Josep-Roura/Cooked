@@ -1,6 +1,6 @@
 export const DEFAULT_START_HOUR = 6
 export const DEFAULT_END_HOUR = 22
-export const HOUR_HEIGHT = 60
+export const HOUR_HEIGHT = 56
 
 export function timeToMinutes(time: string) {
   const [hours, minutes] = time.split(":").map((value) => Number(value))
@@ -37,10 +37,8 @@ export function getMealFallbackTime(slot: number) {
 }
 
 export function getMealDurationMinutes(kcal: number | null | undefined) {
-  if (!kcal) return 30
-  if (kcal <= 300) return 20
-  if (kcal >= 700) return 45
-  return 30
+  // All meals last 1 hour (60 minutes) for consistent scheduling
+  return 60
 }
 
 export function getWorkoutDurationMinutes(hours: number | null | undefined) {

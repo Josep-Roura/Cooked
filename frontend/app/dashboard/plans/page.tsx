@@ -1,14 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { addWeeks, eachDayOfInterval, endOfWeek, format, startOfWeek } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { PlanChatDrawer } from "@/components/dashboard/plans/plan-chat-drawer"
 import { PlanDetailsModal } from "@/components/dashboard/plans/plan-details-modal"
+import { WorkoutDetailsModal } from "@/components/dashboard/plans/workout-details-modal"
 import { WeeklyPlanHeader } from "@/components/dashboard/plans/weekly-plan-header"
 import { WeeklyTimeGrid } from "@/components/dashboard/schedule/weekly-time-grid"
 import type { ScheduleItem } from "@/components/dashboard/schedule/types"
@@ -22,24 +23,34 @@ import {
 import { useSession } from "@/hooks/use-session"
 import {
   useNutritionPlanRowsRange,
-  usePlanChat,
   usePlanWeek,
-  useResetPlanChat,
-  useSendPlanChatMessage,
   useWorkoutsRange,
 } from "@/lib/db/hooks"
 import { ensureNutritionPlanRange, useEnsureNutritionPlanRange } from "@/lib/nutrition/ensure"
-import type { PlanWeekMeal } from "@/lib/db/types"
+import type { PlanWeekMeal, TpWorkout } from "@/lib/db/types"
+
+type CalendarItem = {
+  id: string
+  type: "meal" | "workout"
+  date: string
+  startTime: string
+  durationMin: number
+  locked?: boolean
+  timeUnknown?: boolean
+  manualOverride?: boolean
+}
 
 export default function PlansPage() {
   const { user } = useSession()
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [anchorDate, setAnchorDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState("")
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<PlanWeekMeal | null>(null)
+  const [workoutDetailsOpen, setWorkoutDetailsOpen] = useState(false)
+  const [selectedWorkout, setSelectedWorkout] = useState<TpWorkout | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+
 
   const weekStart = startOfWeek(anchorDate, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(anchorDate, { weekStartsOn: 1 })
@@ -50,26 +61,9 @@ export default function PlansPage() {
   const weekMealsQuery = usePlanWeek(user?.id, weekStartKey, weekEndKey)
   const workoutsQuery = useWorkoutsRange(user?.id, weekStartKey, weekEndKey)
   const planRowsQuery = useNutritionPlanRowsRange(user?.id, weekStartKey, weekEndKey)
-  const chatQuery = usePlanChat(user?.id, weekStartKey, weekEndKey)
-  const sendChatMutation = useSendPlanChatMessage(user?.id, weekStartKey, weekEndKey)
-  const resetChatMutation = useResetPlanChat(user?.id, weekStartKey, weekEndKey)
   useEnsureNutritionPlanRange({ userId: user?.id, start: weekStartKey, end: weekEndKey, enabled: Boolean(user?.id) })
 
   const days = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd])
-
-  const workoutsByDay = useMemo(() => {
-    const map = new Map<string, { start: string; end: string }[]>()
-    ;(workoutsQuery.data ?? []).forEach((workout) => {
-      const fallback = normalizeTime(workout.start_time, "18:00")
-      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
-      const endTime = addMinutesToTime(fallback.time, duration)
-      if (!map.has(workout.workout_day)) {
-        map.set(workout.workout_day, [])
-      }
-      map.get(workout.workout_day)?.push({ start: fallback.time, end: endTime })
-    })
-    return map
-  }, [workoutsQuery.data])
 
   const planRowsByDay = useMemo(() => {
     const map = new Map<string, number>()
@@ -90,20 +84,6 @@ export default function PlansPage() {
     )
   }, [weekMealsQuery.data])
 
-  const handleSendChat = async () => {
-    if (!chatInput.trim()) return
-    try {
-      await sendChatMutation.mutateAsync(chatInput.trim())
-      setChatInput("")
-    } catch (error) {
-      toast({
-        title: "Message failed",
-        description: error instanceof Error ? error.message : "Unable to send message.",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleGenerateWeek = async (resetLocks = false, force = true) => {
     setIsGenerating(true)
     try {
@@ -120,20 +100,6 @@ export default function PlansPage() {
     }
   }
 
-  const handleResetChat = async () => {
-    if (!chatQuery.data?.thread?.id) return
-    try {
-      await resetChatMutation.mutateAsync(chatQuery.data.thread.id)
-      toast({ title: "Chat cleared", description: "This week’s chat has been reset." })
-    } catch (error) {
-      toast({
-        title: "Reset failed",
-        description: error instanceof Error ? error.message : "Unable to reset chat",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleRegenerateWeek = () => handleGenerateWeek(false, true)
   const handleResetWeek = () => handleGenerateWeek(true, true)
 
@@ -142,14 +108,190 @@ export default function PlansPage() {
     setDetailsOpen(true)
   }
 
-  if (weekMealsQuery.isError || chatQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
+  const openWorkoutDetails = (workout: TpWorkout) => {
+    setSelectedWorkout(workout)
+    setWorkoutDetailsOpen(true)
+  }
+
+  const workoutsByDayDistributed = useMemo(() => {
+    const map = new Map<string, { workout: TpWorkout; startTime: string; endTime: string }[]>()
+    const workouts = workoutsQuery.data ?? []
+
+    const grouped = new Map<string, TpWorkout[]>()
+    workouts.forEach((workout) => {
+      if (!grouped.has(workout.workout_day)) {
+        grouped.set(workout.workout_day, [])
+      }
+      grouped.get(workout.workout_day)?.push(workout)
+    })
+
+    grouped.forEach((dayWorkouts, day) => {
+      const distributed: { workout: TpWorkout; startTime: string; endTime: string }[] = []
+
+      dayWorkouts.forEach((workout, index) => {
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+
+        let startTime: string
+        if (dayWorkouts.length > 1) {
+          if (index === 0) {
+            startTime = "08:00"
+          } else if (index === 1) {
+            startTime = "17:00"
+          } else {
+            startTime = `${8 + index * 3}:00`.padStart(5, "0")
+          }
+        } else {
+          const fallback = normalizeTime(workout.start_time, "18:00")
+          startTime = fallback.time
+        }
+
+        const endTime = addMinutesToTime(startTime, duration)
+        distributed.push({ workout, startTime, endTime })
+      })
+
+      map.set(day, distributed)
+    })
+
+    return map
+  }, [workoutsQuery.data])
+
+  const baseCalendarItems = useMemo<CalendarItem[]>(() => {
+    const items: CalendarItem[] = []
+
+    ;(weekMealsQuery.data ?? []).forEach((meal) => {
+      const fallbackTime = getMealFallbackTime(meal.slot)
+      const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
+      const duration = getMealDurationMinutes(meal.kcal)
+      items.push({
+        id: meal.id,
+        type: "meal",
+        date: meal.date,
+        startTime: baseTime.time,
+        durationMin: duration,
+        locked: meal.locked ?? false,
+        timeUnknown: baseTime.isUnknown,
+        manualOverride: false,
+      })
+    })
+
+    workoutsByDayDistributed.forEach((dayWorkouts) => {
+      dayWorkouts.forEach(({ workout, startTime }) => {
+        const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+        items.push({
+          id: `workout-${workout.id}`,
+          type: "workout",
+          date: workout.workout_day,
+          startTime,
+          durationMin: duration,
+        })
+      })
+    })
+
+    return items
+  }, [weekMealsQuery.data, workoutsByDayDistributed])
+
+  const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([])
+
+  useEffect(() => {
+    setCalendarItems(baseCalendarItems)
+  }, [baseCalendarItems])
+
+  const calendarById = useMemo(() => {
+    const map = new Map<string, CalendarItem>()
+    calendarItems.forEach((item) => map.set(item.id, item))
+    return map
+  }, [calendarItems])
+
+  const workoutsById = useMemo(() => {
+    const map = new Map<number, TpWorkout>()
+    ;(workoutsQuery.data ?? []).forEach((workout) => map.set(workout.id, workout))
+    return map
+  }, [workoutsQuery.data])
+
+  const workoutsByDayForRender = useMemo(() => {
+    const map = new Map<string, { workout: TpWorkout; startTime: string; endTime: string; duration: number }[]>()
+    calendarItems.forEach((item) => {
+      if (item.type !== "workout") return
+      const workoutId = Number(item.id.replace("workout-", ""))
+      const workout = workoutsById.get(workoutId)
+      if (!workout) return
+      const endTime = addMinutesToTime(item.startTime, item.durationMin)
+      if (!map.has(item.date)) {
+        map.set(item.date, [])
+      }
+      map.get(item.date)?.push({ workout, startTime: item.startTime, endTime, duration: item.durationMin })
+    })
+    map.forEach((entries) => {
+      entries.sort((a, b) => a.startTime.localeCompare(b.startTime))
+    })
+    return map
+  }, [calendarItems, workoutsById])
+
+  const handleDragEnd = useCallback(async (item: ScheduleItem, newDate: string, newStartTime: string) => {
+    if (!item.source || item.locked) return
+    if (item.date === newDate && item.startTime === newStartTime) {
+      return
+    }
+
+    const previousItems = calendarItems
+    setCalendarItems((prev) =>
+      prev.map((entry) =>
+        entry.id === item.id
+          ? {
+              ...entry,
+              date: newDate,
+              startTime: newStartTime,
+              timeUnknown: item.source?.type === "meal" ? false : entry.timeUnknown,
+              manualOverride: item.source?.type === "meal" ? true : entry.manualOverride,
+            }
+          : entry,
+      ),
+    )
+
+    // Check if item actually moved
+    try {
+      const response = await fetch("/api/v1/plans/update-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId: item.source.sourceId,
+          itemType: item.source.type,
+          sourceTable: item.source.sourceTable,
+          newDate,
+          newStartTime,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(errorData.error || `Failed to update item (${response.status})`)
+      }
+      await response.json().catch(() => null)
+
+      toast({
+        title: "Item moved",
+        description: `${item.title} moved to ${format(new Date(newDate), "EEEE")} at ${newStartTime}`,
+      })
+    } catch (error) {
+      setCalendarItems(previousItems)
+      toast({
+        title: "Failed to move item",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      })
+      return
+    }
+    await queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+    await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+  }, [calendarItems, queryClient, toast])
+
+  if (weekMealsQuery.isError || workoutsQuery.isError || planRowsQuery.isError) {
     return (
       <ErrorState
         onRetry={() => {
           weekMealsQuery.refetch()
           workoutsQuery.refetch()
           planRowsQuery.refetch()
-          chatQuery.refetch()
         }}
       />
     )
@@ -157,36 +299,40 @@ export default function PlansPage() {
 
   const scheduleItems = useMemo<ScheduleItem[]>(() => {
     const items: ScheduleItem[] = []
-    const workouts = workoutsQuery.data ?? []
 
     ;(weekMealsQuery.data ?? []).forEach((meal) => {
       const fallbackTime = getMealFallbackTime(meal.slot)
       const baseTime = normalizeTime(meal.time ?? null, fallbackTime)
-      const duration = getMealDurationMinutes(meal.kcal)
+      const calendarItem = calendarById.get(meal.id)
+      const duration = calendarItem?.durationMin ?? getMealDurationMinutes(meal.kcal)
       const mealType = meal.meal_type?.toLowerCase() ?? ""
-      const dayWorkouts = workoutsByDay.get(meal.date) ?? []
+      const startTime = calendarItem?.startTime ?? baseTime.time
+      const mealDate = calendarItem?.date ?? meal.date
+      const dayWorkouts = workoutsByDayForRender.get(mealDate) ?? []
       const primaryWorkout = dayWorkouts[0]
 
-      let startTime = baseTime.time
-      let endTime = addMinutesToTime(baseTime.time, duration)
-      let type: ScheduleItem["type"] = "meal"
+      let itemStartTime = startTime
+      let endTime = addMinutesToTime(startTime, duration)
+      const isPreMeal = mealType.includes("pre")
+      const isPostMeal = mealType.includes("post")
+      let type: ScheduleItem["type"] = isPreMeal ? "nutrition_pre" : isPostMeal ? "nutrition_post" : "meal"
 
-      if (primaryWorkout && mealType.includes("pre")) {
-        type = "nutrition_pre"
-        startTime = addMinutesToTime(primaryWorkout.start, -45)
-        endTime = addMinutesToTime(startTime, 20)
+      const allowAutoOffset = !calendarItem?.manualOverride
+
+      if (primaryWorkout && isPreMeal && allowAutoOffset) {
+        itemStartTime = addMinutesToTime(primaryWorkout.startTime, -45)
+        endTime = addMinutesToTime(itemStartTime, 20)
       }
-      if (primaryWorkout && mealType.includes("post")) {
-        type = "nutrition_post"
-        startTime = addMinutesToTime(primaryWorkout.end, 10)
-        endTime = addMinutesToTime(startTime, 20)
+      if (primaryWorkout && isPostMeal && allowAutoOffset) {
+        itemStartTime = addMinutesToTime(primaryWorkout.endTime, 10)
+        endTime = addMinutesToTime(itemStartTime, 20)
       }
 
       items.push({
         id: meal.id,
         type,
-        date: meal.date,
-        startTime,
+        date: mealDate,
+        startTime: itemStartTime,
         endTime,
         title: meal.recipe?.title ?? meal.name,
         emoji: meal.emoji ?? "🥗",
@@ -196,60 +342,75 @@ export default function PlansPage() {
           carbs_g: meal.carbs_g,
           fat_g: meal.fat_g,
         },
-        timeUnknown: baseTime.isUnknown,
+        timeUnknown: calendarItem?.timeUnknown ?? baseTime.isUnknown,
+        locked: meal.locked ?? false,
+        source: {
+          type: "meal",
+          sourceTable: "nutrition_meals",
+          sourceId: meal.id,
+        },
         meta: { meal },
       })
     })
 
-    workouts.forEach((workout) => {
-      const fallback = normalizeTime(workout.start_time, "18:00")
-      const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
-      const endTime = addMinutesToTime(fallback.time, duration)
-      const title = workout.title ?? workout.workout_type ?? "Workout"
-      const workoutType = workout.workout_type?.toLowerCase() ?? ""
-      const emoji = workoutType.includes("swim")
-        ? "🏊"
-        : workoutType.includes("bike") || workoutType.includes("cycle")
-          ? "🚴"
-          : workoutType.includes("run")
-            ? "🏃"
-            : workoutType.includes("strength")
-              ? "🏋️"
-              : workoutType.includes("rest")
-                ? "🛌"
-                : "🏅"
+    // Add distributed workouts
+    workoutsByDayForRender.forEach((dayWorkouts, day) => {
+      dayWorkouts.forEach(({ workout, startTime, endTime, duration }) => {
+        const title = workout.title ?? workout.workout_type ?? "Workout"
+        const workoutType = workout.workout_type?.toLowerCase() ?? ""
+        const emoji = workoutType.includes("swim")
+          ? "🏊"
+          : workoutType.includes("bike") || workoutType.includes("cycle")
+            ? "🚴"
+            : workoutType.includes("run")
+              ? "🏃"
+              : workoutType.includes("strength")
+                ? "🏋️"
+                : workoutType.includes("rest")
+                  ? "🛌"
+                  : "🏅"
+        
+        const workoutDuration = duration
 
-      items.push({
-        id: `workout-${workout.id}`,
-        type: "workout",
-        date: workout.workout_day,
-        startTime: fallback.time,
-        endTime,
-        title,
-        emoji,
-        detail: workout.planned_hours || workout.actual_hours ? `${duration} min` : null,
-        timeUnknown: fallback.isUnknown,
-        meta: { workout },
-      })
-
-      const intraFuel = planRowsByDay.get(workout.workout_day)
-      if (intraFuel && intraFuel > 0) {
         items.push({
-          id: `fuel-${workout.id}`,
-          type: "nutrition_during",
-          date: workout.workout_day,
-          startTime: fallback.time,
-          endTime: addMinutesToTime(fallback.time, Math.min(duration, 15)),
-          title: `Fuel ${intraFuel}g/hr`,
-          emoji: "⚡",
-          timeUnknown: fallback.isUnknown,
+          id: `workout-${workout.id}`,
+          type: "workout",
+          date: day,
+          startTime,
+          endTime,
+          title,
+          emoji,
+          detail: `${workoutDuration} min`,
+          timeUnknown: false,
+          locked: false, // Workouts are not locked by default
+          source: {
+            type: "workout",
+            sourceTable: "tp_workouts",
+            sourceId: String(workout.id),
+          },
           meta: { workout },
         })
-      }
+
+        const intraFuel = planRowsByDay.get(day)
+        if (intraFuel && intraFuel > 0) {
+          items.push({
+            id: `fuel-${workout.id}`,
+            type: "nutrition_during",
+            date: day,
+            startTime,
+            endTime: addMinutesToTime(startTime, Math.min(workoutDuration, 15)),
+            title: `Fuel ${intraFuel}g/hr`,
+            emoji: "⚡",
+            timeUnknown: false,
+            locked: false,
+            meta: { workout },
+          })
+        }
+      })
     })
 
     return items
-  }, [weekMealsQuery.data, workoutsQuery.data, workoutsByDay, planRowsByDay])
+  }, [calendarById, planRowsByDay, weekMealsQuery.data, workoutsByDayForRender])
 
   return (
     <main className="flex-1 p-8 overflow-auto">
@@ -259,7 +420,6 @@ export default function PlansPage() {
           onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
           onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
           onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-          onOpenChat={() => setChatOpen(true)}
           onRegenerateWeek={handleRegenerateWeek}
           onResetWeek={handleResetWeek}
           isGenerating={isGenerating}
@@ -291,8 +451,14 @@ export default function PlansPage() {
                 if (meal) {
                   openMealDetails(meal)
                 }
+              } else if (item.type === "workout") {
+                const workout = item.meta?.workout as TpWorkout | undefined
+                if (workout) {
+                  openWorkoutDetails(workout)
+                }
               }
             }}
+            onDragEnd={handleDragEnd}
           />
         )}
       </div>
@@ -310,20 +476,7 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
-
-      <PlanChatDrawer
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        weekLabel={weekLabel}
-        isLoading={chatQuery.isLoading}
-        thread={chatQuery.data?.thread ?? null}
-        messages={chatQuery.data?.messages ?? []}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        onReset={handleResetChat}
-        isSending={sendChatMutation.isPending}
-      />
+      <WorkoutDetailsModal open={workoutDetailsOpen} onOpenChange={setWorkoutDetailsOpen} workout={selectedWorkout} />
     </main>
   )
 }

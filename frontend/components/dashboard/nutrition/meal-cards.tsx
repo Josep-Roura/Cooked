@@ -21,7 +21,6 @@ interface MealCardsProps {
   dayTypeLabel?: string
   dayTypeNote?: string
   onToggleMeal: (mealId: string, eaten: boolean) => void
-  onAdaptMeal: (meal: MealPlanItem) => void
 }
 
 const dayTypeColors: Record<string, string> = {
@@ -68,7 +67,6 @@ export function MealCards({
   dayTypeLabel,
   dayTypeNote,
   onToggleMeal,
-  onAdaptMeal,
 }: MealCardsProps) {
   const { toast } = useToast()
   const [selectedMeal, setSelectedMeal] = useState<MealPlanItem | null>(null)
@@ -141,23 +139,30 @@ export function MealCards({
           {regularMeals.length > 0 ? (
             <div className="space-y-3">
               {regularMeals.map((meal) => (
-                <button
+                <div
                   key={meal.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedMeal(meal)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      setSelectedMeal(meal)
+                    }
+                  }}
                   className={`w-full text-left p-4 rounded-xl border ${
                     meal.eaten
                       ? "bg-emerald-50 border-emerald-200"
                       : dayTypeColors[dayTypeKey] ?? "bg-green-100 border-green-200"
-                  } transition-all hover:shadow-sm`}
+                  } transition-all hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="text-2xl">{getMealEmoji(meal)}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-medium text-foreground">{meal.name}</h4>
+                        <h4 className="font-medium text-foreground leading-tight">{meal.name}</h4>
                         {meal.eaten && (
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
                             Eaten
                           </span>
                         )}
@@ -165,7 +170,7 @@ export function MealCards({
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {meal.time ?? "Any time"}
+                          {meal.time ?? "Any time"} • 60 min
                         </span>
                         <span className="flex items-center gap-1">
                           <Flame className="h-3 w-3" />
@@ -188,7 +193,7 @@ export function MealCards({
                       </div>
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           ) : null}
@@ -238,10 +243,6 @@ export function MealCards({
         onOpenChange={(open) => (open ? null : setSelectedMeal(null))}
         meal={selectedMeal}
         emoji={selectedMeal ? getMealEmoji(selectedMeal) : "🍽️"}
-        onAdapt={() => {
-          if (!selectedMeal) return
-          onAdaptMeal(selectedMeal)
-        }}
         onCopyIngredients={async () => {
           if (!selectedMeal) return
           const ingredients = normalizeIngredients(selectedMeal.ingredients)
