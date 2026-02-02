@@ -2,11 +2,21 @@
 
 import { useRef, useCallback, memo, useState } from "react"
 import { format } from "date-fns"
-import { DndContext, type DragEndEvent, type DragStartEvent, type DragCancelEvent, MouseSensor, TouchSensor, useSensor, useSensors, DragOverlay } from "@dnd-kit/core"
+import {
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DragCancelEvent,
+  type DragMoveEvent,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+} from "@dnd-kit/core"
 import type { ScheduleItem } from "@/components/dashboard/schedule/types"
 import { ScheduleBlock } from "@/components/dashboard/schedule/schedule-block"
 import { DEFAULT_END_HOUR, DEFAULT_START_HOUR, HOUR_HEIGHT, timeToMinutes, minutesToTime } from "@/components/dashboard/schedule/utils"
-import { cn } from "@/lib/utils"
 
 interface WeeklyTimeGridProps {
   days: Date[]
@@ -19,6 +29,12 @@ interface WeeklyTimeGridProps {
 
 const SNAP_MINUTES = 15
 
+type HoveredSlot = {
+  dayIndex: number
+  top: number
+  height: number
+}
+
 // Memoized day column to prevent re-renders
 const DayColumn = memo(function DayColumn({
   day,
@@ -27,6 +43,7 @@ const DayColumn = memo(function DayColumn({
   startHour,
   endHour,
   onSelectItem,
+  highlight,
 }: {
   day: Date
   items: ScheduleItem[]
@@ -34,6 +51,7 @@ const DayColumn = memo(function DayColumn({
   startHour: number
   endHour: number
   onSelectItem?: (item: ScheduleItem) => void
+  highlight?: HoveredSlot | null
 }) {
   const dateKey = format(day, "yyyy-MM-dd")
   const dayItems = items.filter((item) => item.date === dateKey)
@@ -41,6 +59,12 @@ const DayColumn = memo(function DayColumn({
 
   return (
     <div className="relative border-l border-border/30 first:border-l-0" style={{ height: gridHeight }}>
+      {highlight ? (
+        <div
+          className="absolute inset-x-0 bg-blue-100/50 border border-blue-300/70 pointer-events-none rounded-md"
+          style={{ top: highlight.top, height: highlight.height }}
+        />
+      ) : null}
       {hours.map((hour) => (
         <div
           key={`${dateKey}-${hour}`}
@@ -78,9 +102,9 @@ export function WeeklyTimeGrid({
   onDragEnd,
 }: WeeklyTimeGridProps) {
   const hours = Array.from({ length: endHour - startHour }, (_, index) => startHour + index)
-  const gridHeight = hours.length * HOUR_HEIGHT
   const gridRef = useRef<HTMLDivElement>(null)
   const [activeItem, setActiveItem] = useState<ScheduleItem | null>(null)
+  const [hoveredSlot, setHoveredSlot] = useState<HoveredSlot | null>(null)
   const headerRef = useRef<HTMLDivElement>(null)
 
   // Optimized sensors for smooth dragging
@@ -98,7 +122,7 @@ export function WeeklyTimeGrid({
     })
   )
 
-  const getDragPosition = useCallback((event: DragEndEvent) => {
+  const getDragPosition = useCallback((event: DragEndEvent | DragMoveEvent) => {
     if (!gridRef.current) return null
 
     const gridRect = gridRef.current.getBoundingClientRect()
@@ -128,7 +152,7 @@ export function WeeklyTimeGrid({
     const newDate = format(days[dayIndex], "yyyy-MM-dd")
     const newStartTime = minutesToTime(clampedMinutes)
 
-    return { dayIndex, newDate, newStartTime }
+    return { dayIndex, newDate, newStartTime, clampedMinutes }
   }, [days, startHour, endHour])
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -138,12 +162,32 @@ export function WeeklyTimeGrid({
     }
   }, [])
 
+  const handleDragMove = useCallback((event: DragMoveEvent) => {
+    const position = getDragPosition(event)
+    const item = activeItem
+    if (!position || !item) {
+      setHoveredSlot(null)
+      return
+    }
+
+    const durationMinutes = Math.max(timeToMinutes(item.endTime) - timeToMinutes(item.startTime), SNAP_MINUTES)
+    const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 24)
+    const top = ((position.clampedMinutes - startHour * 60) / 60) * HOUR_HEIGHT
+
+    setHoveredSlot({
+      dayIndex: position.dayIndex,
+      top,
+      height,
+    })
+  }, [activeItem, getDragPosition, startHour])
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const position = getDragPosition(event)
     const item = event.active.data.current as ScheduleItem
     
     // Always clear active item first for smooth UI
     setActiveItem(null)
+    setHoveredSlot(null)
     
     if (!position || !item) return
 
@@ -152,12 +196,14 @@ export function WeeklyTimeGrid({
 
   const handleDragCancel = useCallback((event: DragCancelEvent) => {
     setActiveItem(null)
+    setHoveredSlot(null)
   }, [])
 
   return (
     <DndContext
       sensors={sensors}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
@@ -183,7 +229,7 @@ export function WeeklyTimeGrid({
               </div>
             ))}
           </div>
-          {days.map((day) => (
+          {days.map((day, index) => (
             <DayColumn
               key={day.toISOString()}
               day={day}
@@ -192,6 +238,7 @@ export function WeeklyTimeGrid({
               startHour={startHour}
               endHour={endHour}
               onSelectItem={onSelectItem}
+              highlight={hoveredSlot && hoveredSlot.dayIndex === index ? hoveredSlot : null}
             />
           ))}
         </div>
