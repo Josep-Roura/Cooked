@@ -23,14 +23,31 @@ const payloadSchema = z
   })
   .strict()
 
+const ingredientSchema = z.object({
+  name: z.string().min(1),
+  quantity: z.number().nonnegative(),
+  unit: z.enum(["g", "ml", "unit"]),
+})
+
+const recipeSchema = z.object({
+  title: z.string().min(1),
+  servings: z.number().int().min(1),
+  ingredients: z.array(ingredientSchema),
+  steps: z.array(z.string().min(1)),
+  notes: z.string().min(1).nullable().optional(),
+})
+
 const mealSchema = z.object({
   slot: z.number().int().min(1),
-  name: z.string().min(1),
+  meal_type: z.enum(["breakfast", "snack", "lunch", "dinner", "intra"]),
   time: z.string().regex(/^\d{2}:\d{2}$/),
+  emoji: z.string().min(1),
+  name: z.string().min(1),
   kcal: z.number().nonnegative(),
   protein_g: z.number().nonnegative(),
   carbs_g: z.number().nonnegative(),
   fat_g: z.number().nonnegative(),
+  recipe: recipeSchema,
 })
 
 const macrosSchema = z.object({
@@ -44,13 +61,14 @@ const macrosSchema = z.object({
 const daySchema = z.object({
   date: dateSchema,
   day_type: z.enum(["rest", "training", "high"]),
-  macros: macrosSchema,
+  daily_targets: macrosSchema,
   meals: z.array(mealSchema).min(1),
+  rationale: z.string().min(1),
 })
 
 const aiResponseSchema = z.object({
   days: z.array(daySchema).min(1),
-  rationale: z.string().min(1),
+  rationale: z.string().min(1).optional(),
 })
 
 type AiResponse = z.infer<typeof aiResponseSchema>
@@ -179,41 +197,97 @@ function defaultMealTemplates(mealsPerDay: number) {
   const clampedMeals = clamp(mealsPerDay, 3, 6)
   if (clampedMeals === 3) {
     return [
-      { name: "Breakfast", time: "08:00" },
-      { name: "Lunch", time: "13:00" },
-      { name: "Dinner", time: "19:30" },
+      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
+      { name: "Lunch", time: "13:00", meal_type: "lunch", emoji: "🥗" },
+      { name: "Dinner", time: "19:30", meal_type: "dinner", emoji: "🍝" },
     ]
   }
   if (clampedMeals === 4) {
     return [
-      { name: "Breakfast", time: "08:00" },
-      { name: "Snack", time: "11:00" },
-      { name: "Lunch", time: "14:00" },
-      { name: "Dinner", time: "20:30" },
+      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
+      { name: "Snack", time: "11:00", meal_type: "snack", emoji: "🍌" },
+      { name: "Lunch", time: "14:00", meal_type: "lunch", emoji: "🥗" },
+      { name: "Dinner", time: "20:30", meal_type: "dinner", emoji: "🍝" },
     ]
   }
   if (clampedMeals === 5) {
     return [
-      { name: "Breakfast", time: "08:00" },
-      { name: "Snack", time: "11:00" },
-      { name: "Lunch", time: "14:00" },
-      { name: "Snack", time: "17:00" },
-      { name: "Dinner", time: "20:30" },
+      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
+      { name: "Snack", time: "11:00", meal_type: "snack", emoji: "🍌" },
+      { name: "Lunch", time: "14:00", meal_type: "lunch", emoji: "🥗" },
+      { name: "Snack", time: "17:00", meal_type: "snack", emoji: "🍏" },
+      { name: "Dinner", time: "20:30", meal_type: "dinner", emoji: "🍝" },
     ]
   }
   return [
-    { name: "Breakfast", time: "07:30" },
-    { name: "Snack", time: "10:00" },
-    { name: "Lunch", time: "13:00" },
-    { name: "Snack", time: "16:00" },
-    { name: "Dinner", time: "19:00" },
-    { name: "Snack", time: "21:30" },
+    { name: "Breakfast", time: "07:30", meal_type: "breakfast", emoji: "🍳" },
+    { name: "Snack", time: "10:00", meal_type: "snack", emoji: "🥜" },
+    { name: "Lunch", time: "13:00", meal_type: "lunch", emoji: "🥗" },
+    { name: "Snack", time: "16:00", meal_type: "snack", emoji: "🍞" },
+    { name: "Dinner", time: "19:00", meal_type: "dinner", emoji: "🍝" },
+    { name: "Snack", time: "21:30", meal_type: "snack", emoji: "🥛" },
   ]
+}
+
+function fallbackRecipeForMeal(mealType: string, name: string) {
+  if (mealType === "breakfast") {
+    return {
+      title: "Oats with yogurt and fruit",
+      servings: 1,
+      ingredients: [
+        { name: "rolled oats", quantity: 60, unit: "g" },
+        { name: "milk", quantity: 200, unit: "ml" },
+        { name: "Greek yogurt", quantity: 100, unit: "g" },
+        { name: "banana", quantity: 1, unit: "unit" },
+      ],
+      steps: ["Cook oats in milk until creamy.", "Top with yogurt and sliced banana."],
+      notes: "Easy to digest and carb-forward for morning fuel.",
+    }
+  }
+  if (mealType === "lunch") {
+    return {
+      title: "Chicken rice bowl",
+      servings: 1,
+      ingredients: [
+        { name: "cooked rice", quantity: 250, unit: "g" },
+        { name: "chicken breast", quantity: 150, unit: "g" },
+        { name: "mixed vegetables", quantity: 150, unit: "g" },
+        { name: "olive oil", quantity: 10, unit: "g" },
+      ],
+      steps: ["Cook chicken and vegetables in olive oil.", "Serve over rice."],
+      notes: "Balanced carbs and protein for recovery.",
+    }
+  }
+  if (mealType === "dinner") {
+    return {
+      title: "Salmon pasta with greens",
+      servings: 1,
+      ingredients: [
+        { name: "pasta", quantity: 90, unit: "g" },
+        { name: "salmon", quantity: 140, unit: "g" },
+        { name: "spinach", quantity: 80, unit: "g" },
+        { name: "olive oil", quantity: 10, unit: "g" },
+      ],
+      steps: ["Cook pasta.", "Pan-sear salmon and wilt spinach.", "Combine with olive oil."],
+      notes: "Carbs for glycogen, omega-3s for recovery.",
+    }
+  }
+  return {
+    title: name || "Recovery snack",
+    servings: 1,
+    ingredients: [
+      { name: "Greek yogurt", quantity: 150, unit: "g" },
+      { name: "berries", quantity: 100, unit: "g" },
+      { name: "honey", quantity: 10, unit: "g" },
+    ],
+    steps: ["Mix yogurt with berries and honey."],
+    notes: "Quick snack with protein and carbs.",
+  }
 }
 
 function splitMacrosAcrossMeals(
   macros: { kcal: number; protein_g: number; carbs_g: number; fat_g: number },
-  meals: Array<{ name: string; time: string }>,
+  meals: Array<{ name: string; time: string; meal_type: string; emoji: string }>,
 ) {
   const snackCount = meals.filter((meal) => meal.name.toLowerCase().includes("snack")).length
   const mealShares = meals.map((meal) => {
@@ -229,15 +303,25 @@ function splitMacrosAcrossMeals(
     return 0.15 / snackCount
   })
 
-  return meals.map((meal, index) => ({
-    slot: index + 1,
-    name: meal.name,
-    time: meal.time,
-    kcal: Math.round(macros.kcal * mealShares[index]),
-    protein_g: Math.round(macros.protein_g * mealShares[index]),
-    carbs_g: Math.round(macros.carbs_g * mealShares[index]),
-    fat_g: Math.round(macros.fat_g * mealShares[index]),
-  }))
+  return meals.map((meal, index) => {
+    const kcal = Math.round(macros.kcal * mealShares[index])
+    const protein = Math.round(macros.protein_g * mealShares[index])
+    const fat = Math.round(macros.fat_g * mealShares[index])
+    const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4))
+
+    return {
+      slot: index + 1,
+      meal_type: meal.meal_type,
+      time: meal.time,
+      emoji: meal.emoji,
+      name: meal.name,
+      kcal,
+      protein_g: protein,
+      carbs_g: carbs,
+      fat_g: fat,
+      recipe: fallbackRecipeForMeal(meal.meal_type, meal.name),
+    }
+  })
 }
 
 function normalizeSportType(value: string | null) {
@@ -377,13 +461,14 @@ function buildFallbackPlan({
     const date = cursor.toISOString().split("T")[0]
     const dayWorkouts = workoutsByDay.get(date) ?? []
     const dayType = pickDayType(dayWorkouts)
-    const macros = computeMacros(weightKg, dayType)
-    const meals = splitMacrosAcrossMeals(macros, templates)
+    const dailyTargets = computeMacros(weightKg, dayType)
+    const meals = splitMacrosAcrossMeals(dailyTargets, templates)
     return {
       date,
       day_type: dayType,
-      macros,
+      daily_targets: dailyTargets,
       meals,
+      rationale: "Balanced fuel distribution based on training load and recovery needs.",
     }
   })
 
@@ -634,7 +719,7 @@ export async function POST(req: NextRequest) {
       },
       workouts_summary: workoutsSummary,
       schema:
-        "days[{date,day_type,macros{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,name,time,kcal,protein_g,carbs_g,fat_g}]}]",
+        'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
     }
 
     let aiResponse: AiResponse | null = null
@@ -750,12 +835,15 @@ export async function POST(req: NextRequest) {
       intra_cho_g_per_h: number
       plan_id?: string | null
       locked?: boolean
+      rationale?: string | null
     }> = []
 
     const mealRows: Array<{
       user_id: string
       date: string
       slot: number
+      meal_type: string
+      emoji: string
       name: string
       time: string | null
       kcal: number
@@ -763,6 +851,8 @@ export async function POST(req: NextRequest) {
       carbs_g: number
       fat_g: number
       ingredients: unknown[]
+      recipe: unknown
+      notes: string | null
       eaten: boolean
       eaten_at: string | null
       locked?: boolean
@@ -798,22 +888,23 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         date: day.date,
         day_type: day.day_type,
-        kcal: day.macros.kcal,
-        protein_g: day.macros.protein_g,
-        carbs_g: day.macros.carbs_g,
-        fat_g: day.macros.fat_g,
-        intra_cho_g_per_h: day.macros.intra_cho_g_per_h,
+        kcal: day.daily_targets.kcal,
+        protein_g: day.daily_targets.protein_g,
+        carbs_g: day.daily_targets.carbs_g,
+        fat_g: day.daily_targets.fat_g,
+        intra_cho_g_per_h: day.daily_targets.intra_cho_g_per_h,
         plan_id: existingRow?.plan_id ?? null,
         locked: resetLocks ? false : existingRow?.locked ?? false,
+        rationale: day.rationale,
       })
 
       if (existingRow) {
         const macroChanged =
-          existingRow.kcal !== day.macros.kcal ||
-          existingRow.protein_g !== day.macros.protein_g ||
-          existingRow.carbs_g !== day.macros.carbs_g ||
-          existingRow.fat_g !== day.macros.fat_g ||
-          existingRow.intra_cho_g_per_h !== day.macros.intra_cho_g_per_h
+          existingRow.kcal !== day.daily_targets.kcal ||
+          existingRow.protein_g !== day.daily_targets.protein_g ||
+          existingRow.carbs_g !== day.daily_targets.carbs_g ||
+          existingRow.fat_g !== day.daily_targets.fat_g ||
+          existingRow.intra_cho_g_per_h !== day.daily_targets.intra_cho_g_per_h
         if (macroChanged) diff.macros_changed += 1
       }
 
@@ -844,13 +935,17 @@ export async function POST(req: NextRequest) {
           user_id: user.id,
           date: day.date,
           slot: meal.slot,
+          meal_type: meal.meal_type,
+          emoji: meal.emoji,
           name: meal.name,
           time: meal.time ?? null,
           kcal: meal.kcal,
           protein_g: meal.protein_g,
           carbs_g: meal.carbs_g,
           fat_g: meal.fat_g,
-          ingredients: [],
+          ingredients: meal.recipe.ingredients,
+          recipe: meal.recipe,
+          notes: meal.recipe.notes ?? null,
           eaten,
           eaten_at: eatenAt,
           locked: resetLocks ? false : existingMeal?.locked ?? false,

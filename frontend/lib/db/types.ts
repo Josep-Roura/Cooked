@@ -42,6 +42,7 @@ export interface NutritionPlanRow {
   carbs_g: number
   fat_g: number
   intra_cho_g_per_h: number
+  rationale?: string | null
   locked?: boolean | null
   created_at: string
   user_id: string | null
@@ -53,6 +54,8 @@ export interface NutritionMeal {
   plan_id?: string | null
   date: string
   slot: number
+  meal_type?: string | null
+  emoji?: string | null
   name: string
   time: string | null
   kcal?: number
@@ -237,6 +240,7 @@ export interface MealPlanItem {
   created_at: string
   updated_at: string
   ingredients?: MealPlanIngredient[]
+  recipe?: unknown | null
 }
 
 export interface MealPlanIngredient {
@@ -275,6 +279,7 @@ export interface NutritionDayPlan {
   meals: Meal[]
   plan_id: string | null
   locked?: boolean
+  rationale?: string | null
 }
 
 export type RecipeCategory =
