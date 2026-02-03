@@ -30,6 +30,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [displayedTime, setDisplayedTime] = useState("")
   const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
+  const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
   
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -40,8 +41,43 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
        setNutritionRecordId(null)
      } else if (workout) {
        setDisplayedTime(workout.start_time ?? "TBD")
+       // Auto-load nutrition if it exists
+       loadNutritionPlan()
      }
    }, [open, workout])
+
+  const loadNutritionPlan = async () => {
+    if (!workout) return
+    
+    setIsLoadingNutrition(true)
+    try {
+      const response = await fetch(
+        `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=1`
+      )
+      
+      if (response.ok) {
+        const data = await response.json()
+        const records = data.records ?? []
+        
+        const matchingRecord = records.find((r: any) => r.workout_id === workout.id)
+        if (matchingRecord) {
+          setNutritionRecordId(matchingRecord.id)
+          setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
+          
+          try {
+            const plan = JSON.parse(matchingRecord.during_workout_recommendation)
+            setNutritionPlan(plan)
+          } catch {
+            // If not JSON, that's okay
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Could not load nutrition plan:", error)
+    } finally {
+      setIsLoadingNutrition(false)
+    }
+  }
   
   if (!workout) {
     return (
@@ -305,8 +341,16 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
 
         {/* Nutrition Strategy */}
          <div className="space-y-4">
+           {/* Loading state */}
+           {isLoadingNutrition && (
+             <div className="bg-blue-50 rounded-lg p-4 border border-blue-200/60 text-center">
+               <Loader className="h-4 w-4 animate-spin mx-auto text-blue-600" />
+               <p className="text-xs text-blue-700 mt-2">Cargando plan de nutrición...</p>
+             </div>
+           )}
+
            {/* Show Timeline when plan is generated */}
-           {nutritionPlan ? (
+           {!isLoadingNutrition && nutritionPlan ? (
              <WorkoutNutritionTimeline
                plan={nutritionPlan}
                workoutDuration={duration || 0}
@@ -322,7 +366,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                  if (!response.ok) throw new Error("Failed to save")
                }}
              />
-           ) : (
+           ) : !isLoadingNutrition ? (
              <>
                {/* Pre-workout */}
                <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
@@ -332,7 +376,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                  <p className="text-sm text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
                </div>
 
-               {/* During - Button to generate */}
+               {/* During */}
                <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
                  <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
                    ⚡ During
@@ -344,24 +388,9 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                        ? "30-60g carbs"
                        : "Hydrate with electrolytes"}
                  </p>
-                 <Button
-                   onClick={handleGenerateDuringNutrition}
-                   size="sm"
-                   disabled={isGeneratingNutrition}
-                   className="bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs h-7 px-2"
-                 >
-                   {isGeneratingNutrition ? (
-                     <>
-                       <Loader className="h-2.5 w-2.5 mr-1 animate-spin" />
-                       Generando...
-                     </>
-                   ) : (
-                     <>
-                       <Zap className="h-2.5 w-2.5 mr-1" />
-                       Generar Plan IA
-                     </>
-                   )}
-                 </Button>
+                 <p className="text-xs text-emerald-600">
+                   💡 El plan personalizado se genera automáticamente al hacer "Regenerate week"
+                 </p>
                </div>
 
                {/* Post-workout */}
@@ -372,7 +401,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                  <p className="text-sm text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
                </div>
              </>
-           )}
+           ) : null}
          </div>
       </div>
     </NotionModal>
