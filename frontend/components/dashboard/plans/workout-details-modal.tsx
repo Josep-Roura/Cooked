@@ -166,112 +166,102 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: W
 
   return (
     <NotionModal open={open} onOpenChange={onOpenChange} title={`${emoji} ${title}`} description={description}>
-      <div className="space-y-5">
+      <div className="space-y-4">
         
-        {/* Header with Time Editor - Premium Card */}
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="space-y-4">
+        {/* Time - Compact Header */}
+        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-3 text-white">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-blue-100 text-sm font-medium mb-1">Scheduled for</p>
-              <p className="text-lg text-blue-50">{workoutDate}</p>
+              <p className="text-xs text-blue-100 font-medium uppercase tracking-wide">Scheduled</p>
+              <p className="text-sm text-blue-50">{workoutDate}</p>
             </div>
             
             {isEditingTime ? (
-              <div className="flex gap-2 items-end pt-2">
-                <div className="flex-1">
-                  <label className="text-xs text-blue-100 block mb-2">Start Time</label>
-                  <Input
-                    type="time"
-                    value={editedTime}
-                    onChange={(e) => setEditedTime(e.target.value)}
-                    className="bg-white/20 border-white/30 text-white placeholder:text-white/50 rounded-lg"
-                  />
-                </div>
+              <div className="flex gap-1.5 items-end">
+                <Input
+                  type="time"
+                  value={editedTime}
+                  onChange={(e) => setEditedTime(e.target.value)}
+                  className="bg-white/20 border-white/30 text-white placeholder:text-white/50 rounded h-8 w-20 text-sm"
+                />
                 <Button
                   onClick={handleTimeSave}
                   disabled={isSavingTime}
                   size="sm"
-                  className="bg-white text-blue-600 hover:bg-blue-50 rounded-lg h-10"
+                  className="bg-white text-blue-600 hover:bg-blue-50 rounded h-8 px-2.5 text-xs"
                 >
-                  {isSavingTime ? (
-                    <Loader className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Save"
-                  )}
+                  {isSavingTime ? <Loader className="h-3 w-3 animate-spin" /> : "Save"}
                 </Button>
                 <Button
                   onClick={() => setIsEditingTime(false)}
                   disabled={isSavingTime}
                   size="sm"
                   variant="outline"
-                  className="border-white/30 text-white hover:bg-white/20 rounded-lg"
+                  className="border-white/30 text-white hover:bg-white/20 rounded h-8 px-2.5 text-xs"
                 >
-                  Cancel
+                  ×
                 </Button>
               </div>
             ) : (
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-3">
-                  <Clock className="h-5 w-5 text-blue-100" />
-                  <span className="text-3xl font-bold">{displayedTime}</span>
-                </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-2xl font-bold">{displayedTime}</span>
                 <Button
                   onClick={handleTimeEdit}
                   size="sm"
-                  className="bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-lg"
+                  className="bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded h-8 px-2.5 text-xs"
                 >
-                  Change Time
+                  Edit
                 </Button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Quick Stats - Compact */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {duration && (
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl p-3 border border-blue-200/60">
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span className="text-2xl font-bold text-blue-900">{duration}</span>
+            <div className="bg-blue-50 rounded-lg p-2 border border-blue-200/60">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Clock className="h-3.5 w-3.5 text-blue-600" />
+                <span className="text-lg font-bold text-blue-900">{duration}</span>
               </div>
-              <p className="text-xs text-blue-700 font-medium">minutes</p>
+              <p className="text-xs text-blue-700 font-medium">min</p>
             </div>
           )}
           {workout.tss && (
-            <div className="bg-gradient-to-br from-orange-50 to-orange-100/50 rounded-xl p-3 border border-orange-200/60">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-4 w-4 text-orange-600" />
-                <span className="text-2xl font-bold text-orange-900">{workout.tss}</span>
+            <div className="bg-orange-50 rounded-lg p-2 border border-orange-200/60">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <TrendingUp className="h-3.5 w-3.5 text-orange-600" />
+                <span className="text-lg font-bold text-orange-900">{workout.tss}</span>
               </div>
               <p className="text-xs text-orange-700 font-medium">TSS</p>
             </div>
           )}
           {workout.if && (
-            <div className="bg-gradient-to-br from-red-50 to-red-100/50 rounded-xl p-3 border border-red-200/60">
-              <div className="flex items-center gap-2 mb-1">
-                <Flame className="h-4 w-4 text-red-600" />
-                <span className="text-2xl font-bold text-red-900">{(parseFloat(workout.if) * 100).toFixed(0)}%</span>
+            <div className="bg-red-50 rounded-lg p-2 border border-red-200/60">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Flame className="h-3.5 w-3.5 text-red-600" />
+                <span className="text-lg font-bold text-red-900">{(parseFloat(workout.if) * 100).toFixed(0)}%</span>
               </div>
-              <p className="text-xs text-red-700 font-medium">Intensity</p>
+              <p className="text-xs text-red-700 font-medium">IF</p>
             </div>
           )}
           {workout.power_avg && (
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-xl p-3 border border-purple-200/60">
-              <div className="flex items-center gap-2 mb-1">
-                <Dumbbell className="h-4 w-4 text-purple-600" />
-                <span className="text-2xl font-bold text-purple-900">{Math.round(workout.power_avg)}</span>
+            <div className="bg-purple-50 rounded-lg p-2 border border-purple-200/60">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Dumbbell className="h-3.5 w-3.5 text-purple-600" />
+                <span className="text-lg font-bold text-purple-900">{Math.round(workout.power_avg)}</span>
               </div>
-              <p className="text-xs text-purple-700 font-medium">watts</p>
+              <p className="text-xs text-purple-700 font-medium">W</p>
             </div>
           )}
         </div>
 
-        {/* Description Section */}
+        {/* Description */}
         {workout.description && (
-          <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-xl p-4 border border-slate-200/60">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-slate-600" /> Description
+          <div className="bg-slate-50 rounded-lg p-3 border border-slate-200/60">
+            <h3 className="text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-slate-600" /> Description
             </h3>
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{workout.description}</p>
           </div>
@@ -279,66 +269,66 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: W
 
         {/* Coach Comments */}
         {workout.coach_comments && (
-          <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 rounded-xl p-4 border border-amber-200/60">
-            <h3 className="text-sm font-semibold text-amber-900 mb-2 flex items-center gap-2">
+          <div className="bg-amber-50 rounded-lg p-3 border border-amber-200/60">
+            <h3 className="text-xs font-semibold text-amber-900 mb-1.5 flex items-center gap-1.5">
               <span>📝</span> Coach Notes
             </h3>
             <p className="text-sm text-amber-800 leading-relaxed whitespace-pre-wrap">{workout.coach_comments}</p>
           </div>
         )}
 
-        {/* Nutrition Strategy - Enhanced */}
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-xl p-5 border border-emerald-200/60">
-          <h3 className="text-sm font-semibold text-emerald-900 mb-4 flex items-center gap-2">
-            🥗 Nutrition Strategy
+        {/* Nutrition Strategy - Integrated */}
+        <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+          <h3 className="text-xs font-semibold text-emerald-900 mb-2.5 flex items-center gap-1.5">
+            🥗 Nutrition
           </h3>
           
-          <div className="space-y-4">
+          <div className="space-y-2 text-xs">
             {/* Pre-workout */}
-            <div className="bg-white/60 rounded-lg p-3 border border-emerald-100">
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-1">Pre-workout</p>
-              <p className="text-sm text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
+            <div>
+              <p className="font-semibold text-emerald-700 mb-0.5">Pre-workout</p>
+              <p className="text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
             </div>
 
             {/* During */}
-            <div className="bg-white/60 rounded-lg p-3 border border-emerald-100">
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">During</p>
+            <div className="pt-1.5 border-t border-emerald-200">
+              <p className="font-semibold text-emerald-700 mb-1">During</p>
               {customDuringNutrition ? (
-                <div className="space-y-2">
-                  <p className="text-sm text-emerald-900 leading-relaxed">{customDuringNutrition}</p>
+                <div className="space-y-1.5">
+                  <p className="text-emerald-900 leading-relaxed">{customDuringNutrition}</p>
                   <Button
                     onClick={() => setCustomDuringNutrition(null)}
                     size="sm"
                     variant="ghost"
-                    className="text-emerald-600 hover:bg-emerald-100/50 text-xs h-7 px-2"
+                    className="text-emerald-600 hover:bg-emerald-100/50 text-xs h-6 px-1.5"
                   >
-                    ← Back to default
+                    ← Default
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-emerald-900">
+                <div className="space-y-1.5">
+                  <p className="text-emerald-900">
                     {duration && duration >= 90 
-                      ? "60-90g carbs/hour for sessions > 90 min" 
+                      ? "60-90g carbs/hour" 
                       : duration && duration >= 60 
-                        ? "30-60g carbs for sessions > 60 min" 
+                        ? "30-60g carbs"
                         : "Hydrate with electrolytes"}
                   </p>
                   <Button
                     onClick={handleGenerateDuringNutrition}
                     size="sm"
                     disabled={isGeneratingNutrition}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs h-8"
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs h-7 px-2"
                   >
                     {isGeneratingNutrition ? (
                       <>
-                        <Loader className="h-3 w-3 mr-2 animate-spin" />
-                        Generating...
+                        <Loader className="h-2.5 w-2.5 mr-1 animate-spin" />
+                        Gen...
                       </>
                     ) : (
                       <>
-                        <Zap className="h-3 w-3 mr-2" />
-                        Generate Custom Plan
+                        <Zap className="h-2.5 w-2.5 mr-1" />
+                        AI Plan
                       </>
                     )}
                   </Button>
@@ -347,9 +337,9 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: W
             </div>
 
             {/* Post-workout */}
-            <div className="bg-white/60 rounded-lg p-3 border border-emerald-100">
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-1">Post-workout</p>
-              <p className="text-sm text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
+            <div className="pt-1.5 border-t border-emerald-200">
+              <p className="font-semibold text-emerald-700 mb-0.5">Post-workout</p>
+              <p className="text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
             </div>
           </div>
         </div>
