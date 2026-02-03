@@ -4,7 +4,7 @@ import { createServerClient } from "@/lib/supabase/server"
 import { generateNutritionPrompt } from "@/lib/nutrition/workout-nutrition-schema"
 
 const duringWorkoutSchema = z.object({
-  workoutId: z.string().optional(),
+  workoutId: z.union([z.string(), z.number()]).optional().transform(val => val ? String(val) : undefined),
   workoutDate: z.string().optional(), // YYYY-MM-DD format
   workoutType: z.string().optional(),
   durationMinutes: z.number().positive(),
