@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NotionModal } from "@/components/ui/notion-modal"
 import { useToast } from "@/components/ui/use-toast"
+import { addMinutesToTime } from "@/components/dashboard/schedule/utils"
 import type { TpWorkout } from "@/lib/db/types"
 
 interface WorkoutDetailsModalProps {
@@ -14,9 +15,10 @@ interface WorkoutDetailsModalProps {
   onOpenChange: (open: boolean) => void
   workout: TpWorkout | null
   onUpdate?: () => void
+  nearbyMeals?: Array<{ type: string; time: string; date: string }>
 }
 
-export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: WorkoutDetailsModalProps) {
+export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nearbyMeals }: WorkoutDetailsModalProps) {
   const { toast } = useToast()
   const [isEditingTime, setIsEditingTime] = useState(false)
   const [editedTime, setEditedTime] = useState("")
@@ -126,6 +128,9 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: W
       return
     }
 
+    // Filter nearby meals from the same day
+    const todaysMeals = nearbyMeals?.filter(m => m.date === workout.workout_day) ?? []
+
     setIsGeneratingNutrition(true)
     try {
       const response = await fetch("/api/ai/nutrition/during-workout", {
@@ -137,6 +142,12 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate }: W
           intensity: workout.if ?? "moderate",
           tss: workout.tss ?? 0,
           description: workout.description ?? "",
+          workoutStartTime: displayedTime,
+          workoutEndTime: addMinutesToTime(displayedTime, duration),
+          nearbyMealTimes: todaysMeals.map(m => ({
+            mealType: m.type,
+            time: m.time,
+          })),
         }),
       })
 

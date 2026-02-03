@@ -384,21 +384,12 @@ export default function PlansPage() {
           meta: { workout },
         })
 
-        const intraFuel = planRowsByDay.get(day)
-        if (intraFuel && intraFuel > 0) {
-          items.push({
-            id: `fuel-${workout.id}`,
-            type: "nutrition_during",
-            date: day,
-            startTime,
-            endTime: addMinutesToTime(startTime, Math.min(workoutDuration, 15)),
-            title: `Fuel ${intraFuel}g/hr`,
-            emoji: "⚡",
-            timeUnknown: false,
-            locked: false,
-            meta: { workout },
-          })
-        }
+        // Note: Intra-workout fuel display is now shown in the nutrition strategy
+        // within the workout details modal instead of as calendar items
+        // const intraFuel = planRowsByDay.get(day)
+        // if (intraFuel && intraFuel > 0) {
+        //   items.push({...})
+        // }
       })
     })
 
@@ -469,10 +460,17 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
-      <WorkoutDetailsModal 
-        open={workoutDetailsOpen} 
-        onOpenChange={setWorkoutDetailsOpen} 
+      <WorkoutDetailsModal
+        open={workoutDetailsOpen}
+        onOpenChange={setWorkoutDetailsOpen}
         workout={selectedWorkout}
+        nearbyMeals={selectedWorkout ? (weekMealsQuery.data ?? [])
+          .filter(m => m.date === selectedWorkout.workout_day)
+          .map(m => ({
+            type: m.meal_type || "Meal",
+            time: m.time || "Unknown",
+            date: m.date,
+          })) : undefined}
         onUpdate={() => {
           queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
         }}
