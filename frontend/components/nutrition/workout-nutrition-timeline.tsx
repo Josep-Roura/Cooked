@@ -75,6 +75,22 @@ export function WorkoutNutritionTimeline({
   const [expandedSection, setExpandedSection] = useState<"pre" | "during" | "post" | null>("pre")
   const [isSaving, setIsSaving] = useState(false)
 
+  // Handle if plan is a string instead of object
+  let parsedPlan = plan
+  if (typeof plan === "string") {
+    try {
+      parsedPlan = JSON.parse(plan)
+    } catch {
+      console.error("Could not parse plan string:", plan)
+      return <div className="text-red-600">Error parsing nutrition plan</div>
+    }
+  }
+
+  // Validate plan structure
+  if (!parsedPlan || typeof parsedPlan !== "object") {
+    return <div className="text-red-600">Invalid nutrition plan format</div>
+  }
+
   const handleSave = async () => {
     if (!recordId || !onSave) return
     setIsSaving(true)
@@ -112,7 +128,7 @@ export function WorkoutNutritionTimeline({
       </div>
 
       {/* Pre-Workout Section */}
-      {plan.preWorkout && (
+      {parsedPlan?.preWorkout && (
         <PreWorkoutSection
           data={plan.preWorkout}
           isExpanded={expandedSection === "pre"}
@@ -121,7 +137,7 @@ export function WorkoutNutritionTimeline({
       )}
 
       {/* During-Workout Section */}
-      {plan.duringWorkout && (
+      {parsedPlan?.duringWorkout && (
         <DuringWorkoutSection
           data={plan.duringWorkout}
           workoutDuration={workoutDuration}
@@ -133,7 +149,7 @@ export function WorkoutNutritionTimeline({
       )}
 
       {/* Post-Workout Section */}
-      {plan.postWorkout && (
+      {parsedPlan?.postWorkout && (
         <PostWorkoutSection
           data={plan.postWorkout}
           workoutDuration={workoutDuration}
@@ -145,11 +161,11 @@ export function WorkoutNutritionTimeline({
       )}
 
       {/* Recommendations */}
-      {plan.recommendations && (
+      {parsedPlan?.recommendations && (
         <div className="bg-white rounded-lg p-3 border border-amber-200 mt-3">
           <div className="flex gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-900">{plan.recommendations}</p>
+            <p className="text-sm text-amber-900">{parsedPlan.recommendations}</p>
           </div>
         </div>
       )}

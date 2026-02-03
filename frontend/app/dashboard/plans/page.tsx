@@ -89,6 +89,37 @@ export default function PlansPage() {
     try {
       await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force, resetLocks })
       await weekMealsQuery.refetch()
+      
+      // Also generate nutrition plans for workouts
+      if (force) {
+        const workouts = workoutsQuery.data ?? []
+        for (const workout of workouts) {
+          // Skip if nutrition already exists
+          try {
+            const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+            if (duration > 0) {
+              // Generate nutrition plan for this workout
+              await fetch("/api/ai/nutrition/during-workout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  workoutId: workout.id,
+                  workoutDate: workout.workout_day,
+                  workoutType: workout.workout_type,
+                  durationMinutes: duration,
+                  intensity: workout.if ? (parseFloat(workout.if as any) > 1.1 ? "high" : "moderate") : "moderate",
+                  tss: workout.tss ?? 0,
+                  description: workout.description ?? "",
+                  workoutStartTime: workout.start_time ?? "18:00",
+                  save: true,
+                }),
+              })
+            }
+          } catch (err) {
+            console.warn(`Could not generate nutrition for workout ${workout.id}:`, err)
+          }
+        }
+      }
     } catch (error) {
       toast({
         title: "Plan generation failed",

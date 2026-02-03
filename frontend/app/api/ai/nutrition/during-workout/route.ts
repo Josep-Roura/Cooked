@@ -93,14 +93,24 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json()
-    const aiResponse = data.choices?.[0]?.message?.content || "Unable to generate recommendation"
+    let aiResponse = data.choices?.[0]?.message?.content || "Unable to generate recommendation"
 
     // Try to parse as JSON for structured data
     let parsedPlan = null
     try {
-      parsedPlan = JSON.parse(aiResponse)
-    } catch {
-      console.warn("Could not parse nutrition plan as JSON, storing as text")
+      // Remove markdown code blocks if present
+      let jsonStr = aiResponse.trim()
+      if (jsonStr.startsWith("```json")) {
+        jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "")
+      } else if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "")
+      }
+      
+      parsedPlan = JSON.parse(jsonStr)
+      aiResponse = jsonStr // Use cleaned JSON as response
+    } catch (parseError) {
+      console.warn("Could not parse nutrition plan as JSON:", parseError)
+      // Still return the raw text if JSON parsing fails
     }
 
     // Save to database if requested
