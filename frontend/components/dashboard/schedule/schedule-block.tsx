@@ -12,12 +12,13 @@ interface ScheduleBlockProps {
 }
 
 const typeStyles: Record<ScheduleItem["type"], string> = {
-  meal: "bg-emerald-50/80 border-emerald-200/60 text-emerald-900 hover:bg-emerald-100/80",
-  workout: "bg-blue-50/80 border-blue-200/60 text-blue-900 hover:bg-blue-100/80",
-  event: "bg-amber-50/80 border-amber-200/60 text-amber-900 hover:bg-amber-100/80",
-  nutrition_pre: "bg-emerald-100/60 border-emerald-200/50 text-emerald-800 hover:bg-emerald-200/60",
-  nutrition_during: "bg-emerald-200/60 border-emerald-300/50 text-emerald-800 hover:bg-emerald-300/60",
-  nutrition_post: "bg-emerald-100/60 border-emerald-200/50 text-emerald-800 hover:bg-emerald-200/60",
+  // Google Calendar style: subtle backgrounds with stronger borders
+  meal: "bg-emerald-50 border-l-4 border-emerald-500 text-emerald-900 hover:bg-emerald-100/50",
+  workout: "bg-blue-50 border-l-4 border-blue-600 text-blue-900 hover:bg-blue-100/50",
+  event: "bg-orange-50 border-l-4 border-orange-500 text-orange-900 hover:bg-orange-100/50",
+  nutrition_pre: "bg-emerald-50 border-l-4 border-emerald-400 text-emerald-800 hover:bg-emerald-100/50",
+  nutrition_during: "bg-emerald-100 border-l-4 border-emerald-500 text-emerald-800 hover:bg-emerald-100/70",
+  nutrition_post: "bg-emerald-50 border-l-4 border-emerald-400 text-emerald-800 hover:bg-emerald-100/50",
 }
 
 export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
@@ -57,39 +58,39 @@ export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
       onClick={handleClick}
       style={dragStyle}
       className={cn(
-        "absolute inset-x-1 rounded-md border text-left shadow-sm transition-all duration-200 overflow-hidden",
-        "hover:shadow-md hover:scale-[1.02] hover:z-10",
+        "absolute inset-x-1 rounded-sm border-0 text-left shadow-sm transition-all duration-200 overflow-hidden",
+        "hover:shadow-md hover:z-10",
         typeStyles[item.type],
-        item.timeUnknown ? "border-dashed opacity-80" : "",
-        isCompact ? "px-1.5 py-1" : "px-2 py-1.5",
-        isDragging && "ring-2 ring-blue-400 shadow-lg",
-        isLocked && "cursor-not-allowed opacity-90",
+        item.timeUnknown ? "opacity-70" : "",
+        isCompact ? "px-2 py-1" : "px-2 py-2",
+        isDragging && "ring-2 ring-blue-500 shadow-lg",
+        isLocked && "cursor-not-allowed opacity-75",
         isDraggable && "cursor-grab active:cursor-grabbing",
       )}
       {...(isDraggable ? { ...attributes, ...listeners } : {})}
     >
       {/* Locked indicator */}
       {isLocked && (
-        <div className="absolute top-0.5 right-0.5">
-          <svg className="w-3 h-3 text-current opacity-50" fill="currentColor" viewBox="0 0 20 20">
+        <div className="absolute top-1 right-1">
+          <svg className="w-3 h-3 text-current opacity-40" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
           </svg>
         </div>
       )}
 
-      {/* Header: Emoji + Title + Time */}
-      <div className="flex items-center gap-1 min-w-0">
+      {/* Header: Emoji + Title */}
+      <div className="flex items-center gap-1.5 min-w-0 mb-1">
         <span className={cn(
           "shrink-0 leading-none",
-          isCompact ? "text-sm" : "text-base",
-          isWorkout && "text-lg"
+          isCompact ? "text-xs" : "text-sm",
+          isWorkout && "text-base"
         )}>
           {item.emoji ?? "•"}
         </span>
         <span className={cn(
-          "font-medium truncate leading-tight flex-1 min-w-0",
-          isCompact ? "text-[11px]" : "text-xs",
-          isWorkout && "text-sm font-semibold"
+          "font-semibold truncate leading-tight flex-1 min-w-0",
+          isCompact ? "text-xs" : "text-sm",
+          isWorkout && "text-sm"
         )}>
           {item.title}
         </span>
@@ -97,20 +98,15 @@ export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
       
       {/* Info: Time range and kcal */}
       <div className={cn(
-        "flex items-center gap-1.5 mt-0.5",
-        isCompact ? "text-[10px]" : "text-[11px]"
+        "flex items-center gap-1 text-[11px] leading-tight",
+        "text-current opacity-70"
       )}>
-        <span className="text-muted-foreground/70 whitespace-nowrap">
+        <span className="whitespace-nowrap font-medium">
           {timeRange}
         </span>
         {item.kcal ? (
-          <span className="text-muted-foreground/90 font-medium">
-            · {item.kcal} kcal
-          </span>
-        ) : null}
-        {item.detail && !item.kcal ? (
-          <span className="text-muted-foreground/70">
-            · {item.detail}
+          <span className="whitespace-nowrap">
+            • {item.kcal} kcal
           </span>
         ) : null}
       </div>

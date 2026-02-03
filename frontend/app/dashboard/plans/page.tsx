@@ -476,7 +476,14 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
-      <WorkoutDetailsModal open={workoutDetailsOpen} onOpenChange={setWorkoutDetailsOpen} workout={selectedWorkout} />
+      <WorkoutDetailsModal 
+        open={workoutDetailsOpen} 
+        onOpenChange={setWorkoutDetailsOpen} 
+        workout={selectedWorkout}
+        onUpdate={() => {
+          queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+        }}
+      />
     </main>
   )
 }
