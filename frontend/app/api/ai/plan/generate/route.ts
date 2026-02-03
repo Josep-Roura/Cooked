@@ -41,7 +41,7 @@ const recipeSchema = z.object({
 const mealSchema = z.object({
   slot: z.number().int().min(1),
   meal_type: z.enum(["breakfast", "snack", "lunch", "dinner", "intra"]),
-  time: z.string().regex(/^\d{2}:\d{2}$/),
+  time: z.string().min(1), // Accept any time string, will normalize
   emoji: z.string().min(1),
   name: z.string().min(1),
   kcal: z.number().nonnegative(),
@@ -491,6 +491,30 @@ function normalizeUnit(unit: string): "g" | "ml" | "unit" {
   return "unit"
 }
 
+function normalizeTime(time: unknown): string {
+  if (typeof time !== "string") return "12:00"
+  
+  const normalized = time.trim()
+  
+  // Already in HH:MM format
+  if (/^\d{2}:\d{2}$/.test(normalized)) {
+    return normalized
+  }
+  
+  // Try to extract HH:MM from various formats
+  const match = normalized.match(/(\d{1,2}):(\d{2})/)
+  if (match) {
+    const hour = parseInt(match[1], 10)
+    const minute = parseInt(match[2], 10)
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+    }
+  }
+  
+  // Fallback to a default time
+  return "12:00"
+}
+
 function normalizeAiResponse(response: unknown): AiResponse | null {
   if (!response || typeof response !== "object" || !("days" in response)) {
     return null
@@ -507,6 +531,11 @@ function normalizeAiResponse(response: unknown): AiResponse | null {
       ? d.meals.map((meal: unknown) => {
           if (typeof meal !== "object" || !meal) return null
           const m = meal as Record<string, unknown>
+          
+          // Normalize time format
+          if (typeof m.time === "string") {
+            m.time = normalizeTime(m.time)
+          }
           
           if (m.recipe && typeof m.recipe === "object" && !Array.isArray(m.recipe)) {
             const recipe = m.recipe as Record<string, unknown>
