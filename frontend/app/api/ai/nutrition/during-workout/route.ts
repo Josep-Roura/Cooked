@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServerClient } from "@/lib/supabase/server"
-import { 
-  generatePersonalizedNutritionPlan,
-  type AthleteProfile,
-  type WorkoutProfile,
-} from "@/lib/nutrition/sports-nutrition-calculator"
+import { generateSportsNutritionistPrompt, type NutritionistContext } from "@/lib/nutrition/ai-nutritionist-prompt"
 
 const duringWorkoutSchema = z.object({
   workoutId: z.union([z.string(), z.number()]).optional().transform(val => val ? String(val) : undefined),
@@ -25,6 +21,7 @@ const duringWorkoutSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  let requestId = crypto.randomUUID()
   try {
     const supabase = await createServerClient()
 
@@ -61,14 +58,16 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (profileError || !profile) {
-      console.error("Failed to fetch user profile:", profileError)
+      console.error(`[${requestId}] Failed to fetch user profile:`, profileError)
       return NextResponse.json(
         { error: "Failed to fetch user profile" },
         { status: 500 }
       )
     }
 
-    // Map intensity string to standardized format
+    console.log(`[${requestId}] User profile loaded: ${profile.weight_kg}kg, ${profile.experience_level}`)
+
+    // Map intensity to standard format
     const normalizedIntensity = intensity?.toLowerCase() === "high intensity" 
       ? "high" 
       : intensity?.toLowerCase() === "very high" || intensity?.toLowerCase() === "very-high"
@@ -77,33 +76,107 @@ export async function POST(request: NextRequest) {
       ? "low"
       : "moderate" as const
 
-    // Build athlete profile from user data
-    const athleteProfile: AthleteProfile = {
+    // Build nutritionist context
+    const nutritionistContext: NutritionistContext = {
+      athleteName: profile.full_name,
       weight_kg: profile.weight_kg || 70,
       age: profile.age || 30,
       sex: profile.sex || "male",
-      experience_level: (profile.experience_level || "intermediate") as "beginner" | "intermediate" | "advanced",
-      sweat_rate: (profile.sweat_rate || "medium") as "low" | "medium" | "high",
-      gi_sensitivity: (profile.gi_sensitivity || "low") as "low" | "medium" | "high",
-      caffeine_use: (profile.caffeine_use || "some") as "none" | "some" | "high",
-      primary_goal: (profile.primary_goal || "maintenance") as "endurance" | "strength" | "weight_loss" | "maintenance" | "hypertrophy",
-      activity_level: "high" as const,
-    }
-
-    // Build workout profile
-    const workoutProfile: WorkoutProfile = {
-      type: (workoutType?.toLowerCase().replace(" ", "_") || "mixed") as any,
-      duration_minutes: durationMinutes,
+      experience_level: (profile.experience_level || "intermediate") as any,
+      sweat_rate: (profile.sweat_rate || "medium") as any,
+      gi_sensitivity: (profile.gi_sensitivity || "low") as any,
+      caffeine_use: (profile.caffeine_use || "some") as any,
+      primary_goal: (profile.primary_goal || "maintenance") as any,
+      workoutType: workoutType || "mixed",
+      durationMinutes,
       intensity: normalizedIntensity,
-      power_tss: tss,
-      distance_km: undefined,
-      elevation_gain_m: undefined,
+      description,
     }
 
-    // Generate personalized nutrition plan using scientific calculator
-    const nutritionPlan = generatePersonalizedNutritionPlan(athleteProfile, workoutProfile)
+    console.log(`[${requestId}] Generating sports nutritionist prompt...`)
 
-    // Save to database if requested
+    // Generate professional sports nutritionist prompt
+    const prompt = generateSportsNutritionistPrompt(nutritionistContext)
+
+    console.log(`[${requestId}] Calling OpenAI GPT-4o-mini...`)
+
+    // Call OpenAI with professional prompt
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Eres un nutricionista deportivo experto. Responde ÚNICAMENTE con JSON válido. Sin explicaciones adicionales.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 3000,
+      }),
+    })
+
+    if (!openaiResponse.ok) {
+      const errorData = await openaiResponse.json().catch(() => ({}))
+      console.error(`[${requestId}] OpenAI error:`, errorData)
+      return NextResponse.json(
+        { error: "Failed to generate nutrition recommendation" },
+        { status: 500 }
+      )
+    }
+
+    const openaiData = await openaiResponse.json()
+    const aiContent = openaiData.choices?.[0]?.message?.content || ""
+
+    console.log(`[${requestId}] OpenAI response received, parsing JSON...`)
+
+    // Parse AI response as JSON
+    let nutritionPlan = null
+    try {
+      let jsonStr = aiContent.trim()
+      // Remove markdown code blocks if present
+      if (jsonStr.startsWith("```json")) {
+        jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "")
+      } else if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "")
+      }
+      
+      nutritionPlan = JSON.parse(jsonStr)
+      console.log(`[${requestId}] JSON parsed successfully`)
+    } catch (parseError) {
+      console.error(`[${requestId}] Failed to parse AI response as JSON:`, parseError)
+      return NextResponse.json(
+        { error: "Failed to parse AI response" },
+        { status: 500 }
+      )
+    }
+
+    // Log AI request to database if table exists
+    try {
+      const logDuration = Date.now()
+      await supabase.from("ai_requests").insert({
+        user_id: user.id,
+        provider: "openai",
+        model: "gpt-4o-mini",
+        response_json: nutritionPlan,
+        status: "success",
+        duration_ms: logDuration,
+      })
+      console.log(`[${requestId}] AI request logged to database`)
+    } catch (logError) {
+      console.warn(`[${requestId}] Failed to log AI request:`, logError)
+      // Don't fail the request if logging fails
+    }
+
+    // Save nutrition plan to database if requested
     let savedId = null
     if (save) {
       try {
@@ -115,17 +188,17 @@ export async function POST(request: NextRequest) {
           workout_duration_min: durationMinutes,
           workout_type: workoutType || null,
           
-          // Structured data from calculator
-          during_carbs_g_per_hour: nutritionPlan.duringWorkout.carbs_per_hour_g,
-          during_hydration_ml_per_hour: nutritionPlan.duringWorkout.hydration_per_hour_ml,
-          during_electrolytes_mg: nutritionPlan.duringWorkout.sodium_per_hour_mg,
+          // Store AI response
+          during_carbs_g_per_hour: nutritionPlan?.durante_entrenamiento?.carbohidratos_por_hora_g,
+          during_hydration_ml_per_hour: nutritionPlan?.durante_entrenamiento?.hidratacion_por_hora_ml,
+          during_electrolytes_mg: nutritionPlan?.durante_entrenamiento?.sodio_por_hora_mg,
           
-          // Full recommendations
-          during_workout_recommendation: JSON.stringify(nutritionPlan.duringWorkout),
-          pre_workout_recommendation: JSON.stringify(nutritionPlan.preWorkout),
-          post_workout_recommendation: JSON.stringify(nutritionPlan.postWorkout),
+          // Full AI recommendations
+          during_workout_recommendation: JSON.stringify(nutritionPlan?.durante_entrenamiento),
+          pre_workout_recommendation: JSON.stringify(nutritionPlan?.pre_entrenamiento),
+          post_workout_recommendation: JSON.stringify(nutritionPlan?.post_entrenamiento),
           
-          // Store the complete plan for reference
+          // Complete plan
           nutrition_plan_json: JSON.stringify(nutritionPlan),
         }
 
@@ -136,15 +209,18 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (saveError) {
-          console.error("Failed to save workout nutrition:", saveError)
+          console.error(`[${requestId}] Failed to save nutrition plan:`, saveError)
         } else if (savedRecord) {
           savedId = savedRecord.id
+          console.log(`[${requestId}] Nutrition plan saved: ${savedId}`)
         }
       } catch (error) {
-        console.error("Error saving workout nutrition:", error)
+        console.error(`[${requestId}] Error saving nutrition plan:`, error)
         // Don't fail the request if saving fails
       }
     }
+
+    console.log(`[${requestId}] Request complete, returning response`)
 
     return NextResponse.json({
       ok: true,
@@ -152,10 +228,12 @@ export async function POST(request: NextRequest) {
       plan: nutritionPlan,
       saved: !!savedId,
       recordId: savedId,
-      source: "scientific_calculator",
+      source: "sports_nutritionist_ai",
+      model: "gpt-4o-mini",
+      requestId,
     })
   } catch (error) {
-    console.error("Error in during-workout nutrition:", error)
+    console.error(`[${requestId}] Error in nutrition endpoint:`, error)
 
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid request format" }, { status: 400 })
