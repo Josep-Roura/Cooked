@@ -1,10 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, Clock, Droplet, Zap, Flame, Apple, AlertCircle } from "lucide-react"
+import { ChevronDown, Clock, Droplet, Zap, Flame, Apple, AlertCircle, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import { exportNutritionToPDF, exportNutritionAsTextPDF } from "@/lib/nutrition/export-pdf"
 
 interface WorkoutNutritionPlanProps {
   plan: {
@@ -74,6 +75,7 @@ export function WorkoutNutritionTimeline({
   const { toast } = useToast()
   const [expandedSection, setExpandedSection] = useState<"pre" | "during" | "post" | null>("pre")
   const [isSaving, setIsSaving] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   // Handle if plan is a string instead of object
   let parsedPlan = plan
@@ -108,6 +110,36 @@ export function WorkoutNutritionTimeline({
     }
   }
 
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      await exportNutritionToPDF("nutrition-timeline-export", {
+        filename: `nutrition-plan-${new Date().toISOString().split("T")[0]}.pdf`,
+        workoutDuration,
+        workoutStartTime,
+      })
+      toast({ title: "Success", description: "Nutrition plan exported to PDF" })
+    } catch (error) {
+      // Fallback to text PDF if canvas export fails
+      try {
+        exportNutritionAsTextPDF(parsedPlan, {
+          filename: `nutrition-plan-${new Date().toISOString().split("T")[0]}.pdf`,
+          workoutDuration,
+          workoutStartTime,
+        })
+        toast({ title: "Success", description: "Nutrition plan exported to PDF (text format)" })
+      } catch (fallbackError) {
+        toast({
+          title: "Error",
+          description: "Failed to export nutrition plan",
+          variant: "destructive",
+        })
+      }
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   // Parse start time to calculate actual times
   const [startHour, startMin] = workoutStartTime.split(":").map(Number)
   const calculateTime = (minutesOffset: number) => {
@@ -118,69 +150,84 @@ export function WorkoutNutritionTimeline({
   }
 
   return (
-    <div className="space-y-3 bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-4 border border-slate-200">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-lg font-bold text-slate-900">Nutrition Timeline</h2>
-        <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded">
-          {workoutDuration} min workout
-        </span>
+    <div className="space-y-3">
+      {/* Export Container - Hidden during export */}
+      <div id="nutrition-timeline-export" className="space-y-3 bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 md:p-4 border border-slate-200">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2">
+          <h2 className="text-base md:text-lg font-bold text-slate-900">Nutrition Timeline</h2>
+          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded whitespace-nowrap">
+            {workoutDuration} min workout
+          </span>
+        </div>
+
+        {/* Pre-Workout Section */}
+        {parsedPlan?.preWorkout && (
+          <PreWorkoutSection
+            data={plan.preWorkout}
+            isExpanded={expandedSection === "pre"}
+            onToggle={() => setExpandedSection(expandedSection === "pre" ? null : "pre")}
+          />
+        )}
+
+        {/* During-Workout Section */}
+        {parsedPlan?.duringWorkout && (
+          <DuringWorkoutSection
+            data={plan.duringWorkout}
+            workoutDuration={workoutDuration}
+            workoutStartTime={workoutStartTime}
+            calculateTime={calculateTime}
+            isExpanded={expandedSection === "during"}
+            onToggle={() => setExpandedSection(expandedSection === "during" ? null : "during")}
+          />
+        )}
+
+        {/* Post-Workout Section */}
+        {parsedPlan?.postWorkout && (
+          <PostWorkoutSection
+            data={plan.postWorkout}
+            workoutDuration={workoutDuration}
+            workoutStartTime={workoutStartTime}
+            calculateTime={calculateTime}
+            isExpanded={expandedSection === "post"}
+            onToggle={() => setExpandedSection(expandedSection === "post" ? null : "post")}
+          />
+        )}
+
+        {/* Recommendations */}
+        {parsedPlan?.recommendations && (
+          <div className="bg-white rounded-lg p-3 border border-amber-200 mt-3">
+            <div className="flex gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-900">{parsedPlan.recommendations}</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Pre-Workout Section */}
-      {parsedPlan?.preWorkout && (
-        <PreWorkoutSection
-          data={plan.preWorkout}
-          isExpanded={expandedSection === "pre"}
-          onToggle={() => setExpandedSection(expandedSection === "pre" ? null : "pre")}
-        />
-      )}
-
-      {/* During-Workout Section */}
-      {parsedPlan?.duringWorkout && (
-        <DuringWorkoutSection
-          data={plan.duringWorkout}
-          workoutDuration={workoutDuration}
-          workoutStartTime={workoutStartTime}
-          calculateTime={calculateTime}
-          isExpanded={expandedSection === "during"}
-          onToggle={() => setExpandedSection(expandedSection === "during" ? null : "during")}
-        />
-      )}
-
-      {/* Post-Workout Section */}
-      {parsedPlan?.postWorkout && (
-        <PostWorkoutSection
-          data={plan.postWorkout}
-          workoutDuration={workoutDuration}
-          workoutStartTime={workoutStartTime}
-          calculateTime={calculateTime}
-          isExpanded={expandedSection === "post"}
-          onToggle={() => setExpandedSection(expandedSection === "post" ? null : "post")}
-        />
-      )}
-
-      {/* Recommendations */}
-      {parsedPlan?.recommendations && (
-        <div className="bg-white rounded-lg p-3 border border-amber-200 mt-3">
-          <div className="flex gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-900">{parsedPlan.recommendations}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Save Button */}
-      {recordId && onSave && (
+      {/* Action Buttons */}
+      <div className="flex gap-2 flex-wrap">
+        {recordId && onSave && (
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {isSaving ? "Saving..." : "Save Nutrition Plan"}
+          </Button>
+        )}
         <Button
-          onClick={handleSave}
-          disabled={isSaving}
+          onClick={handleExport}
+          disabled={isExporting}
           size="sm"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white mt-2"
+          variant="outline"
+          className="gap-2"
         >
-          {isSaving ? "Saving..." : "Save Nutrition Plan"}
+          <Download className="w-4 h-4" />
+          {isExporting ? "Exporting..." : "Export to PDF"}
         </Button>
-      )}
+      </div>
     </div>
   )
 }
@@ -199,28 +246,28 @@ function PreWorkoutSection({
     <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full p-3 flex items-center justify-between hover:bg-emerald-50 transition-colors"
+        className="w-full p-2 md:p-3 flex items-center justify-between hover:bg-emerald-50 transition-colors"
       >
-        <div className="flex items-center gap-3 flex-1 text-left">
-          <div className="w-8 h-8 rounded bg-emerald-100 flex items-center justify-center">
+        <div className="flex items-center gap-2 md:gap-3 flex-1 text-left min-w-0">
+          <div className="w-8 h-8 rounded bg-emerald-100 flex items-center justify-center flex-shrink-0">
             <Apple className="w-4 h-4 text-emerald-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-emerald-900 text-sm">Pre-Workout</h3>
-            <p className="text-xs text-emerald-700">{data.timing}</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-emerald-900 text-xs md:text-sm">Pre-Workout</h3>
+            <p className="text-xs text-emerald-700 truncate">{data.timing}</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="hidden sm:flex gap-1 md:gap-2 flex-shrink-0">
             <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g`} color="orange" />
             <NutrientBadge icon={Zap} label="Protein" value={`${data.totalProtein}g`} color="purple" />
           </div>
         </div>
         <ChevronDown
-          className={cn("w-4 h-4 text-emerald-600 transition-transform", isExpanded && "rotate-180")}
+          className={cn("w-4 h-4 text-emerald-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
         />
       </button>
 
       {isExpanded && (
-        <div className="border-t border-emerald-200 p-3 space-y-2 bg-emerald-50">
+        <div className="border-t border-emerald-200 p-2 md:p-3 space-y-2 bg-emerald-50">
           {data.items.map((item: any, idx: number) => (
             <NutritionItem key={idx} item={item} />
           ))}
@@ -249,28 +296,28 @@ function DuringWorkoutSection({
     <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full p-3 flex items-center justify-between hover:bg-blue-50 transition-colors"
+        className="w-full p-2 md:p-3 flex items-center justify-between hover:bg-blue-50 transition-colors"
       >
-        <div className="flex items-center gap-3 flex-1 text-left">
-          <div className="w-8 h-8 rounded bg-blue-100 flex items-center justify-center">
+        <div className="flex items-center gap-2 md:gap-3 flex-1 text-left min-w-0">
+          <div className="w-8 h-8 rounded bg-blue-100 flex items-center justify-center flex-shrink-0">
             <Droplet className="w-4 h-4 text-blue-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-blue-900 text-sm">During Workout</h3>
-            <p className="text-xs text-blue-700">Every {data.interval} min ({numIntervals} times)</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-blue-900 text-xs md:text-sm">During Workout</h3>
+            <p className="text-xs text-blue-700 truncate">Every {data.interval} min ({numIntervals}x)</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="hidden sm:flex gap-1 md:gap-2 flex-shrink-0">
             <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g/h`} color="orange" />
             <NutrientBadge icon={Droplet} label="Hydration" value={`${data.totalHydration}ml/h`} color="cyan" />
           </div>
         </div>
         <ChevronDown
-          className={cn("w-4 h-4 text-blue-600 transition-transform", isExpanded && "rotate-180")}
+          className={cn("w-4 h-4 text-blue-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
         />
       </button>
 
       {isExpanded && (
-        <div className="border-t border-blue-200 p-3 space-y-3 bg-blue-50">
+        <div className="border-t border-blue-200 p-2 md:p-3 space-y-3 bg-blue-50">
           {/* Schedule */}
           <div className="space-y-2">
             {Array.from({ length: numIntervals }).map((_, idx) => {
@@ -278,9 +325,9 @@ function DuringWorkoutSection({
               const time = calculateTime(offset)
               return (
                 <div key={idx} className="flex items-center gap-2 text-xs">
-                  <Clock className="w-3 h-3 text-blue-600" />
-                  <span className="font-semibold text-blue-900 w-14">{time}</span>
-                  <span className="text-blue-700">→ Consume every item below</span>
+                  <Clock className="w-3 h-3 text-blue-600 flex-shrink-0" />
+                  <span className="font-semibold text-blue-900 w-14 flex-shrink-0">{time}</span>
+                  <span className="text-blue-700 truncate">→ Consume items</span>
                 </div>
               )
             })}
@@ -318,28 +365,28 @@ function PostWorkoutSection({
     <div className="bg-white rounded-lg border border-pink-200 overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full p-3 flex items-center justify-between hover:bg-pink-50 transition-colors"
+        className="w-full p-2 md:p-3 flex items-center justify-between hover:bg-pink-50 transition-colors"
       >
-        <div className="flex items-center gap-3 flex-1 text-left">
-          <div className="w-8 h-8 rounded bg-pink-100 flex items-center justify-center">
+        <div className="flex items-center gap-2 md:gap-3 flex-1 text-left min-w-0">
+          <div className="w-8 h-8 rounded bg-pink-100 flex items-center justify-center flex-shrink-0">
             <Flame className="w-4 h-4 text-pink-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-pink-900 text-sm">Post-Workout</h3>
-            <p className="text-xs text-pink-700">{data.timing} (~{postTime})</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-pink-900 text-xs md:text-sm">Post-Workout</h3>
+            <p className="text-xs text-pink-700 truncate">{data.timing} (~{postTime})</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="hidden sm:flex gap-1 md:gap-2 flex-shrink-0">
             <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g`} color="orange" />
             <NutrientBadge icon={Zap} label="Protein" value={`${data.totalProtein}g`} color="purple" />
           </div>
         </div>
         <ChevronDown
-          className={cn("w-4 h-4 text-pink-600 transition-transform", isExpanded && "rotate-180")}
+          className={cn("w-4 h-4 text-pink-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
         />
       </button>
 
       {isExpanded && (
-        <div className="border-t border-pink-200 p-3 space-y-2 bg-pink-50">
+        <div className="border-t border-pink-200 p-2 md:p-3 space-y-2 bg-pink-50">
           {data.items.map((item: any, idx: number) => (
             <NutritionItem key={idx} item={item} />
           ))}
@@ -351,29 +398,29 @@ function PostWorkoutSection({
 
 function NutritionItem({ item }: { item: any }) {
   return (
-    <div className="bg-white rounded p-2 border border-slate-200">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="font-semibold text-sm text-slate-900">{item.product}</p>
+    <div className="bg-white rounded p-2 md:p-3 border border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-xs md:text-sm text-slate-900">{item.product}</p>
           <p className="text-xs text-slate-600">
             <strong>{item.quantity}</strong> {item.unit}
           </p>
           {item.notes && <p className="text-xs text-slate-500 italic mt-1">{item.notes}</p>}
         </div>
-        <div className="flex gap-2 ml-2">
+        <div className="flex flex-wrap gap-1 sm:gap-2">
           {item.carbs !== undefined && (
-            <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">
-              {item.carbs}g carbs
+            <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+              {item.carbs}g
             </span>
           )}
           {item.protein !== undefined && (
-            <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
-              {item.protein}g protein
+            <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+              {item.protein}g
             </span>
           )}
           {item.sodium !== undefined && (
-            <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-              {item.sodium}mg Na
+            <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+              {item.sodium}mg
             </span>
           )}
         </div>
