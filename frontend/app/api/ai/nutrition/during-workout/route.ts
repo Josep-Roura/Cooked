@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServerClient } from "@/lib/supabase/server"
+import { generateNutritionPrompt } from "@/lib/nutrition/workout-nutrition-schema"
 
 const duringWorkoutSchema = z.object({
+  workoutId: z.string().optional(),
+  workoutDate: z.string().optional(), // YYYY-MM-DD format
   workoutType: z.string().optional(),
   durationMinutes: z.number().positive(),
   intensity: z.string().optional(),
@@ -14,6 +17,7 @@ const duringWorkoutSchema = z.object({
     mealType: z.string(),
     time: z.string(), // HH:MM format
   })).optional(),
+  save: z.boolean().optional().default(true), // Whether to save to DB
 })
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
@@ -35,60 +39,49 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { workoutType, durationMinutes, intensity, tss, description, workoutStartTime, workoutEndTime, nearbyMealTimes } = duringWorkoutSchema.parse(body)
+    const { 
+      workoutId, 
+      workoutDate, 
+      workoutType, 
+      durationMinutes, 
+      intensity, 
+      tss, 
+      description, 
+      workoutStartTime, 
+      workoutEndTime, 
+      nearbyMealTimes,
+      save,
+    } = duringWorkoutSchema.parse(body)
 
-    // Create the prompt for during-workout nutrition
-    const nearbyMealsInfo = nearbyMealTimes && nearbyMealTimes.length > 0
-      ? `\nNearby meals to consider (avoid overlap):\n${nearbyMealTimes.map(m => `- ${m.mealType}: ${m.time}`).join('\n')}`
-      : ""
+    // Generate detailed prompt for structured nutrition plan
+    const prompt = generateNutritionPrompt(
+      workoutType || "General training",
+      durationMinutes,
+      intensity || "moderate",
+      description
+    )
 
-    const timeInfo = workoutStartTime && workoutEndTime
-      ? `\nWorkout timing:\n- Start: ${workoutStartTime}\n- End: ${workoutEndTime}`
-      : ""
-
-    const prompt = `You are a sports nutrition expert. Based on the following workout details, provide specific nutrition recommendations for DURING the workout.
-
-Workout Details:
-- Type: ${workoutType || "General training"}
-- Duration: ${durationMinutes} minutes
-- Intensity: ${intensity || "moderate"}
-- TSS (Training Stress Score): ${tss || "N/A"}
-- Description: ${description || "No additional details"}${timeInfo}${nearbyMealsInfo}
-
-IMPORTANT CONSIDERATIONS:
-- Recommend timing that doesn't overlap with nearby meals
-- If a meal is immediately before or after the workout, adjust carb/fuel amounts accordingly
-- Consider the meal timing in your recommendations to avoid digestive issues
-- Ensure adequate spacing between fueling during workout and main meals
-
-Provide ONLY the specific nutrition recommendation for DURING the workout in the following format:
-- Specific carbohydrate amount (g/hour or total grams) 
-- Specific hydration strategy (ml/hour or total)
-- When to consume (e.g., start, every 30 min, etc.)
-- Electrolyte recommendations if needed
-- Any specific food/drink type recommendations
-- Timing considerations relative to nearby meals
-
-Keep the response concise and actionable.`
-
-    const response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 300,
-      }),
-    })
+    const response = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 2000, // Increased for detailed JSON response
+        }),
+      }
+    )
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
@@ -100,11 +93,65 @@ Keep the response concise and actionable.`
     }
 
     const data = await response.json()
-    const nutrition = data.choices?.[0]?.message?.content || "Unable to generate recommendation"
+    const aiResponse = data.choices?.[0]?.message?.content || "Unable to generate recommendation"
+
+    // Try to parse as JSON for structured data
+    let parsedPlan = null
+    try {
+      parsedPlan = JSON.parse(aiResponse)
+    } catch {
+      console.warn("Could not parse nutrition plan as JSON, storing as text")
+    }
+
+    // Save to database if requested
+    let savedId = null
+    if (save) {
+      try {
+        const nutritionData = {
+          user_id: user.id,
+          workout_id: workoutId || null,
+          workout_date: workoutDate || new Date().toISOString().split('T')[0],
+          workout_start_time: workoutStartTime || null,
+          workout_duration_min: durationMinutes,
+          workout_type: workoutType || null,
+          
+          // Structured data if available
+          during_carbs_g_per_hour: parsedPlan?.duringWorkout?.totalCarbs || null,
+          during_hydration_ml_per_hour: parsedPlan?.duringWorkout?.totalHydration || null,
+          during_electrolytes_mg: parsedPlan?.duringWorkout?.totalSodium || null,
+          
+          // Full recommendation text
+          during_workout_recommendation: aiResponse,
+          pre_workout_recommendation: parsedPlan?.preWorkout ? JSON.stringify(parsedPlan.preWorkout) : null,
+          post_workout_recommendation: parsedPlan?.postWorkout ? JSON.stringify(parsedPlan.postWorkout) : null,
+          
+          // Raw AI response
+          ai_response: aiResponse,
+        }
+
+        const { data: savedRecord, error: saveError } = await supabase
+          .from("workout_nutrition")
+          .insert(nutritionData)
+          .select("id")
+          .single()
+
+        if (saveError) {
+          console.error("Failed to save workout nutrition:", saveError)
+        } else if (savedRecord) {
+          savedId = savedRecord.id
+        }
+      } catch (error) {
+        console.error("Error saving workout nutrition:", error)
+        // Don't fail the request if saving fails
+      }
+    }
 
     return NextResponse.json({
       ok: true,
-      nutrition,
+      nutrition: aiResponse,
+      plan: parsedPlan,
+      saved: !!savedId,
+      recordId: savedId,
     })
   } catch (error) {
     console.error("Error in during-workout nutrition:", error)
