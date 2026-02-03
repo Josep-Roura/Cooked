@@ -10,8 +10,11 @@
 ### Paso 2: Copia el SQL siguiente
 
 ```sql
--- FIX CURRENT DATABASE TO MATCH COMPLETE SCHEMA
--- Drop existing ai_requests table and recreate with correct schema
+-- COMPLETE DATABASE FIX - RECREATE ALL MISSING/BROKEN TABLES
+
+-- ============================================================================
+-- FIX 1: ai_requests table
+-- ============================================================================
 DROP TABLE IF EXISTS public.ai_requests CASCADE;
 
 CREATE TABLE public.ai_requests (
@@ -34,7 +37,6 @@ CREATE TABLE public.ai_requests (
   CONSTRAINT ai_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
--- Create all necessary indexes for performance
 CREATE INDEX idx_ai_requests_user_id ON public.ai_requests (user_id);
 CREATE INDEX idx_ai_requests_created_at ON public.ai_requests (created_at);
 CREATE INDEX idx_ai_requests_user_created ON public.ai_requests (user_id, created_at);
@@ -42,17 +44,33 @@ CREATE INDEX idx_ai_requests_status ON public.ai_requests (status);
 CREATE INDEX idx_ai_requests_provider ON public.ai_requests (provider);
 CREATE INDEX idx_ai_requests_model ON public.ai_requests (model);
 
--- Enable Row-Level Security
 ALTER TABLE public.ai_requests ENABLE ROW LEVEL SECURITY;
 
--- RLS Policy: Users can only read their own requests
 CREATE POLICY ai_requests_select_own ON public.ai_requests FOR SELECT USING (user_id = auth.uid());
-
--- RLS Policy: Users can only insert their own requests
 CREATE POLICY ai_requests_insert_own ON public.ai_requests FOR INSERT WITH CHECK (user_id = auth.uid());
-
--- RLS Policy: Users can only update their own requests
 CREATE POLICY ai_requests_update_own ON public.ai_requests FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- ============================================================================
+-- FIX 2: plan_revisions table (recreate if missing)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.plan_revisions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  week_start date NOT NULL,
+  week_end date NOT NULL,
+  diff jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT plan_revisions_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS plan_revisions_user_week_start_idx ON public.plan_revisions (user_id, week_start);
+
+ALTER TABLE public.plan_revisions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY plan_revisions_select_own ON public.plan_revisions FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY plan_revisions_insert_own ON public.plan_revisions FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY plan_revisions_update_own ON public.plan_revisions FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY plan_revisions_delete_own ON public.plan_revisions FOR DELETE USING (user_id = auth.uid());
 ```
 
 ### Paso 3: Pega en Supabase
@@ -80,36 +98,43 @@ psql "postgresql://postgres:PASSWORD@host:5432/postgres"
 
 ## ✅ Qué hace esta migración
 
-1. **Elimina** la tabla `ai_requests` vieja (con columnas duplicadas)
-2. **Crea** una tabla nueva con el esquema correcto:
+### 🔧 FIX 1: Tabla `ai_requests`
+1. **Elimina** la tabla vieja (con columnas duplicadas)
+2. **Crea** una nueva con el esquema correcto:
    - ✅ `tokens` (sin `tokens_used` duplicado)
    - ✅ `prompt_preview` (para resumen de prompts)
    - ✅ `response_preview` (para resumen de respuestas)
    - ✅ `latency_ms` (para métricas de rendimiento)
-   - ✅ Todas las otras columnas necesarias
-
 3. **Crea indexes** para búsquedas rápidas
 4. **Habilita RLS** (Row-Level Security) para seguridad
+
+### 🔧 FIX 2: Tabla `plan_revisions` (faltaba)
+1. **Crea** la tabla que fue deletreada pero aún es usada por el código
+   - ✅ `id`, `user_id`, `week_start`, `week_end`, `diff`
+2. **Crea indexes** para búsquedas por usuario y fecha
+3. **Habilita RLS** con 4 políticas (select, insert, update, delete)
 
 ---
 
 ## 🚨 IMPORTANTE
 
-- **Backup**: Si tienes datos importantes en `ai_requests`, hazle backup primero
-- **Pérdida de datos**: Esta migración BORRA los datos viejos de `ai_requests`
+- **Backup**: Si tienes datos importantes, hazle backup primero (especialmente `ai_requests`)
+- **Pérdida de datos**: Esta migración BORRA los datos viejos de `ai_requests` pero CREA `plan_revisions` nueva (vacía)
 - **Tiempo**: Toma menos de 1 segundo
+- **plan_revisions**: Si no existe, será creada. Si existe, se preserva.
 
 ---
 
 ## 📝 Después de ejecutar
 
 Tu aplicación ahora podrá:
-- ✅ Guardar logs de AI requests sin errores
-- ✅ Usar todas las columnas necesarias (tokens, prompt_preview, etc.)
-- ✅ Funcionar correctamente con los 3 endpoints:
-  - `/api/ai/plan/generate`
-  - `/api/ai/nutrition/during-workout`
-  - `/api/v1/ai/status`
+- ✅ Guardar logs de AI requests sin errores ("Could not find column")
+- ✅ Guardar revisiones de planes sin errores ("Could not find table plan_revisions")
+- ✅ Usar todas las columnas necesarias (tokens, prompt_preview, response_preview, latency_ms)
+- ✅ Funcionar correctamente con los endpoints:
+  - `/api/ai/plan/generate` - genera planes y guarda revisiones
+  - `/api/ai/nutrition/during-workout` - guarda logs de AI requests
+  - `/api/v1/ai/status` - lee histórico de AI requests
 
 ---
 
