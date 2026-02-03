@@ -25,6 +25,7 @@ interface WorkoutNutritionPlanProps {
       totalCarbs: number
       totalProtein: number
       totalCalories: number
+      rationale?: string
     }
     duringWorkout?: {
       timing: string
@@ -41,6 +42,8 @@ interface WorkoutNutritionPlanProps {
       totalCarbs: number
       totalHydration: number
       totalSodium: number
+      rationale?: string
+      warnings?: string[]
     }
     postWorkout?: {
       timing: string
@@ -57,8 +60,11 @@ interface WorkoutNutritionPlanProps {
       totalCarbs: number
       totalProtein: number
       totalCalories: number
+      rationale?: string
     }
     recommendations?: string
+    rationale?: string
+    warnings?: string[]
   }
   workoutDuration?: number
   workoutStartTime?: string
@@ -159,15 +165,23 @@ export function WorkoutNutritionTimeline({
         workoutStartTime={workoutStartTime}
       />
 
-      {/* Export Container - Hidden during export */}
-      <div id="nutrition-timeline-export" className="space-y-3 bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 md:p-4 border border-slate-200">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2">
-          <h2 className="text-base md:text-lg font-bold text-slate-900">Nutrition Timeline</h2>
-          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded whitespace-nowrap">
-            {workoutDuration} min workout
-          </span>
-        </div>
+       {/* Export Container - Hidden during export */}
+       <div id="nutrition-timeline-export" className="space-y-3 bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 md:p-4 border border-slate-200">
+         {/* Header */}
+         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2">
+           <h2 className="text-base md:text-lg font-bold text-slate-900">Nutrition Timeline</h2>
+           <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded whitespace-nowrap">
+             {workoutDuration} min workout
+           </span>
+         </div>
+
+         {/* Science Breakdown Section */}
+         {(parsedPlan?.rationale || parsedPlan?.warnings?.length > 0) && (
+           <ScienceBreakdownSection
+             rationale={parsedPlan.rationale}
+             warnings={parsedPlan.warnings}
+           />
+         )}
 
         {/* Pre-Workout Section */}
         {parsedPlan?.preWorkout && (
@@ -458,6 +472,45 @@ function NutrientBadge({
     <div className={`flex items-center gap-1 px-2 py-1 rounded ${bgClass}`}>
       <Icon className="w-3 h-3" />
       <span className="text-xs font-semibold">{value}</span>
+    </div>
+  )
+}
+
+function ScienceBreakdownSection({
+  rationale,
+  warnings,
+}: {
+  rationale?: string
+  warnings?: string[]
+}) {
+  return (
+    <div className="bg-white rounded-lg border border-indigo-200 p-3 md:p-4 space-y-3">
+      <div className="flex items-start gap-2">
+        <Zap className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <h4 className="text-xs md:text-sm font-semibold text-indigo-900 mb-2">
+            Science Behind Your Plan
+          </h4>
+          {rationale && (
+            <p className="text-xs md:text-sm text-indigo-800 leading-relaxed whitespace-pre-wrap break-words">
+              {rationale}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {warnings && warnings.length > 0 && (
+        <div className="border-t border-indigo-200 pt-3">
+          <div className="space-y-2">
+            {warnings.map((warning, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs md:text-sm text-amber-800">{warning}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
