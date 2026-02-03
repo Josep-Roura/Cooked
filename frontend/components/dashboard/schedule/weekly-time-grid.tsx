@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/core"
 import type { ScheduleItem } from "@/components/dashboard/schedule/types"
 import { ScheduleBlock } from "@/components/dashboard/schedule/schedule-block"
-import { DEFAULT_END_HOUR, DEFAULT_START_HOUR, HOUR_HEIGHT, timeToMinutes, minutesToTime } from "@/components/dashboard/schedule/utils"
+import { DEFAULT_END_HOUR, DEFAULT_START_HOUR, HOUR_HEIGHT, timeToMinutes, minutesToTime, calculateOverlapPositions } from "@/components/dashboard/schedule/utils"
 
 interface WeeklyTimeGridProps {
   days: Date[]
@@ -56,6 +56,9 @@ const DayColumn = memo(function DayColumn({
   const dateKey = format(day, "yyyy-MM-dd")
   const dayItems = items.filter((item) => item.date === dateKey)
   const gridHeight = hours.length * HOUR_HEIGHT
+  
+  // Calculate overlap positions for items in this day
+  const itemsWithPositions = calculateOverlapPositions(dayItems, startHour, endHour, HOUR_HEIGHT)
 
   return (
     <div className="relative border-l border-border/30 first:border-l-0" style={{ height: gridHeight }}>
@@ -72,23 +75,16 @@ const DayColumn = memo(function DayColumn({
           style={{ height: HOUR_HEIGHT }}
         />
       ))}
-      {dayItems.map((item) => {
-        const startMinutes = timeToMinutes(item.startTime)
-        const endMinutes = timeToMinutes(item.endTime)
-        const clampedStart = Math.max(startMinutes, startHour * 60)
-        const clampedEnd = Math.min(endMinutes, endHour * 60)
-        const top = ((clampedStart - startHour * 60) / 60) * HOUR_HEIGHT
-        const height = Math.max(((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT, 32)
-
-        return (
-          <ScheduleBlock
-            key={item.id}
-            item={item}
-            onSelect={onSelectItem}
-            style={{ top, height }}
-          />
-        )
-      })}
+      {itemsWithPositions.map(({ item, columnIndex, totalColumns, top, height }) => (
+        <ScheduleBlock
+          key={item.id}
+          item={item}
+          onSelect={onSelectItem}
+          columnIndex={columnIndex}
+          totalColumns={totalColumns}
+          style={{ top, height }}
+        />
+      ))}
     </div>
   )
 })
