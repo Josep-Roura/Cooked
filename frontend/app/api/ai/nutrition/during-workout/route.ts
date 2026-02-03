@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
         response_json: nutritionPlan,
         status: "success",
         latency_ms: latency,
-        tokens_used: openaiData.usage?.total_tokens || null,
+        tokens: openaiData.usage?.total_tokens || null,
       })
       console.log(`[${requestId}] AI request logged to database (${latency}ms)`)
     } catch (logError) {
