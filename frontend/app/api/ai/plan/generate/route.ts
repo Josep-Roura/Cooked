@@ -27,7 +27,7 @@ const payloadSchema = z
 const ingredientSchema = z.object({
   name: z.string().min(1),
   quantity: z.number().nonnegative(),
-  unit: z.enum(["g", "ml", "unit"]),
+  unit: z.string().min(1), // Accept any unit, will normalize it
 })
 
 const recipeSchema = z.object({
@@ -483,6 +483,61 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function normalizeUnit(unit: string): "g" | "ml" | "unit" {
+  const normalized = unit.toLowerCase().trim()
+  if (normalized === "ml" || normalized === "milliliters" || normalized === "millilitre") return "ml"
+  if (normalized === "g" || normalized === "grams" || normalized === "gram") return "g"
+  // Default to "unit" for slices, pieces, units, etc.
+  return "unit"
+}
+
+function normalizeAiResponse(response: unknown): AiResponse | null {
+  if (!response || typeof response !== "object" || !("days" in response)) {
+    return null
+  }
+  
+  const raw = response as Record<string, unknown>
+  if (!Array.isArray(raw.days)) return null
+  
+  const days = raw.days.map((day: unknown) => {
+    if (typeof day !== "object" || !day) return null
+    const d = day as Record<string, unknown>
+    
+    const meals = Array.isArray(d.meals)
+      ? d.meals.map((meal: unknown) => {
+          if (typeof meal !== "object" || !meal) return null
+          const m = meal as Record<string, unknown>
+          
+          if (m.recipe && typeof m.recipe === "object" && !Array.isArray(m.recipe)) {
+            const recipe = m.recipe as Record<string, unknown>
+            if (Array.isArray(recipe.ingredients)) {
+              recipe.ingredients = recipe.ingredients.map((ing: unknown) => {
+                if (typeof ing !== "object" || !ing) return ing
+                const i = ing as Record<string, unknown>
+                if (typeof i.unit === "string") {
+                  i.unit = normalizeUnit(i.unit)
+                }
+                return i
+              })
+            }
+          }
+          
+          return m
+        })
+      : []
+    
+    return {
+      date: d.date,
+      day_type: d.day_type,
+      daily_targets: d.daily_targets,
+      meals: meals.filter(Boolean),
+      rationale: d.rationale,
+    }
+  }).filter(Boolean)
+  
+  return { days, rationale: raw.rationale }
+}
+
 async function callOpenAI({
   apiKey,
   model,
@@ -746,6 +801,22 @@ export async function POST(req: NextRequest) {
     
     const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
     
+    // Create payload for logging (using full date range)
+    const payloadForLogging = {
+      start,
+      end,
+      profile: {
+        weight_kg: profile?.weight_kg ?? null,
+        meals_per_day: profile?.meals_per_day ?? null,
+        diet: profile?.diet ?? null,
+        primary_goal: profile?.primary_goal ?? null,
+        units: profile?.units ?? null,
+      },
+      workouts_summary: workoutsSummary,
+      schema:
+        'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
+    }
+    
     // Split request into chunks to avoid OpenAI timeouts
     const dateKeysForChunking = buildDateKeys(start, end)
     const chunks: Array<{ start: string; end: string; dates: string[] }> = []
@@ -821,7 +892,16 @@ export async function POST(req: NextRequest) {
           aiErrorCode = "INVALID_JSON"
           throw new Error("Invalid JSON response")
         }
-        const parsed = aiResponseSchema.safeParse(parsedJson)
+        
+        // Normalize the response to fix any unit inconsistencies
+        const normalized = normalizeAiResponse(parsedJson)
+        if (!normalized) {
+          console.error(`[${requestId}] Failed to normalize chunk response`)
+          aiErrorCode = "INVALID_JSON"
+          throw new Error("Failed to normalize AI response")
+        }
+        
+        const parsed = aiResponseSchema.safeParse(normalized)
         if (!parsed.success) {
           console.error(`[${requestId}] Chunk schema validation failed:`, parsed.error.issues)
           aiErrorCode = "VALIDATION_ERROR"
@@ -865,9 +945,9 @@ export async function POST(req: NextRequest) {
 
     const promptHash = crypto
       .createHash("sha256")
-      .update(`${systemPrompt}:${JSON.stringify(payload)}`)
+      .update(`${systemPrompt}:${JSON.stringify(payloadForLogging)}`)
       .digest("hex")
-    const promptPreview = buildPromptPreview(payload)
+    const promptPreview = buildPromptPreview(payloadForLogging)
     const responsePreview = aiResponse ? buildResponsePreview(aiResponse) : null
 
     const { data: aiLogRow, error: aiLogError } = await supabase
