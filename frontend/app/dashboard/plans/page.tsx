@@ -128,27 +128,20 @@ export default function PlansPage() {
     grouped.forEach((dayWorkouts, day) => {
       const distributed: { workout: TpWorkout; startTime: string; endTime: string }[] = []
 
-      dayWorkouts.forEach((workout, index) => {
+      dayWorkouts.forEach((workout) => {
         const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
 
-        let startTime: string
-        if (dayWorkouts.length > 1) {
-          if (index === 0) {
-            startTime = "08:00"
-          } else if (index === 1) {
-            startTime = "17:00"
-          } else {
-            startTime = `${8 + index * 3}:00`.padStart(5, "0")
-          }
-        } else {
-          const fallback = normalizeTime(workout.start_time, "18:00")
-          startTime = fallback.time
-        }
+        // Always use the start_time from the database
+        const fallback = normalizeTime(workout.start_time, "18:00")
+        const startTime = fallback.time
 
         const endTime = addMinutesToTime(startTime, duration)
         distributed.push({ workout, startTime, endTime })
       })
 
+      // Sort by start time
+      distributed.sort((a, b) => a.startTime.localeCompare(b.startTime))
+      
       map.set(day, distributed)
     })
 
