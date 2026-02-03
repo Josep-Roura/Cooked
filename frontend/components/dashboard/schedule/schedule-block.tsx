@@ -9,6 +9,8 @@ interface ScheduleBlockProps {
   item: ScheduleItem
   style: CSSProperties
   onSelect?: (item: ScheduleItem) => void
+  columnIndex?: number
+  totalColumns?: number
 }
 
 const typeStyles: Record<ScheduleItem["type"], string> = {
@@ -21,11 +23,12 @@ const typeStyles: Record<ScheduleItem["type"], string> = {
   nutrition_post: "bg-emerald-50 border-l-4 border-emerald-400 text-emerald-800 hover:bg-emerald-100/50",
 }
 
-export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
+export function ScheduleBlock({ item, style, onSelect, columnIndex = 0, totalColumns = 1 }: ScheduleBlockProps) {
   const isCompact = item.type.startsWith("nutrition_")
   const isWorkout = item.type === "workout"
   const isLocked = item.locked === true
   const isDraggable = (item.source?.type === "meal" || item.source?.type === "workout") && !isLocked
+  const hasOverlap = totalColumns > 1
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
@@ -35,14 +38,23 @@ export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
 
   const timeRange = `${item.startTime}–${item.endTime}`
 
+  // Calculate position and width for overlapping items
+  const horizontalStyle: CSSProperties = hasOverlap
+    ? {
+        left: `${(columnIndex / totalColumns) * 100}%`,
+        width: `${(1 / totalColumns) * 100}%`,
+      }
+    : {}
+
   const dragStyle: CSSProperties = transform
     ? {
         ...style,
+        ...horizontalStyle,
         transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
         zIndex: 50,
         opacity: 0.9,
       }
-    : style
+    : { ...style, ...horizontalStyle }
 
   const handleClick = () => {
     // Prevent click when dragging
@@ -58,7 +70,8 @@ export function ScheduleBlock({ item, style, onSelect }: ScheduleBlockProps) {
       onClick={handleClick}
       style={dragStyle}
       className={cn(
-        "absolute inset-x-1 rounded-sm border-0 text-left shadow-sm transition-all duration-200 overflow-hidden",
+        "absolute rounded-sm border-0 text-left shadow-sm transition-all duration-200 overflow-hidden",
+        hasOverlap ? "inset-y-0.5" : "inset-x-1 inset-y-0.5",
         "hover:shadow-md hover:z-10",
         typeStyles[item.type],
         item.timeUnknown ? "opacity-70" : "",
