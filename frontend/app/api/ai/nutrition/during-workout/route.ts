@@ -22,6 +22,7 @@ const duringWorkoutSchema = z.object({
 
 export async function POST(request: NextRequest) {
   let requestId = crypto.randomUUID()
+  const requestStartTime = Date.now()
   try {
     const supabase = await createServerClient()
 
@@ -161,16 +162,17 @@ export async function POST(request: NextRequest) {
 
     // Log AI request to database if table exists
     try {
-      const logDuration = Date.now()
+      const latency = Date.now() - requestStartTime
       await supabase.from("ai_requests").insert({
         user_id: user.id,
         provider: "openai",
         model: "gpt-4o-mini",
         response_json: nutritionPlan,
         status: "success",
-        duration_ms: logDuration,
+        latency_ms: latency,
+        tokens_used: openaiData.usage?.total_tokens || null,
       })
-      console.log(`[${requestId}] AI request logged to database`)
+      console.log(`[${requestId}] AI request logged to database (${latency}ms)`)
     } catch (logError) {
       console.warn(`[${requestId}] Failed to log AI request:`, logError)
       // Don't fail the request if logging fails
