@@ -13,7 +13,7 @@ create table if not exists public.nutrition_products (
   
   -- Serving info
   serving_size numeric not null,
-  serving_unit text not null check (serving_unit in ('g', 'ml', 'pieces', 'packet', 'capsule', 'tablet')),
+  serving_unit text not null check (serving_unit in ('g', 'ml', 'pieces', 'packet', 'capsule', 'tablet', 'mg')),
   
   -- Nutritional data per serving
   calories numeric,
@@ -124,6 +124,6 @@ insert into public.nutrition_products (
   ('Protein Drink', 'Chocolate Milk', 'drink', 240, 'ml', 200, 26, 8, 150, true, 'Chocolate milk with protein'),
   ('Banana', 'Fresh', 'food', 100, 'g', 89, 23, 1, 1, true, 'Natural carbs and potassium'),
   ('Oatmeal', 'Generic', 'food', 50, 'g', 190, 27, 5, 2, true, 'Slow-release carbs'),
-  ('Salt Capsules', 'Hammer Nutrition', 'salt_capsule', 300, 'mg', 0, 0, 0, 300, true, 'Electrolyte replacement'),
-  ('Caffeine Tablet', 'GU', 'supplement', 100, 'mg', 0, 0, 0, 0, true, 'Caffeine for endurance')
+  ('Salt Capsules', 'Hammer Nutrition', 'salt_capsule', 1, 'capsule', 0, 0, 0, 300, true, 'Electrolyte replacement (300mg sodium per capsule)'),
+  ('Caffeine Tablet', 'GU', 'supplement', 1, 'tablet', 0, 0, 0, 0, true, 'Caffeine for endurance (100mg per tablet)')
 on conflict do nothing;
