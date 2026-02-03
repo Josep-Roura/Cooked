@@ -1,4 +1,10 @@
 import { z } from "zod"
+import { 
+  generatePersonalizedNutritionPlan,
+  type AthleteProfile,
+  type WorkoutProfile,
+  type NutritionPlan,
+} from "./sports-nutrition-calculator"
 
 /**
  * Nutrition item with specific product and timing
@@ -246,4 +252,87 @@ REQUIREMENTS:
 8. Include practical tips in notes
 
 Return ONLY valid JSON, no markdown backticks.`
+}
+
+/**
+ * Generate nutrition plan using scientific calculator (replaces AI)
+ * Returns plan formatted in the WorkoutNutritionPlan schema
+ */
+export function generateNutritionPlanFromCalculator(
+  athleteProfile: AthleteProfile,
+  workoutProfile: WorkoutProfile
+): WorkoutNutritionPlan {
+  const scientificPlan = generatePersonalizedNutritionPlan(athleteProfile, workoutProfile)
+
+  // Convert scientific plan to schema format
+  return {
+    workoutType: workoutProfile.type.charAt(0).toUpperCase() + workoutProfile.type.slice(1),
+    workoutDurationMinutes: workoutProfile.duration_minutes,
+    workoutIntensity: workoutProfile.intensity as any,
+    
+    preWorkout: {
+      timing: `${scientificPlan.preWorkout.timing_minutes} minutes before`,
+      items: scientificPlan.preWorkout.items.map((item) => ({
+        time: `-${scientificPlan.preWorkout.timing_minutes} min`,
+        product: item.product,
+        quantity: item.quantity,
+        unit: item.unit,
+        carbs: item.carbs_g,
+        protein: item.protein_g,
+        sodium: item.sodium_mg || 0,
+        notes: item.notes,
+      })),
+      totalCarbs: scientificPlan.preWorkout.carbs_g,
+      totalProtein: scientificPlan.preWorkout.protein_g,
+      totalCalories: Math.round(
+        (scientificPlan.preWorkout.carbs_g * 4) +
+        (scientificPlan.preWorkout.protein_g * 4) +
+        (scientificPlan.preWorkout.fat_g * 9)
+      ),
+    },
+    
+    duringWorkout: {
+      timing: "During workout",
+      interval: scientificPlan.duringWorkout.interval_minutes,
+      items: scientificPlan.duringWorkout.items.map((item) => ({
+        time: `Every ${scientificPlan.duringWorkout.interval_minutes} min`,
+        product: item.product,
+        quantity: item.quantity,
+        unit: item.unit,
+        carbs: item.carbs_g,
+        protein: item.protein_g,
+        sodium: item.sodium_mg || 0,
+        notes: item.notes,
+      })),
+      totalCarbs: scientificPlan.duringWorkout.carbs_per_hour_g,
+      totalHydration: scientificPlan.duringWorkout.hydration_per_hour_ml,
+      totalSodium: scientificPlan.duringWorkout.sodium_per_hour_mg,
+    },
+    
+    postWorkout: {
+      timing: `Within ${scientificPlan.postWorkout.timing_minutes} minutes after`,
+      items: scientificPlan.postWorkout.items.map((item) => ({
+        time: `+${scientificPlan.postWorkout.timing_minutes} min`,
+        product: item.product,
+        quantity: item.quantity,
+        unit: item.unit,
+        carbs: item.carbs_g,
+        protein: item.protein_g,
+        sodium: item.sodium_mg || 0,
+        notes: item.notes,
+      })),
+      totalCarbs: scientificPlan.postWorkout.carbs_g,
+      totalProtein: scientificPlan.postWorkout.protein_g,
+      totalCalories: Math.round(
+        (scientificPlan.postWorkout.carbs_g * 4) +
+        (scientificPlan.postWorkout.protein_g * 4) +
+        (scientificPlan.postWorkout.fat_g * 9)
+      ),
+    },
+    
+    metadata: {
+      recommendations: scientificPlan.rationale,
+      generatedAt: new Date(),
+    },
+  }
 }
