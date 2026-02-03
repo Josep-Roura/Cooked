@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { exportNutritionToPDF, exportNutritionAsTextPDF } from "@/lib/nutrition/export-pdf"
+import { NutritionReminders } from "./nutrition-reminders"
 
 interface WorkoutNutritionPlanProps {
   plan: {
@@ -151,6 +152,13 @@ export function WorkoutNutritionTimeline({
 
   return (
     <div className="space-y-3">
+      {/* Reminders Section */}
+      <NutritionReminders
+        plan={parsedPlan}
+        workoutDuration={workoutDuration}
+        workoutStartTime={workoutStartTime}
+      />
+
       {/* Export Container - Hidden during export */}
       <div id="nutrition-timeline-export" className="space-y-3 bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 md:p-4 border border-slate-200">
         {/* Header */}
