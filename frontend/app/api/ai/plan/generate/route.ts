@@ -5,10 +5,11 @@ import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-const OPENAI_TIMEOUT_MS = 60000
+const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
 const OPENAI_MAX_RETRIES = 2
 const OPENAI_RETRY_BASE_MS = 800
 const MAX_RANGE_DAYS = 90
+const CHUNK_SIZE_DAYS = 3 // Split requests into 3-day chunks to avoid OpenAI timeouts
 const RECENT_REQUEST_WINDOW_MS = 10 * 60 * 1000
 const RATE_LIMIT_FORCE_PER_MIN = 5
 const RATE_LIMIT_ENSURE_PER_MIN = 20
@@ -744,71 +745,100 @@ export async function POST(req: NextRequest) {
     console.log(`[${requestId}] API key configured: ${apiKey.slice(0, 20)}...`)
     
     const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
-    const payload = {
-      start,
-      end,
-      profile: {
-        weight_kg: profile?.weight_kg ?? null,
-        meals_per_day: profile?.meals_per_day ?? null,
-        diet: profile?.diet ?? null,
-        primary_goal: profile?.primary_goal ?? null,
-        units: profile?.units ?? null,
-      },
-      workouts_summary: workoutsSummary,
-      schema:
-        'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
+    
+    // Split request into chunks to avoid OpenAI timeouts
+    const dateKeysForChunking = buildDateKeys(start, end)
+    const chunks: Array<{ start: string; end: string; dates: string[] }> = []
+    for (let i = 0; i < dateKeysForChunking.length; i += CHUNK_SIZE_DAYS) {
+      const chunkDates = dateKeysForChunking.slice(i, i + CHUNK_SIZE_DAYS)
+      chunks.push({
+        start: chunkDates[0],
+        end: chunkDates[chunkDates.length - 1],
+        dates: chunkDates,
+      })
     }
 
-    console.log(`[${requestId}] Calling OpenAI with payload (payload size: ${JSON.stringify(payload).length} bytes)`)
+    console.log(`[${requestId}] Request split into ${chunks.length} chunks of ${CHUNK_SIZE_DAYS} days`)
 
     let aiResponse: AiResponse | null = null
     let aiRaw: unknown = null
     let latencyMs = 0
     let tokens: number | null = null
     let aiErrorCode: string | null = null
+    let totalTokens = 0
 
     try {
-      const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
-        apiKey,
-        model,
-        requestId,
-        payload,
-      })
-      latencyMs = callLatency
-      aiRaw = data
-
-      console.log(`[${requestId}] OpenAI call completed in ${latencyMs}ms. Response OK: ${response.ok}`)
-
-      if (!response.ok || !data) {
-        const message = data?.error?.message ?? "OpenAI request failed"
-        console.error(`[${requestId}] OpenAI error: ${message} (status: ${response.status})`)
-        aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
-        throw new Error(message)
-      }
-
-      const content = data.choices?.[0]?.message?.content ?? ""
-      console.log(`[${requestId}] OpenAI content length: ${content.length} bytes`)
+      const allDays: typeof aiResponseSchema._output['days'] = []
       
-      let parsedJson: unknown
-      try {
-        parsedJson = JSON.parse(content)
-        console.log(`[${requestId}] JSON parsed successfully`)
-      } catch {
-        console.error(`[${requestId}] Failed to parse JSON response`)
-        aiErrorCode = "INVALID_JSON"
-        throw new Error("Invalid JSON response")
-      }
-      const parsed = aiResponseSchema.safeParse(parsedJson)
-      if (!parsed.success) {
-        console.error(`[${requestId}] Schema validation failed:`, parsed.error.issues)
-        aiErrorCode = "VALIDATION_ERROR"
-        throw new Error("Invalid AI response")
+      for (const chunk of chunks) {
+        console.log(`[${requestId}] Processing chunk: ${chunk.start} to ${chunk.end}`)
+        
+        const payload = {
+          start: chunk.start,
+          end: chunk.end,
+          profile: {
+            weight_kg: profile?.weight_kg ?? null,
+            meals_per_day: profile?.meals_per_day ?? null,
+            diet: profile?.diet ?? null,
+            primary_goal: profile?.primary_goal ?? null,
+            units: profile?.units ?? null,
+          },
+          workouts_summary: workoutsSummary.filter(w => w.date >= chunk.start && w.date <= chunk.end),
+          schema:
+            'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
+        }
+
+        console.log(`[${requestId}] Chunk payload size: ${JSON.stringify(payload).length} bytes`)
+
+        const startTime = Date.now()
+        const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
+          apiKey,
+          model,
+          requestId: `${requestId}-chunk-${chunks.indexOf(chunk) + 1}`,
+          payload,
+        })
+        latencyMs = callLatency
+        aiRaw = data
+
+        console.log(`[${requestId}] Chunk OpenAI call completed in ${latencyMs}ms. Response OK: ${response.ok}`)
+
+        if (!response.ok || !data) {
+          const message = data?.error?.message ?? "OpenAI request failed"
+          console.error(`[${requestId}] Chunk OpenAI error: ${message} (status: ${response.status})`)
+          aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
+          throw new Error(message)
+        }
+
+        const content = data.choices?.[0]?.message?.content ?? ""
+        console.log(`[${requestId}] Chunk content length: ${content.length} bytes`)
+        
+        let parsedJson: unknown
+        try {
+          parsedJson = JSON.parse(content)
+          console.log(`[${requestId}] Chunk JSON parsed successfully`)
+        } catch {
+          console.error(`[${requestId}] Failed to parse chunk JSON response`)
+          aiErrorCode = "INVALID_JSON"
+          throw new Error("Invalid JSON response")
+        }
+        const parsed = aiResponseSchema.safeParse(parsedJson)
+        if (!parsed.success) {
+          console.error(`[${requestId}] Chunk schema validation failed:`, parsed.error.issues)
+          aiErrorCode = "VALIDATION_ERROR"
+          throw new Error("Invalid AI response")
+        }
+
+        console.log(`[${requestId}] Chunk validated. Days: ${parsed.data.days.length}`)
+        allDays.push(...parsed.data.days)
+        
+        if (data?.usage?.total_tokens) {
+          totalTokens += data.usage.total_tokens
+        }
       }
 
-      console.log(`[${requestId}] AI response validated. Days: ${parsed.data.days.length}`)
-
-      tokens = data?.usage?.total_tokens ?? null
-      aiResponse = parsed.data
+      console.log(`[${requestId}] All chunks processed. Total days: ${allDays.length}`)
+      tokens = totalTokens
+      aiResponse = { days: allDays, rationale: "Multi-chunk nutrition plan" }
     } catch (error) {
       console.error(`[${requestId}] AI error caught:`, error instanceof Error ? error.message : String(error))
       if (!aiErrorCode) {
