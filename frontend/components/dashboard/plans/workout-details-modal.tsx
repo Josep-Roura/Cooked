@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NotionModal } from "@/components/ui/notion-modal"
 import { useToast } from "@/components/ui/use-toast"
+import { WorkoutNutritionCard } from "@/components/nutrition/workout-nutrition-card"
+import { WorkoutNutritionTimeline } from "@/components/nutrition/workout-nutrition-timeline"
 import { addMinutesToTime } from "@/components/dashboard/schedule/utils"
 import type { TpWorkout } from "@/lib/db/types"
 
@@ -25,17 +27,21 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
   const [isSavingTime, setIsSavingTime] = useState(false)
   const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false)
   const [customDuringNutrition, setCustomDuringNutrition] = useState<string | null>(null)
+  const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [displayedTime, setDisplayedTime] = useState("")
+  const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
   
   // Reset state when modal opens/closes
   useEffect(() => {
     if (!open) {
-      setIsEditingTime(false)
-      setCustomDuringNutrition(null)
-    } else if (workout) {
-      setDisplayedTime(workout.start_time ?? "TBD")
-    }
-  }, [open, workout])
+       setIsEditingTime(false)
+       setCustomDuringNutrition(null)
+       setNutritionPlan(null)
+       setNutritionRecordId(null)
+     } else if (workout) {
+       setDisplayedTime(workout.start_time ?? "TBD")
+     }
+   }, [open, workout])
   
   if (!workout) {
     return (
@@ -137,6 +143,8 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          workoutId: workout.id,
+          workoutDate: workout.workout_day,
           workoutType: workout.workout_type,
           durationMinutes: duration,
           intensity: workout.if ?? "moderate",
@@ -148,6 +156,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
             mealType: m.type,
             time: m.time,
           })),
+          save: true, // Save to database
         }),
       })
 
@@ -156,12 +165,18 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
       }
 
       const data = await response.json()
-      setCustomDuringNutrition(data.nutrition)
-      
-      toast({
-        title: "Nutrition plan generated",
-        description: "Custom during-workout nutrition created",
-      })
+       setCustomDuringNutrition(data.nutrition)
+       if (data.plan) {
+         setNutritionPlan(data.plan)
+       }
+       if (data.recordId) {
+         setNutritionRecordId(data.recordId)
+       }
+       
+       toast({
+         title: "Nutrition plan generated",
+         description: data.saved ? "Saved to database" : "Custom nutrition plan created",
+       })
     } catch (error) {
       toast({
         title: "Error",
@@ -288,72 +303,77 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
           </div>
         )}
 
-        {/* Nutrition Strategy - Integrated */}
-        <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
-          <h3 className="text-xs font-semibold text-emerald-900 mb-2.5 flex items-center gap-1.5">
-            🥗 Nutrition
-          </h3>
-          
-          <div className="space-y-2 text-xs">
-            {/* Pre-workout */}
-            <div>
-              <p className="font-semibold text-emerald-700 mb-0.5">Pre-workout</p>
-              <p className="text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
-            </div>
+        {/* Nutrition Strategy */}
+         <div className="space-y-4">
+           {/* Show Timeline when plan is generated */}
+           {nutritionPlan ? (
+             <WorkoutNutritionTimeline
+               plan={nutritionPlan}
+               workoutDuration={duration || 0}
+               workoutStartTime={displayedTime}
+               recordId={nutritionRecordId || undefined}
+               onSave={async (updates) => {
+                 if (!nutritionRecordId) return
+                 const response = await fetch(`/api/v1/nutrition/during-workout/${nutritionRecordId}`, {
+                   method: "PATCH",
+                   headers: { "Content-Type": "application/json" },
+                   body: JSON.stringify(updates),
+                 })
+                 if (!response.ok) throw new Error("Failed to save")
+               }}
+             />
+           ) : (
+             <>
+               {/* Pre-workout */}
+               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                   🥗 Pre-workout
+                 </h3>
+                 <p className="text-sm text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
+               </div>
 
-            {/* During */}
-            <div className="pt-1.5 border-t border-emerald-200">
-              <p className="font-semibold text-emerald-700 mb-1">During</p>
-              {customDuringNutrition ? (
-                <div className="space-y-1.5">
-                  <p className="text-emerald-900 leading-relaxed">{customDuringNutrition}</p>
-                  <Button
-                    onClick={() => setCustomDuringNutrition(null)}
-                    size="sm"
-                    variant="ghost"
-                    className="text-emerald-600 hover:bg-emerald-100/50 text-xs h-6 px-1.5"
-                  >
-                    ← Default
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <p className="text-emerald-900">
-                    {duration && duration >= 90 
-                      ? "60-90g carbs/hour" 
-                      : duration && duration >= 60 
-                        ? "30-60g carbs"
-                        : "Hydrate with electrolytes"}
-                  </p>
-                  <Button
-                    onClick={handleGenerateDuringNutrition}
-                    size="sm"
-                    disabled={isGeneratingNutrition}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs h-7 px-2"
-                  >
-                    {isGeneratingNutrition ? (
-                      <>
-                        <Loader className="h-2.5 w-2.5 mr-1 animate-spin" />
-                        Gen...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-2.5 w-2.5 mr-1" />
-                        AI Plan
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )}
-            </div>
+               {/* During - Button to generate */}
+               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                   ⚡ During
+                 </h3>
+                 <p className="text-sm text-emerald-900 mb-2.5">
+                   {duration && duration >= 90 
+                     ? "60-90g carbs/hour" 
+                     : duration && duration >= 60 
+                       ? "30-60g carbs"
+                       : "Hydrate with electrolytes"}
+                 </p>
+                 <Button
+                   onClick={handleGenerateDuringNutrition}
+                   size="sm"
+                   disabled={isGeneratingNutrition}
+                   className="bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs h-7 px-2"
+                 >
+                   {isGeneratingNutrition ? (
+                     <>
+                       <Loader className="h-2.5 w-2.5 mr-1 animate-spin" />
+                       Generando...
+                     </>
+                   ) : (
+                     <>
+                       <Zap className="h-2.5 w-2.5 mr-1" />
+                       Generar Plan IA
+                     </>
+                   )}
+                 </Button>
+               </div>
 
-            {/* Post-workout */}
-            <div className="pt-1.5 border-t border-emerald-200">
-              <p className="font-semibold text-emerald-700 mb-0.5">Post-workout</p>
-              <p className="text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
-            </div>
-          </div>
-        </div>
+               {/* Post-workout */}
+               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                   🍽️ Post-workout
+                 </h3>
+                 <p className="text-sm text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
+               </div>
+             </>
+           )}
+         </div>
       </div>
     </NotionModal>
   )
