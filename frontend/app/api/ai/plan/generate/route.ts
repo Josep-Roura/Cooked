@@ -439,6 +439,7 @@ function normalizeSportType(value: string | null) {
 function summarizeWorkoutsByDay(
   workouts: Array<{
     workout_day: string
+    start_time: string | null
     workout_type: string | null
     planned_hours: number | null
     actual_hours: number | null
@@ -459,6 +460,12 @@ function summarizeWorkoutsByDay(
       sports: Set<string>
       intensityScore: number
       key_sessions: string[]
+      workouts: Array<{
+        start_time: string | null
+        duration_hours: number
+        type: string
+        intensity: "rest" | "training" | "high"
+      }>
     }
   >()
 
@@ -471,6 +478,7 @@ function summarizeWorkoutsByDay(
         sports: new Set<string>(),
         intensityScore: 0,
         key_sessions: [],
+        workouts: [],
       })
     }
     const entry = summaryMap.get(key)
@@ -497,6 +505,21 @@ function summarizeWorkoutsByDay(
         entry.key_sessions.push(workout.title)
       }
     }
+
+    // Store individual workout details for AI meal planning
+    const workoutIntensity =
+      entry.intensityScore >= 120
+        ? "high"
+        : entry.intensityScore >= 60
+          ? "training"
+          : "rest"
+
+    entry.workouts.push({
+      start_time: workout.start_time,
+      duration_hours: duration,
+      type: normalizeSportType(workout.workout_type),
+      intensity: workoutIntensity,
+    })
   })
 
   return dateKeys.map((date) => {
@@ -509,6 +532,7 @@ function summarizeWorkoutsByDay(
         sports: [],
         intensity: "rest",
         key_sessions: [],
+        workouts: [],
       }
     }
     const intensity =
@@ -517,8 +541,8 @@ function summarizeWorkoutsByDay(
         : entry.intensityScore >= 120
           ? "high"
           : entry.intensityScore >= 60
-            ? "moderate"
-            : "low"
+            ? "training"
+            : "training"
 
     return {
       date,
@@ -527,6 +551,12 @@ function summarizeWorkoutsByDay(
       sports: Array.from(entry.sports).filter((value) => value !== "rest"),
       intensity,
       key_sessions: entry.key_sessions.slice(0, 3),
+      workouts: entry.workouts.map((w) => ({
+        start_time: w.start_time,
+        duration_hours: Number(w.duration_hours.toFixed(2)),
+        type: w.type,
+        intensity: w.intensity,
+      })),
     }
   })
 }
@@ -1061,7 +1091,7 @@ export async function POST(req: NextRequest) {
 
     const { data: workouts } = await supabase
       .from("tp_workouts")
-      .select("workout_day, workout_type, planned_hours, actual_hours, tss, if, rpe, title")
+      .select("workout_day, start_time, workout_type, planned_hours, actual_hours, tss, if, rpe, title")
       .eq("user_id", user.id)
       .gte("workout_day", start)
       .lte("workout_day", end)
