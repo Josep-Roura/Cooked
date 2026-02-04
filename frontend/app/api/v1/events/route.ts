@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
     const from = fromParam ?? defaultFrom
     const to = toParam ?? defaultTo
 
+    console.log("[Events API] GET request:", { from, to, fromParam, toParam })
+
     const supabase = await createServerClient()
     const {
       data: { user },
@@ -27,11 +29,14 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
+      console.error("[Events API] Auth error:", authError)
       return NextResponse.json(
         { error: "Not authenticated", details: authError?.message ?? null },
         { status: 401 },
       )
     }
+
+    console.log("[Events API] Fetching events for user:", user.id)
 
     const { data, error } = await supabase
       .from("user_events")
@@ -43,9 +48,11 @@ export async function GET(req: NextRequest) {
       .order("time", { ascending: true })
 
     if (error) {
+      console.error("[Events API] Query error:", error)
       return NextResponse.json({ error: "Failed to load events", details: error.message }, { status: 400 })
     }
 
+    console.log("[Events API] Success:", { count: data?.length ?? 0 })
     return NextResponse.json({ events: data ?? [] }, { status: 200 })
   } catch (error) {
     console.error("GET /api/v1/events error:", error)
