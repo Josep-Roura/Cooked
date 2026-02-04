@@ -26,6 +26,7 @@ function convertSpanishToEnglish(plan: any): any {
     
     // Common fields (keep as-is or map if needed)
     timing: "timing",
+    timing_minutos: "timing",
     items: "items",
     totalCarbs: "totalCarbs",
     totalProtein: "totalProtein",
@@ -35,16 +36,27 @@ function convertSpanishToEnglish(plan: any): any {
     rationale: "rationale",
     warnings: "warnings",
     interval: "interval",
+    intervalo_minutos: "interval",
     
     // Item-level fields
     time: "time",
     product: "product",
     quantity: "quantity",
+    cantidad: "quantity",
     unit: "unit",
+    unidad: "unit",
     carbs: "carbs",
     protein: "protein",
     sodium: "sodium",
+    sodio: "sodium",
     notes: "notes",
+    frecuencia: "frequency",
+    frequency: "frequency",
+    macronutrientes: "macronutrientes",
+    
+    // During workout specific fields
+    productos_intervalo: "items",
+    productos_especificos: "items",
   }
   
   const converted: any = {}
@@ -351,13 +363,50 @@ function PreWorkoutSection({
         />
       </button>
 
-      {isExpanded && (
-        <div className="border-t border-emerald-200 p-2 md:p-3 space-y-2 bg-emerald-50">
-          {data.items.map((item: any, idx: number) => (
-            <NutritionItem key={idx} item={item} />
-          ))}
-        </div>
-      )}
+       {isExpanded && (
+         <div className="border-t border-emerald-200 p-2 md:p-3 space-y-3 bg-emerald-50">
+           <div className="space-y-2">
+             {data.items && data.items.length > 0 ? (
+               data.items.map((item: any, idx: number) => (
+                 <div key={idx} className="bg-white rounded p-2 md:p-3 border border-emerald-200">
+                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                     <div className="flex-1 min-w-0">
+                       <p className="font-semibold text-xs md:text-sm text-slate-900">
+                         {item.product || item.producto}
+                       </p>
+                       <p className="text-xs text-slate-600 mt-0.5">
+                         <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
+                       </p>
+                       {(item.notes || item.notas) && (
+                         <p className="text-xs text-slate-500 italic mt-1">{item.notes || item.notas}</p>
+                       )}
+                     </div>
+                     <div className="flex flex-wrap gap-1 sm:gap-2">
+                       {(item.carbs !== undefined || item.macronutrientes?.carbohidratos_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.carbs || item.macronutrientes?.carbohidratos_g}g carbs
+                         </span>
+                       )}
+                       {(item.protein !== undefined || item.macronutrientes?.proteina_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.protein || item.macronutrientes?.proteina_g}g protein
+                         </span>
+                       )}
+                       {(item.sodium !== undefined || item.macronutrientes?.sodio_mg !== undefined) && (
+                         <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.sodium || item.macronutrientes?.sodio_mg}mg
+                         </span>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               ))
+             ) : (
+               <p className="text-xs text-slate-500 italic">No items specified</p>
+             )}
+           </div>
+         </div>
+       )}
     </div>
   )
 }
@@ -401,32 +450,60 @@ function DuringWorkoutSection({
         />
       </button>
 
-      {isExpanded && (
-        <div className="border-t border-blue-200 p-2 md:p-3 space-y-3 bg-blue-50">
-          {/* Schedule */}
-          <div className="space-y-2">
-            {Array.from({ length: numIntervals }).map((_, idx) => {
-              const offset = idx * data.interval
-              const time = calculateTime(offset)
-              return (
-                <div key={idx} className="flex items-center gap-2 text-xs">
-                  <Clock className="w-3 h-3 text-blue-600 flex-shrink-0" />
-                  <span className="font-semibold text-blue-900 w-14 flex-shrink-0">{time}</span>
-                  <span className="text-blue-700 truncate">→ Consume items</span>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Items to consume */}
-          <div className="mt-3 pt-3 border-t border-blue-200">
-            <p className="text-xs font-semibold text-blue-900 mb-2">Each interval, consume:</p>
-            {data.items.map((item: any, idx: number) => (
-              <NutritionItem key={idx} item={item} />
-            ))}
-          </div>
-        </div>
-      )}
+       {isExpanded && (
+         <div className="border-t border-blue-200 p-2 md:p-3 space-y-3 bg-blue-50">
+           {/* Schedule with specific products */}
+           <div className="space-y-3">
+             {Array.from({ length: numIntervals }).map((_, idx) => {
+               const offset = idx * data.interval
+               const time = calculateTime(offset)
+               return (
+                 <div key={idx} className="bg-white rounded p-2 border border-blue-200">
+                   <div className="flex items-center gap-2 mb-2">
+                     <Clock className="w-3 h-3 text-blue-600 flex-shrink-0" />
+                     <span className="font-semibold text-xs text-blue-900">{time}</span>
+                   </div>
+                   {/* Show products for this interval */}
+                   <div className="space-y-1">
+                     {data.items && data.items.length > 0 ? (
+                       data.items.map((item: any, itemIdx: number) => (
+                         <div key={itemIdx} className="pl-2 border-l-2 border-blue-200">
+                           <p className="font-semibold text-xs text-slate-900">
+                             {item.product}
+                             {item.cantidad && ` - ${item.cantidad}${item.unidad || ''}`}
+                             {item.quantity && ` - ${item.quantity}${item.unit || ''}`}
+                           </p>
+                           {(item.frecuencia || item.frequency) && (
+                             <p className="text-xs text-blue-600 font-medium">
+                               {item.frecuencia || item.frequency}
+                             </p>
+                           )}
+                           {item.macronutrientes && (
+                             <div className="flex gap-1 mt-0.5 flex-wrap">
+                               {item.macronutrientes.carbohidratos_g && (
+                                 <span className="text-xs bg-orange-50 text-orange-700 px-1 py-0.5 rounded">
+                                   {item.macronutrientes.carbohidratos_g}g carbs
+                                 </span>
+                               )}
+                               {item.macronutrientes.sodio_mg && (
+                                 <span className="text-xs bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
+                                   {item.macronutrientes.sodio_mg}mg Na
+                                 </span>
+                               )}
+                             </div>
+                           )}
+                         </div>
+                       ))
+                     ) : (
+                       <p className="text-xs text-slate-500 italic">No items specified</p>
+                     )}
+                   </div>
+                 </div>
+               )
+             })}
+           </div>
+         </div>
+       )}
     </div>
   )
 }
@@ -470,13 +547,55 @@ function PostWorkoutSection({
         />
       </button>
 
-      {isExpanded && (
-        <div className="border-t border-pink-200 p-2 md:p-3 space-y-2 bg-pink-50">
-          {data.items.map((item: any, idx: number) => (
-            <NutritionItem key={idx} item={item} />
-          ))}
-        </div>
-      )}
+       {isExpanded && (
+         <div className="border-t border-pink-200 p-2 md:p-3 space-y-3 bg-pink-50">
+           <div className="space-y-2">
+             {data.items && data.items.length > 0 ? (
+               data.items.map((item: any, idx: number) => (
+                 <div key={idx} className="bg-white rounded p-2 md:p-3 border border-pink-200">
+                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                     <div className="flex-1 min-w-0">
+                       <p className="font-semibold text-xs md:text-sm text-slate-900">
+                         {item.product || item.producto}
+                       </p>
+                       <p className="text-xs text-slate-600 mt-0.5">
+                         <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
+                       </p>
+                       {(item.timing || item.timing_minutos) && (
+                         <p className="text-xs text-pink-600 font-medium mt-0.5">
+                           Timing: {item.timing || `${item.timing_minutos}m`}
+                         </p>
+                       )}
+                       {(item.notes || item.notas) && (
+                         <p className="text-xs text-slate-500 italic mt-1">{item.notes || item.notas}</p>
+                       )}
+                     </div>
+                     <div className="flex flex-wrap gap-1 sm:gap-2">
+                       {(item.carbs !== undefined || item.macronutrientes?.carbohidratos_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.carbs || item.macronutrientes?.carbohidratos_g}g carbs
+                         </span>
+                       )}
+                       {(item.protein !== undefined || item.macronutrientes?.proteina_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.protein || item.macronutrientes?.proteina_g}g protein
+                         </span>
+                       )}
+                       {(item.sodium !== undefined || item.macronutrientes?.sodio_mg !== undefined) && (
+                         <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                           {item.sodium || item.macronutrientes?.sodio_mg}mg
+                         </span>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               ))
+             ) : (
+               <p className="text-xs text-slate-500 italic">No items specified</p>
+             )}
+           </div>
+         </div>
+       )}
     </div>
   )
 }
