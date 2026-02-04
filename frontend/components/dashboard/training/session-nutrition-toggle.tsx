@@ -19,26 +19,35 @@ export function SessionNutritionToggle({
   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
 
-  // Load nutrition plan from existing record in DB
+  // Load or generate nutrition plan
   const loadNutritionPlan = useCallback(async () => {
-    if (!workout) return
+    if (!workout) {
+      console.log("[SessionNutritionToggle] No workout provided")
+      return
+    }
 
+    console.log("[SessionNutritionToggle] Loading nutrition for workout:", workout.id, "date:", date)
     setIsLoadingNutrition(true)
     try {
-      // Load nutrition plan from database
+      // First try to load existing nutrition plan from database
       const response = await fetch(
         `/api/v1/nutrition/during-workout?startDate=${date}&endDate=${date}&limit=50`,
         { method: "GET" }
       )
 
+      console.log("[SessionNutritionToggle] API response status:", response.status)
+
       if (response.ok) {
         const data = await response.json()
         const records = data.records ?? []
+        console.log("[SessionNutritionToggle] Found records:", records.length)
 
         // Find matching record by workout_id
         const matchingRecord = records.find((r: any) =>
           String(r.workout_id) === String(workout.id)
         )
+
+        console.log("[SessionNutritionToggle] Matching record:", matchingRecord)
 
         if (matchingRecord) {
           // Try nutrition_plan_json first
@@ -47,6 +56,7 @@ export function SessionNutritionToggle({
               const plan = typeof matchingRecord.nutrition_plan_json === "string"
                 ? JSON.parse(matchingRecord.nutrition_plan_json)
                 : matchingRecord.nutrition_plan_json
+              console.log("[SessionNutritionToggle] Loaded nutrition_plan_json:", plan)
               setNutritionPlan(plan)
               return
             } catch (e) {
@@ -60,6 +70,7 @@ export function SessionNutritionToggle({
               const plan = typeof matchingRecord.during_workout_recommendation === "string"
                 ? JSON.parse(matchingRecord.during_workout_recommendation)
                 : matchingRecord.during_workout_recommendation
+              console.log("[SessionNutritionToggle] Loaded during_workout_recommendation:", plan)
               setNutritionPlan(plan)
               return
             } catch (e) {
@@ -68,10 +79,55 @@ export function SessionNutritionToggle({
           }
         }
       }
+
+      // If no existing plan found, try to generate one
+      console.log("[SessionNutritionToggle] No existing plan found, attempting to generate...")
+      await generateNutritionPlan()
     } catch (error) {
       console.error("Error loading nutrition plan:", error)
     } finally {
       setIsLoadingNutrition(false)
+    }
+  }, [workout, date])
+
+  // Generate nutrition plan via AI
+  const generateNutritionPlan = useCallback(async () => {
+    if (!workout) return
+
+    try {
+      console.log("[SessionNutritionToggle] Generating nutrition plan for workout:", workout.id)
+      const response = await fetch("/api/ai/nutrition/during-workout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workoutId: workout.id,
+          workoutDate: date,
+          workoutType: workout.workout_type,
+          durationMinutes: workout.actual_hours
+            ? Math.round(workout.actual_hours * 60)
+            : workout.planned_hours
+            ? Math.round(workout.planned_hours * 60)
+            : 60,
+          workoutStartTime: workout.start_time || "06:00",
+          intensity: "moderate",
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log("[SessionNutritionToggle] Generated plan:", data)
+        
+        if (data.nutrition_plan_json) {
+          const plan = typeof data.nutrition_plan_json === "string"
+            ? JSON.parse(data.nutrition_plan_json)
+            : data.nutrition_plan_json
+          setNutritionPlan(plan)
+        }
+      } else {
+        console.warn("[SessionNutritionToggle] Failed to generate plan, status:", response.status)
+      }
+    } catch (error) {
+      console.error("[SessionNutritionToggle] Error generating nutrition plan:", error)
     }
   }, [workout, date])
 
@@ -82,12 +138,27 @@ export function SessionNutritionToggle({
     }
   }, [nutritionPlan, isLoadingNutrition, loadNutritionPlan, workout])
 
-  if (!workout || isLoadingNutrition) {
+  if (!workout) {
     return null
   }
 
+  if (isLoadingNutrition) {
+    return (
+      <div className="mt-3 pt-3 border-t border-border/50">
+        <div className="flex items-center justify-center gap-2 py-4">
+          <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Loading nutrition plan...</span>
+        </div>
+      </div>
+    )
+  }
+
   if (!nutritionPlan) {
-    return null
+    return (
+      <div className="mt-3 pt-3 border-t border-border/50">
+        <div className="text-xs text-muted-foreground">No nutrition plan available</div>
+      </div>
+    )
   }
 
   return (
@@ -99,8 +170,8 @@ export function SessionNutritionToggle({
             workout.actual_hours
               ? Math.round(workout.actual_hours * 60)
               : workout.planned_hours
-                ? Math.round(workout.planned_hours * 60)
-                : 60
+              ? Math.round(workout.planned_hours * 60)
+              : 60
           }
           workoutStartTime={workout.start_time ?? "06:00"}
         />
