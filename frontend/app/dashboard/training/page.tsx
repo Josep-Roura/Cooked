@@ -8,7 +8,7 @@ import { SessionNutritionToggle } from "@/components/dashboard/training/session-
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { useTrainingSessions, useMealPlanDay } from "@/lib/db/hooks"
+import { useTrainingSessions, useMealPlanDay, useWorkoutsRange } from "@/lib/db/hooks"
 import type { TrainingIntensity, TrainingSessionSummary, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
@@ -22,6 +22,7 @@ export default function TrainingPage() {
   const weekEndKey = format(weekEnd, "yyyy-MM-dd")
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
+  const workoutsQuery = useWorkoutsRange(user?.id, weekStartKey, weekEndKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
 
   const sessionsForDay = useMemo(() => {
@@ -30,6 +31,15 @@ export default function TrainingPage() {
       .filter((session) => session.date === selectedDateKey)
       .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title))
   }, [selectedDateKey, trainingQuery.data])
+
+  // Get workout details mapped by id
+  const workoutMap = useMemo(() => {
+    const map = new Map()
+    ;(workoutsQuery.data ?? []).forEach((workout) => {
+      map.set(workout.id, workout)
+    })
+    return map
+  }, [workoutsQuery.data])
 
   const weeklyTotals = useMemo(() => {
     const sessions = trainingQuery.data ?? []
@@ -172,6 +182,7 @@ export default function TrainingPage() {
                           <SessionNutritionToggle
                             sessionId={session.id}
                             date={selectedDateKey}
+                            workout={workoutMap.get(session.id)}
                             meals={mealPlanQuery.data?.items ?? []}
                             isLoading={mealPlanQuery.isLoading}
                           />
