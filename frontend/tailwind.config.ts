@@ -16,5 +16,7 @@ export default {
   corePlugins: {
     colorOpacity: true,
   },
+  // CSS generation settings
+  respectPrefix: false,
   plugins: [],
 } satisfies Config
