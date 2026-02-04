@@ -99,22 +99,27 @@ export function SessionNutritionToggle({
             : 60,
           workoutStartTime: workout.start_time || "06:00",
           intensity: "moderate",
+          save: true, // Save to database
         }),
       })
 
       if (generateResponse.ok) {
         const generateData = await generateResponse.json()
-        console.log("[SessionNutritionToggle] Generated plan:", generateData)
+        console.log("[SessionNutritionToggle] Generated plan response:", generateData)
         
-        if (generateData.nutrition_plan_json) {
-          const plan = typeof generateData.nutrition_plan_json === "string"
-            ? JSON.parse(generateData.nutrition_plan_json)
-            : generateData.nutrition_plan_json
+        // The API returns the plan in either 'plan' or 'nutrition' field
+        const plan = generateData.plan || generateData.nutrition
+        
+        if (plan) {
           console.log("[SessionNutritionToggle] Set generated plan:", plan)
           setNutritionPlan(plan)
+        } else {
+          console.warn("[SessionNutritionToggle] No plan in response:", generateData)
         }
       } else {
         console.warn("[SessionNutritionToggle] Failed to generate plan, status:", generateResponse.status)
+        const errorData = await generateResponse.json().catch(() => ({}))
+        console.warn("[SessionNutritionToggle] Error response:", errorData)
       }
     } catch (error) {
       console.error("Error loading nutrition plan:", error)
