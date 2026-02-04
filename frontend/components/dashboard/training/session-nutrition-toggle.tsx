@@ -28,6 +28,7 @@ export function SessionNutritionToggle({
 
     console.log("[SessionNutritionToggle] Loading nutrition for workout:", workout.id, "date:", date)
     setIsLoadingNutrition(true)
+    
     try {
       // First try to load existing nutrition plan from database
       const response = await fetch(
@@ -58,6 +59,7 @@ export function SessionNutritionToggle({
                 : matchingRecord.nutrition_plan_json
               console.log("[SessionNutritionToggle] Loaded nutrition_plan_json:", plan)
               setNutritionPlan(plan)
+              setIsLoadingNutrition(false)
               return
             } catch (e) {
               console.warn("Failed to parse nutrition_plan_json:", e)
@@ -72,6 +74,7 @@ export function SessionNutritionToggle({
                 : matchingRecord.during_workout_recommendation
               console.log("[SessionNutritionToggle] Loaded during_workout_recommendation:", plan)
               setNutritionPlan(plan)
+              setIsLoadingNutrition(false)
               return
             } catch (e) {
               console.warn("Failed to parse during_workout_recommendation:", e)
@@ -82,21 +85,7 @@ export function SessionNutritionToggle({
 
       // If no existing plan found, try to generate one
       console.log("[SessionNutritionToggle] No existing plan found, attempting to generate...")
-      await generateNutritionPlan()
-    } catch (error) {
-      console.error("Error loading nutrition plan:", error)
-    } finally {
-      setIsLoadingNutrition(false)
-    }
-  }, [workout, date])
-
-  // Generate nutrition plan via AI
-  const generateNutritionPlan = useCallback(async () => {
-    if (!workout) return
-
-    try {
-      console.log("[SessionNutritionToggle] Generating nutrition plan for workout:", workout.id)
-      const response = await fetch("/api/ai/nutrition/during-workout", {
+      const generateResponse = await fetch("/api/ai/nutrition/during-workout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -113,21 +102,24 @@ export function SessionNutritionToggle({
         }),
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[SessionNutritionToggle] Generated plan:", data)
+      if (generateResponse.ok) {
+        const generateData = await generateResponse.json()
+        console.log("[SessionNutritionToggle] Generated plan:", generateData)
         
-        if (data.nutrition_plan_json) {
-          const plan = typeof data.nutrition_plan_json === "string"
-            ? JSON.parse(data.nutrition_plan_json)
-            : data.nutrition_plan_json
+        if (generateData.nutrition_plan_json) {
+          const plan = typeof generateData.nutrition_plan_json === "string"
+            ? JSON.parse(generateData.nutrition_plan_json)
+            : generateData.nutrition_plan_json
+          console.log("[SessionNutritionToggle] Set generated plan:", plan)
           setNutritionPlan(plan)
         }
       } else {
-        console.warn("[SessionNutritionToggle] Failed to generate plan, status:", response.status)
+        console.warn("[SessionNutritionToggle] Failed to generate plan, status:", generateResponse.status)
       }
     } catch (error) {
-      console.error("[SessionNutritionToggle] Error generating nutrition plan:", error)
+      console.error("Error loading nutrition plan:", error)
+    } finally {
+      setIsLoadingNutrition(false)
     }
   }, [workout, date])
 
@@ -163,7 +155,8 @@ export function SessionNutritionToggle({
 
   return (
     <div className="mt-3 pt-3 border-t border-border/50">
-      <div className="scale-90 origin-top-left -mx-8 -mb-4">
+      {/* Temporarily removed scale-90 to debug visibility */}
+      <div className="">
         <WorkoutNutritionTimeline
           plan={nutritionPlan}
           workoutDuration={
