@@ -8,7 +8,7 @@ import { SessionNutritionToggle } from "@/components/dashboard/training/session-
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { useTrainingSessions, useMealPlanDay, useWorkoutsRange } from "@/lib/db/hooks"
+import { useTrainingSessions, useWorkoutsRange } from "@/lib/db/hooks"
 import type { TrainingIntensity, TrainingSessionSummary, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
@@ -23,7 +23,6 @@ export default function TrainingPage() {
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const workoutsQuery = useWorkoutsRange(user?.id, weekStartKey, weekEndKey)
-  const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
 
   const sessionsForDay = useMemo(() => {
     const sessions = trainingQuery.data ?? []
@@ -183,8 +182,6 @@ export default function TrainingPage() {
                             sessionId={session.id}
                             date={selectedDateKey}
                             workout={workoutMap.get(session.id)}
-                            meals={mealPlanQuery.data?.items ?? []}
-                            isLoading={mealPlanQuery.isLoading}
                           />
                         </div>
                       </div>
