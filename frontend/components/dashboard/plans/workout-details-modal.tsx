@@ -154,9 +154,18 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, onD
         console.log("Delete response:", response.status, response.ok)
 
         if (!response.ok) {
-          const error = await response.json()
-          console.error("Delete error:", error)
-          throw new Error(error.error || error.details || "Failed to delete workout")
+          let errorMessage = "Failed to delete workout"
+          try {
+            const error = await response.json()
+            console.error("Delete error:", error)
+            errorMessage = error.error || error.details || errorMessage
+          } catch (parseError) {
+            console.error("Could not parse error response:", parseError)
+            const text = await response.text()
+            console.error("Response text:", text)
+            errorMessage = text || `HTTP ${response.status}: ${response.statusText}`
+          }
+          throw new Error(errorMessage)
         }
 
         const data = await response.json()

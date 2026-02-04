@@ -9,7 +9,14 @@ export async function POST(req: NextRequest) {
     }
 
     const mealId = body.mealId
-    const date = body.date
+    let date = body.date
+
+    // Handle ISO date format (e.g., 2024-01-15T00:00:00.000Z) by extracting just the date
+    if (typeof date === "string" && date.includes("T")) {
+      date = date.split("T")[0]
+    }
+
+    console.log("Meal delete request:", { mealId, date, dateType: typeof date, dateRaw: body.date })
 
     if (!mealId) {
       console.error("Missing mealId:", body)
