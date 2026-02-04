@@ -129,53 +129,62 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, onD
        }
       }, [open, workout, loadNutritionPlan])
    
-   const handleDeleteWorkout = async () => {
-     if (!workout) return
+    const handleDeleteWorkout = async () => {
+      if (!workout) return
 
-     const confirmDelete = window.confirm(
-       `Are you sure you want to delete ${workout.title || workout.workout_type || "this workout"}? This action cannot be undone.`
-     )
-     if (!confirmDelete) return
+      const confirmDelete = window.confirm(
+        `Are you sure you want to delete ${workout.title || workout.workout_type || "this workout"}? This action cannot be undone.`
+      )
+      if (!confirmDelete) return
 
-     setIsDeleting(true)
-     try {
-       const response = await fetch("/api/v1/workouts/delete", {
-         method: "DELETE",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({
-           workoutId: workout.id,
-           date: workout.workout_day,
-         }),
-       })
+      setIsDeleting(true)
+      try {
+        console.log("Deleting workout:", { id: workout.id, date: workout.workout_day })
+        
+        const response = await fetch("/api/v1/workouts/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workoutId: workout.id,
+            date: workout.workout_day,
+          }),
+        })
 
-       if (!response.ok) {
-         const error = await response.json()
-         throw new Error(error.error || "Failed to delete workout")
-       }
+        console.log("Delete response:", response.status, response.ok)
 
-       toast({
-         title: "Workout deleted",
-         description: `${workout.title || workout.workout_type || "Workout"} has been removed from your plan.`,
-       })
+        if (!response.ok) {
+          const error = await response.json()
+          console.error("Delete error:", error)
+          throw new Error(error.error || error.details || "Failed to delete workout")
+        }
 
-       // Invalidate queries to refetch
-       await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
-       
-       // Close modal
-       onOpenChange(false)
-       
-       // Call optional callback
-       onDelete?.()
-     } catch (error) {
-       toast({
-         title: "Error",
-         description: error instanceof Error ? error.message : "Failed to delete workout",
-         variant: "destructive",
-       })
-     } finally {
-       setIsDeleting(false)
-     }
-   }
+        const data = await response.json()
+        console.log("Delete success:", data)
+
+        toast({
+          title: "Workout deleted",
+          description: `${workout.title || workout.workout_type || "Workout"} has been removed from your plan.`,
+        })
+
+        // Invalidate queries to refetch
+        await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+        
+        // Close modal
+        onOpenChange(false)
+        
+        // Call optional callback
+        onDelete?.()
+      } catch (error) {
+        console.error("Delete workout error:", error)
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to delete workout",
+          variant: "destructive",
+        })
+      } finally {
+        setIsDeleting(false)
+      }
+    }
    
    if (!workout) {
      return (
