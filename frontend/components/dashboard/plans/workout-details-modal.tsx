@@ -143,6 +143,7 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, onD
         
         const response = await fetch("/api/v1/workouts/delete", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workoutId: workout.id,
