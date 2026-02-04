@@ -230,11 +230,11 @@ function defaultMealTemplates(mealsPerDay: number) {
   ]
 }
 
-function fallbackRecipeForMeal(mealType: string, name: string) {
-  if (mealType === "breakfast") {
-    return {
+function fallbackRecipeForMeal(mealType: string, name: string, dayIndex: number = 0) {
+  // Crear variaciones para cada día de la semana
+  const breakfastVariations = [
+    {
       title: "Oats with yogurt and fruit",
-      servings: 1,
       ingredients: [
         { name: "rolled oats", quantity: 60, unit: "g" },
         { name: "milk", quantity: 200, unit: "ml" },
@@ -243,12 +243,35 @@ function fallbackRecipeForMeal(mealType: string, name: string) {
       ],
       steps: ["Cook oats in milk until creamy.", "Top with yogurt and sliced banana."],
       notes: "Easy to digest and carb-forward for morning fuel.",
-    }
-  }
-  if (mealType === "lunch") {
-    return {
+    },
+    {
+      title: "Scrambled eggs with toast",
+      ingredients: [
+        { name: "large eggs", quantity: 3, unit: "unit" },
+        { name: "whole grain bread", quantity: 2, unit: "slices" },
+        { name: "butter", quantity: 10, unit: "g" },
+        { name: "tomato", quantity: 100, unit: "g" },
+      ],
+      steps: ["Toast bread until golden.", "Scramble eggs in butter over medium heat.", "Plate with tomato."],
+      notes: "Protein-rich breakfast with complex carbs.",
+    },
+    {
+      title: "Pancakes with berries",
+      ingredients: [
+        { name: "whole wheat flour", quantity: 100, unit: "g" },
+        { name: "eggs", quantity: 2, unit: "unit" },
+        { name: "milk", quantity: 150, unit: "ml" },
+        { name: "fresh berries", quantity: 100, unit: "g" },
+        { name: "honey", quantity: 15, unit: "g" },
+      ],
+      steps: ["Mix flour, eggs and milk into batter.", "Cook pancakes on griddle.", "Top with berries and honey."],
+      notes: "Carb-forward fuel with antioxidants from berries.",
+    },
+  ]
+
+  const lunchVariations = [
+    {
       title: "Chicken rice bowl",
-      servings: 1,
       ingredients: [
         { name: "cooked rice", quantity: 250, unit: "g" },
         { name: "chicken breast", quantity: 150, unit: "g" },
@@ -257,12 +280,36 @@ function fallbackRecipeForMeal(mealType: string, name: string) {
       ],
       steps: ["Cook chicken and vegetables in olive oil.", "Serve over rice."],
       notes: "Balanced carbs and protein for recovery.",
-    }
-  }
-  if (mealType === "dinner") {
-    return {
+    },
+    {
+      title: "Tuna pasta salad",
+      ingredients: [
+        { name: "whole wheat pasta", quantity: 100, unit: "g" },
+        { name: "canned tuna", quantity: 120, unit: "g" },
+        { name: "mixed greens", quantity: 100, unit: "g" },
+        { name: "olive oil", quantity: 10, unit: "g" },
+        { name: "lemon juice", quantity: 10, unit: "ml" },
+      ],
+      steps: ["Cook pasta per package.", "Mix with tuna, greens, oil and lemon.", "Serve chilled."],
+      notes: "Omega-3 rich with complete protein.",
+    },
+    {
+      title: "Turkey sandwich",
+      ingredients: [
+        { name: "whole grain bread", quantity: 80, unit: "g" },
+        { name: "turkey slices", quantity: 100, unit: "g" },
+        { name: "lettuce", quantity: 50, unit: "g" },
+        { name: "tomato", quantity: 100, unit: "g" },
+        { name: "hummus", quantity: 20, unit: "g" },
+      ],
+      steps: ["Toast bread lightly.", "Spread hummus.", "Layer turkey, lettuce and tomato."],
+      notes: "Portable lunch option with lean protein.",
+    },
+  ]
+
+  const dinnerVariations = [
+    {
       title: "Salmon pasta with greens",
-      servings: 1,
       ingredients: [
         { name: "pasta", quantity: 90, unit: "g" },
         { name: "salmon", quantity: 140, unit: "g" },
@@ -271,24 +318,70 @@ function fallbackRecipeForMeal(mealType: string, name: string) {
       ],
       steps: ["Cook pasta.", "Pan-sear salmon and wilt spinach.", "Combine with olive oil."],
       notes: "Carbs for glycogen, omega-3s for recovery.",
-    }
+    },
+    {
+      title: "Beef stir-fry with vegetables",
+      ingredients: [
+        { name: "lean beef", quantity: 150, unit: "g" },
+        { name: "brown rice", quantity: 200, unit: "g" },
+        { name: "broccoli", quantity: 150, unit: "g" },
+        { name: "olive oil", quantity: 10, unit: "g" },
+      ],
+      steps: ["Cook rice.", "Stir-fry beef and broccoli in oil.", "Mix with rice."],
+      notes: "High protein dinner for muscle recovery.",
+    },
+    {
+      title: "Chicken and sweet potato",
+      ingredients: [
+        { name: "chicken breast", quantity: 150, unit: "g" },
+        { name: "sweet potato", quantity: 200, unit: "g" },
+        { name: "green beans", quantity: 100, unit: "g" },
+        { name: "olive oil", quantity: 10, unit: "g" },
+      ],
+      steps: ["Roast sweet potato and chicken.", "Steam green beans.", "Plate together."],
+      notes: "Complex carbs and complete protein for recovery.",
+    },
+  ]
+
+  const snackVariations = [
+    {
+      title: "Greek yogurt with honey",
+      ingredients: [
+        { name: "Greek yogurt", quantity: 150, unit: "g" },
+        { name: "honey", quantity: 15, unit: "g" },
+        { name: "granola", quantity: 30, unit: "g" },
+      ],
+      steps: ["Pour yogurt into bowl.", "Drizzle honey.", "Top with granola."],
+      notes: "Quick protein snack with carbs.",
+    },
+    {
+      title: "Banana with almond butter",
+      ingredients: [
+        { name: "banana", quantity: 1, unit: "unit" },
+        { name: "almond butter", quantity: 20, unit: "g" },
+      ],
+      steps: ["Peel banana.", "Serve with almond butter on the side."],
+      notes: "Portable pre-workout snack.",
+    },
+  ]
+
+
+  if (mealType === "breakfast") {
+    return { ...breakfastVariations[dayIndex % breakfastVariations.length], servings: 1 }
   }
-  return {
-    title: name || "Recovery snack",
-    servings: 1,
-    ingredients: [
-      { name: "Greek yogurt", quantity: 150, unit: "g" },
-      { name: "berries", quantity: 100, unit: "g" },
-      { name: "honey", quantity: 10, unit: "g" },
-    ],
-    steps: ["Mix yogurt with berries and honey."],
-    notes: "Quick snack with protein and carbs.",
+  if (mealType === "lunch") {
+    return { ...lunchVariations[dayIndex % lunchVariations.length], servings: 1 }
   }
+  if (mealType === "dinner") {
+    return { ...dinnerVariations[dayIndex % dinnerVariations.length], servings: 1 }
+  }
+  return { ...snackVariations[dayIndex % snackVariations.length], servings: 1 }
 }
 
 function splitMacrosAcrossMeals(
   macros: { kcal: number; protein_g: number; carbs_g: number; fat_g: number },
   meals: Array<{ name: string; time: string; meal_type: string; emoji: string }>,
+  dayIndex: number = 0,
 ) {
   const snackCount = meals.filter((meal) => meal.name.toLowerCase().includes("snack")).length
   const mealShares = meals.map((meal) => {
@@ -320,7 +413,7 @@ function splitMacrosAcrossMeals(
       protein_g: protein,
       carbs_g: carbs,
       fat_g: fat,
-      recipe: fallbackRecipeForMeal(meal.meal_type, meal.name),
+      recipe: fallbackRecipeForMeal(meal.meal_type, meal.name, dayIndex),
     }
   })
 }
@@ -463,7 +556,7 @@ function buildFallbackPlan({
     const dayWorkouts = workoutsByDay.get(date) ?? []
     const dayType = pickDayType(dayWorkouts)
     const dailyTargets = computeMacros(weightKg, dayType)
-    const meals = splitMacrosAcrossMeals(dailyTargets, templates)
+    const meals = splitMacrosAcrossMeals(dailyTargets, templates, index)
     return {
       date,
       day_type: dayType,
