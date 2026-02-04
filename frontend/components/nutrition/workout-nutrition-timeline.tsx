@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { exportNutritionToPDF, exportNutritionAsTextPDF } from "@/lib/nutrition/export-pdf"
-import { NutritionReminders } from "./nutrition-reminders"
 
 // Helper function to convert Spanish keys to English
 function convertSpanishToEnglish(plan: any): any {
@@ -233,13 +232,6 @@ export function WorkoutNutritionTimeline({
 
    return (
      <div className="space-y-3">
-       {/* Reminders Section */}
-       <NutritionReminders
-         plan={parsedPlan}
-         workoutDuration={workoutDuration}
-         workoutStartTime={workoutStartTime}
-       />
-
         {/* Export Container - Scrollable and Better Layout */}
         <div id="nutrition-timeline-export" className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-slate-200 overflow-hidden max-h-[70vh] flex flex-col">
           {/* Fixed Header */}
