@@ -21,102 +21,109 @@ interface WorkoutDetailsModalProps {
 }
 
 export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nearbyMeals }: WorkoutDetailsModalProps) {
-  const { toast } = useToast()
-  const [isEditingTime, setIsEditingTime] = useState(false)
-  const [editedTime, setEditedTime] = useState("")
-  const [isSavingTime, setIsSavingTime] = useState(false)
-  const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false)
-  const [customDuringNutrition, setCustomDuringNutrition] = useState<string | null>(null)
-  const [nutritionPlan, setNutritionPlan] = useState<any>(null)
-  const [displayedTime, setDisplayedTime] = useState("")
-  const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
-  const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
-   
-   const loadNutritionPlan = useCallback(async () => {
-      if (!workout) return
-      
-      setIsLoadingNutrition(true)
-      try {
-        const response = await fetch(
-          `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=50`
-        )
-        
-        if (response.ok) {
-          const data = await response.json()
-          const records = data.records ?? []
-          
-          console.log(`[Nutrition Load] Found ${records.length} records for date ${workout.workout_day}`)
-          console.log(`[Nutrition Load] Looking for workout_id: ${workout.id} (type: ${typeof workout.id})`)
-          records.forEach((r: any, idx: number) => {
-            console.log(`  [Record ${idx}] workout_id: ${r.workout_id} (type: ${typeof r.workout_id}), has nutrition_plan_json: ${!!r.nutrition_plan_json}`)
-          })
-          
-          // Try matching by workout_id (as string or number)
-          const matchingRecord = records.find((r: any) => 
-            String(r.workout_id) === String(workout.id)
-          )
-          
-          if (matchingRecord) {
-            console.log(`[Nutrition Load] ✅ Found matching record`)
-            setNutritionRecordId(matchingRecord.id)
-            setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
-            
-            // Try to load the complete plan from nutrition_plan_json first
-            if (matchingRecord.nutrition_plan_json) {
-              try {
-                console.log(`[Nutrition Load] Parsing nutrition_plan_json...`)
-                const plan = typeof matchingRecord.nutrition_plan_json === 'string' 
-                  ? JSON.parse(matchingRecord.nutrition_plan_json)
-                  : matchingRecord.nutrition_plan_json
-                console.log(`[Nutrition Load] ✅ Parsed nutrition_plan_json:`, plan)
-                setNutritionPlan(plan)
-                return
-              } catch (e) {
-                console.warn(`[Nutrition Load] Failed to parse nutrition_plan_json:`, e)
-              }
-            } else {
-              console.log(`[Nutrition Load] nutrition_plan_json is null/empty`)
-            }
-            
-            // Fallback to during_workout_recommendation
-            if (matchingRecord.during_workout_recommendation) {
-              try {
-                console.log(`[Nutrition Load] Parsing during_workout_recommendation...`)
-                const plan = typeof matchingRecord.during_workout_recommendation === 'string'
-                  ? JSON.parse(matchingRecord.during_workout_recommendation)
-                  : matchingRecord.during_workout_recommendation
-                console.log(`[Nutrition Load] ✅ Parsed during_workout_recommendation:`, plan)
-                setNutritionPlan(plan)
-              } catch (e) {
-                console.warn(`[Nutrition Load] Failed to parse during_workout_recommendation:`, e)
-              }
-            } else {
-              console.log(`[Nutrition Load] during_workout_recommendation is also null/empty`)
-            }
-          } else {
-            console.log(`[Nutrition Load] ❌ No matching record found for workout_id: ${workout.id}`)
-          }
-        }
-      } catch (error) {
-        console.warn("Could not load nutrition plan:", error)
-      } finally {
-        setIsLoadingNutrition(false)
-      }
-    }, [workout])
-   
-   // Reset state when modal opens/closes
-   useEffect(() => {
-     if (!open) {
-        setIsEditingTime(false)
-        setCustomDuringNutrition(null)
-        setNutritionPlan(null)
-        setNutritionRecordId(null)
-      } else if (workout) {
-        setDisplayedTime(workout.start_time ?? "TBD")
-        // Auto-load nutrition if it exists
-        loadNutritionPlan()
-      }
-    }, [open, workout, loadNutritionPlan])
+   const { toast } = useToast()
+   const [isEditingTime, setIsEditingTime] = useState(false)
+   const [editedTime, setEditedTime] = useState("")
+   const [isSavingTime, setIsSavingTime] = useState(false)
+   const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false)
+   const [customDuringNutrition, setCustomDuringNutrition] = useState<string | null>(null)
+   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
+   const [displayedTime, setDisplayedTime] = useState("")
+   const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
+   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
+    
+    const loadNutritionPlan = useCallback(async () => {
+       if (!workout) return
+       
+       const controller = new AbortController()
+       setIsLoadingNutrition(true)
+       
+       try {
+         const response = await fetch(
+           `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=50`,
+           { signal: controller.signal }
+         )
+         
+         if (response.ok) {
+           const data = await response.json()
+           const records = data.records ?? []
+           
+           console.log(`[Nutrition Load] Found ${records.length} records for date ${workout.workout_day}`)
+           console.log(`[Nutrition Load] Looking for workout_id: ${workout.id} (type: ${typeof workout.id})`)
+           records.forEach((r: any, idx: number) => {
+             console.log(`  [Record ${idx}] workout_id: ${r.workout_id} (type: ${typeof r.workout_id}), has nutrition_plan_json: ${!!r.nutrition_plan_json}`)
+           })
+           
+           // Try matching by workout_id (as string or number)
+           const matchingRecord = records.find((r: any) => 
+             String(r.workout_id) === String(workout.id)
+           )
+           
+           if (matchingRecord) {
+             console.log(`[Nutrition Load] ✅ Found matching record`)
+             setNutritionRecordId(matchingRecord.id)
+             setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
+             
+             // Try to load the complete plan from nutrition_plan_json first
+             if (matchingRecord.nutrition_plan_json) {
+               try {
+                 console.log(`[Nutrition Load] Parsing nutrition_plan_json...`)
+                 const plan = typeof matchingRecord.nutrition_plan_json === 'string' 
+                   ? JSON.parse(matchingRecord.nutrition_plan_json)
+                   : matchingRecord.nutrition_plan_json
+                 console.log(`[Nutrition Load] ✅ Parsed nutrition_plan_json:`, plan)
+                 setNutritionPlan(plan)
+                 return
+               } catch (e) {
+                 console.warn(`[Nutrition Load] Failed to parse nutrition_plan_json:`, e)
+               }
+             } else {
+               console.log(`[Nutrition Load] nutrition_plan_json is null/empty`)
+             }
+             
+             // Fallback to during_workout_recommendation
+             if (matchingRecord.during_workout_recommendation) {
+               try {
+                 console.log(`[Nutrition Load] Parsing during_workout_recommendation...`)
+                 const plan = typeof matchingRecord.during_workout_recommendation === 'string'
+                   ? JSON.parse(matchingRecord.during_workout_recommendation)
+                   : matchingRecord.during_workout_recommendation
+                 console.log(`[Nutrition Load] ✅ Parsed during_workout_recommendation:`, plan)
+                 setNutritionPlan(plan)
+               } catch (e) {
+                 console.warn(`[Nutrition Load] Failed to parse during_workout_recommendation:`, e)
+               }
+             } else {
+               console.log(`[Nutrition Load] during_workout_recommendation is also null/empty`)
+             }
+           } else {
+             console.log(`[Nutrition Load] ❌ No matching record found for workout_id: ${workout.id}`)
+           }
+         }
+       } catch (error) {
+         if (error instanceof Error && error.name === 'AbortError') {
+           console.log(`[Nutrition Load] Request was cancelled (likely due to workout change)`)
+         } else {
+           console.warn("Could not load nutrition plan:", error)
+         }
+       } finally {
+         setIsLoadingNutrition(false)
+       }
+     }, [workout])
+    
+    // Reset state when modal opens/closes
+    useEffect(() => {
+      if (!open) {
+         setIsEditingTime(false)
+         setCustomDuringNutrition(null)
+         setNutritionPlan(null)
+         setNutritionRecordId(null)
+       } else if (workout) {
+         setDisplayedTime(workout.start_time ?? "TBD")
+         // Auto-load nutrition if it exists
+         loadNutritionPlan()
+       }
+     }, [open, workout, loadNutritionPlan])
   
   if (!workout) {
     return (

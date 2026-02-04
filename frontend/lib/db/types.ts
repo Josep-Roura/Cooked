@@ -30,6 +30,12 @@ export interface ProfileRow {
   updated_at: string | null
   accept_terms: boolean | null
   accept_terms_at: string | null
+  // Sports nutrition fields
+  age?: number | null
+  sex?: string | null
+  sweat_rate?: string | null
+  gi_sensitivity?: string | null
+  caffeine_use?: string | null
 }
 
 export interface NutritionPlanRow {

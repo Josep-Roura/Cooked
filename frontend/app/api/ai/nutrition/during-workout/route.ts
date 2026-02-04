@@ -20,6 +20,44 @@ const duringWorkoutSchema = z.object({
   save: z.boolean().optional().default(true), // Whether to save to DB
 })
 
+// Schema for validating AI nutrition response (Spanish keys)
+const nutritionPlanSchema = z.object({
+  pre_entrenamiento: z.object({
+    productos_especificos: z.array(z.object({
+      producto: z.string(),
+      cantidad: z.number(),
+      unidad: z.string(),
+      carbohidratos_g: z.number().optional(),
+      proteina_g: z.number().optional(),
+      sodio_mg: z.number().optional(),
+    })).optional(),
+  }).optional(),
+  durante_entrenamiento: z.object({
+    carbohidratos_por_hora_g: z.number().optional(),
+    hidratacion_por_hora_ml: z.number().optional(),
+    sodio_por_hora_mg: z.number().optional(),
+    intervalo_minutos: z.number().optional(),
+    productos_intervalo: z.array(z.object({
+      producto: z.string(),
+      cantidad: z.number().optional(),
+      unidad: z.string().optional(),
+      frecuencia: z.string().optional(),
+    })).optional(),
+  }).optional(),
+  post_entrenamiento: z.object({
+    productos_especificos: z.array(z.object({
+      producto: z.string(),
+      cantidad: z.number(),
+      unidad: z.string(),
+      carbohidratos_g: z.number().optional(),
+      proteina_g: z.number().optional(),
+      tiempo_minutos: z.number().optional(),
+    })).optional(),
+  }).optional(),
+  rationale: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+}).passthrough() // Allow additional fields
+
 export async function POST(request: NextRequest) {
   let requestId = crypto.randomUUID()
   const requestStartTime = Date.now()
@@ -152,6 +190,17 @@ export async function POST(request: NextRequest) {
       
       nutritionPlan = JSON.parse(jsonStr)
       console.log(`[${requestId}] JSON parsed successfully`)
+
+      // Validate the AI response structure
+      try {
+        const validatedPlan = nutritionPlanSchema.parse(nutritionPlan)
+        nutritionPlan = validatedPlan
+        console.log(`[${requestId}] ✅ AI response validated successfully`)
+      } catch (validationError) {
+        console.warn(`[${requestId}] ⚠️ AI response validation warning:`, validationError)
+        // Log but don't fail - the plan may still be usable
+        // In production, you might want to be stricter about this
+      }
     } catch (parseError) {
       console.error(`[${requestId}] Failed to parse AI response as JSON:`, parseError)
       return NextResponse.json(
@@ -178,49 +227,61 @@ export async function POST(request: NextRequest) {
       // Don't fail the request if logging fails
     }
 
-    // Save nutrition plan to database if requested
-    let savedId = null
-    if (save) {
-      try {
-        const nutritionData = {
-          user_id: user.id,
-          workout_id: workoutId || null,
-          workout_date: workoutDate || new Date().toISOString().split('T')[0],
-          workout_start_time: workoutStartTime || null,
-          workout_duration_min: durationMinutes,
-          workout_type: workoutType || null,
-          
-          // Store AI response
-          during_carbs_g_per_hour: nutritionPlan?.durante_entrenamiento?.carbohidratos_por_hora_g,
-          during_hydration_ml_per_hour: nutritionPlan?.durante_entrenamiento?.hidratacion_por_hora_ml,
-          during_electrolytes_mg: nutritionPlan?.durante_entrenamiento?.sodio_por_hora_mg,
-          
-          // Full AI recommendations
-          during_workout_recommendation: JSON.stringify(nutritionPlan?.durante_entrenamiento),
-          pre_workout_recommendation: JSON.stringify(nutritionPlan?.pre_entrenamiento),
-          post_workout_recommendation: JSON.stringify(nutritionPlan?.post_entrenamiento),
-          
-          // Complete plan
-          nutrition_plan_json: JSON.stringify(nutritionPlan),
-        }
+     // Save nutrition plan to database if requested
+     let savedId = null
+     let saveError = null
+     if (save) {
+       try {
+         const nutritionData = {
+           user_id: user.id,
+           workout_id: workoutId || null,
+           workout_date: workoutDate || new Date().toISOString().split('T')[0],
+           workout_start_time: workoutStartTime || null,
+           workout_duration_min: durationMinutes,
+           workout_type: workoutType || null,
+           
+           // Store AI response
+           during_carbs_g_per_hour: nutritionPlan?.durante_entrenamiento?.carbohidratos_por_hora_g,
+           during_hydration_ml_per_hour: nutritionPlan?.durante_entrenamiento?.hidratacion_por_hora_ml,
+           during_electrolytes_mg: nutritionPlan?.durante_entrenamiento?.sodio_por_hora_mg,
+           
+           // Full AI recommendations
+           during_workout_recommendation: JSON.stringify(nutritionPlan?.durante_entrenamiento),
+           pre_workout_recommendation: JSON.stringify(nutritionPlan?.pre_entrenamiento),
+           post_workout_recommendation: JSON.stringify(nutritionPlan?.post_entrenamiento),
+           
+           // Complete plan
+           nutrition_plan_json: JSON.stringify(nutritionPlan),
+         }
 
-        const { data: savedRecord, error: saveError } = await supabase
-          .from("workout_nutrition")
-          .insert(nutritionData)
-          .select("id")
-          .single()
+         const { data: savedRecord, error: dbError } = await supabase
+           .from("workout_nutrition")
+           .insert(nutritionData)
+           .select("id")
+           .single()
 
-        if (saveError) {
-          console.error(`[${requestId}] Failed to save nutrition plan:`, saveError)
-        } else if (savedRecord) {
-          savedId = savedRecord.id
-          console.log(`[${requestId}] Nutrition plan saved: ${savedId}`)
-        }
-      } catch (error) {
-        console.error(`[${requestId}] Error saving nutrition plan:`, error)
-        // Don't fail the request if saving fails
-      }
-    }
+         if (dbError) {
+           console.error(`[${requestId}] Failed to save nutrition plan:`, dbError)
+           saveError = dbError.message
+         } else if (savedRecord) {
+           savedId = savedRecord.id
+           console.log(`[${requestId}] Nutrition plan saved: ${savedId}`)
+         }
+       } catch (error) {
+         const errorMessage = error instanceof Error ? error.message : String(error)
+         console.error(`[${requestId}] Error saving nutrition plan:`, error)
+         saveError = errorMessage
+       }
+     }
+
+     // If save was requested but failed, return error
+     if (save && saveError) {
+       console.error(`[${requestId}] Aborting response due to save failure: ${saveError}`)
+       return NextResponse.json(
+         { error: `Failed to save nutrition plan: ${saveError}` },
+         { status: 500 }
+       )
+     }
 
     console.log(`[${requestId}] Request complete, returning response`)
 
