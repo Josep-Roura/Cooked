@@ -30,6 +30,14 @@ export interface ProfileRow {
   updated_at: string | null
   accept_terms: boolean | null
   accept_terms_at: string | null
+  // Sports nutrition fields
+  age?: number | null
+  sex?: string | null
+  sweat_rate?: string | null
+  gi_sensitivity?: string | null
+  caffeine_use?: string | null
+  // Location field for country-specific products
+  country?: string | null
 }
 
 export interface NutritionPlanRow {
@@ -42,6 +50,7 @@ export interface NutritionPlanRow {
   carbs_g: number
   fat_g: number
   intra_cho_g_per_h: number
+  rationale?: string | null
   locked?: boolean | null
   created_at: string
   user_id: string | null
@@ -53,6 +62,8 @@ export interface NutritionMeal {
   plan_id?: string | null
   date: string
   slot: number
+  meal_type?: string | null
+  emoji?: string | null
   name: string
   time: string | null
   kcal?: number
@@ -237,6 +248,7 @@ export interface MealPlanItem {
   created_at: string
   updated_at: string
   ingredients?: MealPlanIngredient[]
+  recipe?: unknown | null
 }
 
 export interface MealPlanIngredient {
@@ -275,6 +287,7 @@ export interface NutritionDayPlan {
   meals: Meal[]
   plan_id: string | null
   locked?: boolean
+  rationale?: string | null
 }
 
 export type RecipeCategory =
@@ -381,8 +394,20 @@ export interface PlanWeekMeal {
   created_at: string
   updated_at: string
   locked?: boolean
-  recipe: PlanRecipeSummary | null
+  recipe: PlanRecipeSummary | RecipeFromAI | null
   recipe_ingredients: PlanRecipeIngredient[]
+}
+
+export interface RecipeFromAI {
+  title: string
+  servings?: number
+  ingredients?: Array<{
+    name: string
+    quantity?: number
+    unit?: string
+  }>
+  steps?: string[]
+  notes?: string
 }
 
 export interface MealLog {

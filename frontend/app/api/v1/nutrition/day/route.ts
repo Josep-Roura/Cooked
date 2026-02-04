@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
     const [{ data: rows, error: rowError }, { data: meals, error: mealsError }] = await Promise.all([
       supabase
         .from("nutrition_plan_rows")
-        .select("id, plan_id, date, day_type, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, locked")
+        .select("id, plan_id, date, day_type, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, created_at, locked, rationale")
         .eq("user_id", user.id)
         .eq("date", date)
         .order("created_at", { ascending: false })
@@ -151,6 +151,7 @@ export async function GET(req: NextRequest) {
       macros,
       meals_per_day: profile?.meals_per_day ?? (meals ?? []).length,
       meals: buildMeals(meals ?? []),
+      rationale: row?.rationale ?? null,
     }
 
     const mealLockMap = new Map((meals ?? []).map((meal) => [meal.slot, meal.locked ?? false]))
@@ -198,7 +199,7 @@ export async function PATCH(req: NextRequest) {
     const { date, macros, meals, removedSlots, day_locked } = parsed.data
     const { data: existingRow } = await supabase
       .from("nutrition_plan_rows")
-      .select("id, day_type, plan_id, locked, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h")
+      .select("id, day_type, plan_id, locked, kcal, protein_g, carbs_g, fat_g, intra_cho_g_per_h, rationale")
       .eq("user_id", user.id)
       .eq("date", date)
       .order("created_at", { ascending: false })
@@ -217,6 +218,7 @@ export async function PATCH(req: NextRequest) {
         fat_g: macros?.fat_g ?? existingRow?.fat_g ?? 0,
         intra_cho_g_per_h: macros?.intra_cho_g_per_h ?? existingRow?.intra_cho_g_per_h ?? 0,
         locked: typeof day_locked === "boolean" ? day_locked : existingRow?.locked ?? false,
+        rationale: existingRow?.rationale ?? null,
       }
 
       const { error: rowError } = await supabase

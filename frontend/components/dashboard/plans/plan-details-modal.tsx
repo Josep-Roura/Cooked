@@ -3,8 +3,6 @@
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { NotionModal } from "@/components/ui/notion-modal"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useRecipe } from "@/lib/db/hooks"
 import type { PlanWeekMeal } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 
@@ -14,9 +12,20 @@ interface PlanDetailsModalProps {
   meal: PlanWeekMeal | null
 }
 
+interface RecipeFromJsonb {
+  title: string
+  servings?: number
+  ingredients?: Array<{
+    name: string
+    quantity?: number
+    unit?: string
+  }>
+  steps?: string[]
+  notes?: string
+}
+
 export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalProps) {
   const { user } = useSession()
-  const recipeQuery = useRecipe(user?.id, open ? meal?.recipe_id ?? null : null)
 
   if (!meal) {
     return (
@@ -26,10 +35,16 @@ export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalP
     )
   }
 
-  const title = meal.recipe?.title ?? meal.name
-  const description = meal.time ? `Planned for ${meal.time} · Duration: 60 min` : "Meal time flexible · Duration: 60 min"
-  const ingredients = recipeQuery.data?.ingredients ?? meal.recipe_ingredients ?? []
-  const steps = recipeQuery.data?.steps ?? []
+  // Extract recipe data from JSONB field (prioritize JSONB over summary)
+  const recipeJsonb = meal.recipe as RecipeFromJsonb | null
+  const title = meal.name // Now contains specific dish title (e.g., "Scrambled Eggs with Toast")
+  const description = meal.time ? `Planned for ${meal.time}` : "Meal time flexible"
+  
+  // Get ingredients from JSONB recipe
+  const ingredients = recipeJsonb?.ingredients ?? meal.recipe_ingredients ?? []
+  
+  // Get steps from JSONB recipe
+  const steps = recipeJsonb?.steps ?? []
 
   return (
     <NotionModal open={open} onOpenChange={onOpenChange} title={title} description={description}>
@@ -65,17 +80,22 @@ export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalP
         <div className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground">Ingredients</h3>
-            {recipeQuery.isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : ingredients.length > 0 ? (
+            {ingredients.length > 0 ? (
               <ul className="space-y-1 text-xs text-muted-foreground">
-                {ingredients.map((ingredient) => (
-                  <li key={ingredient.id}>
-                    {ingredient.name}
-                    {"quantity" in ingredient && ingredient.quantity ? ` · ${ingredient.quantity}` : ""}
-                    {"unit" in ingredient && ingredient.unit ? ` ${ingredient.unit}` : ""}
-                  </li>
-                ))}
+                {ingredients.map((ingredient, idx) => {
+                  // Support both JSONB format (with quantity/unit) and DB format (with id)
+                  const name = ingredient.name || ""
+                  const quantity = "quantity" in ingredient ? ingredient.quantity : null
+                  const unit = "unit" in ingredient ? ingredient.unit : null
+                  
+                  return (
+                    <li key={idx}>
+                      {name}
+                      {quantity ? ` · ${quantity}` : ""}
+                      {unit ? ` ${unit}` : ""}
+                    </li>
+                  )
+                })}
               </ul>
             ) : (
               <p className="text-xs text-muted-foreground">No ingredients listed.</p>
@@ -83,18 +103,14 @@ export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalP
           </div>
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground">Recipe steps</h3>
-            {recipeQuery.isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : steps.length > 0 ? (
+            {steps.length > 0 ? (
               <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
-                {steps.map((step) => (
-                  <li key={step.id}>{step.instruction}</li>
+                {steps.map((step, idx) => (
+                  <li key={idx}>{step}</li>
                 ))}
               </ol>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                {meal.recipe?.description ?? "No steps provided."}
-              </p>
+              <p className="text-xs text-muted-foreground">No steps provided.</p>
             )}
           </div>
         </div>

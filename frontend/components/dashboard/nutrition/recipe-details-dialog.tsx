@@ -28,12 +28,40 @@ export function RecipeDetailsDialog({
     )
   }
 
-  const ingredients = (meal.ingredients ?? []).map((ingredient) => {
-    if (typeof ingredient === "string") {
-      return { name: ingredient, quantity: null }
-    }
-    return { name: ingredient.name, quantity: ingredient.quantity ?? null }
-  })
+  const recipe = meal.recipe && typeof meal.recipe === "object" ? meal.recipe : null
+  const recipeTitle =
+    recipe && "title" in recipe ? String((recipe as { title?: unknown }).title ?? "") : ""
+  const recipeServings =
+    recipe && "servings" in recipe ? Number((recipe as { servings?: unknown }).servings ?? 0) : 0
+  const recipeIngredients =
+    recipe && "ingredients" in recipe && Array.isArray((recipe as { ingredients?: unknown }).ingredients)
+      ? ((recipe as { ingredients: Array<{ name?: unknown; quantity?: unknown; unit?: unknown }> }).ingredients ?? []).map(
+          (ingredient) => ({
+            name: String(ingredient.name ?? ""),
+            quantity: ingredient.quantity ?? null,
+            unit: ingredient.unit ?? null,
+          }),
+        )
+      : []
+  const recipeSteps =
+    recipe && "steps" in recipe && Array.isArray((recipe as { steps?: unknown }).steps)
+      ? ((recipe as { steps: string[] }).steps ?? []).filter(Boolean)
+      : []
+  const recipeNotes =
+    recipe && "notes" in recipe ? String((recipe as { notes?: unknown }).notes ?? "") : ""
+
+  const ingredients = recipeIngredients.length
+    ? recipeIngredients
+    : (meal.ingredients ?? []).map((ingredient) => {
+        if (typeof ingredient === "string") {
+          return { name: ingredient, quantity: null, unit: null }
+        }
+        return {
+          name: ingredient.name,
+          quantity: ingredient.quantity ?? null,
+          unit: ingredient.unit ?? null,
+        }
+      })
 
   return (
     <NotionModal
@@ -51,6 +79,18 @@ export function RecipeDetailsDialog({
         </div>
 
         <div>
+          <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Recipe</h4>
+          {recipeTitle ? (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground font-medium">{recipeTitle}</p>
+              {recipeServings > 0 && <p className="text-xs text-muted-foreground">Servings: {recipeServings}</p>}
+            </div>
+          ) : (
+            <p>No recipe title provided.</p>
+          )}
+        </div>
+
+        <div>
           <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Ingredients</h4>
           {ingredients.length ? (
             <ul className="space-y-1">
@@ -58,6 +98,7 @@ export function RecipeDetailsDialog({
                 <li key={`${ingredient.name}-${index}`}>
                   {ingredient.name}
                   {ingredient.quantity ? ` · ${ingredient.quantity}` : ""}
+                  {ingredient.unit ? ` ${ingredient.unit}` : ""}
                 </li>
               ))}
             </ul>
@@ -68,7 +109,16 @@ export function RecipeDetailsDialog({
 
         <div>
           <h4 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Steps</h4>
-          <p>{meal.notes ?? "Prepare, cook, and plate to match your nutrition plan."}</p>
+          {recipeSteps.length ? (
+            <ol className="space-y-1 list-decimal list-inside">
+              {recipeSteps.map((step, index) => (
+                <li key={`${step}-${index}`}>{step}</li>
+              ))}
+            </ol>
+          ) : (
+            <p>{(meal.notes ?? recipeNotes) || "Prepare, cook, and plate to match your nutrition plan."}</p>
+          )}
+          {recipeNotes ? <p className="text-xs text-muted-foreground mt-2">Notes: {recipeNotes}</p> : null}
         </div>
 
         <div>
