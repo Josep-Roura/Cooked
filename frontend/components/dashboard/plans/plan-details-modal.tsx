@@ -1,8 +1,13 @@
 "use client"
 
+import { useState } from "react"
 import { format } from "date-fns"
+import { Trash2, Loader } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { NotionModal } from "@/components/ui/notion-modal"
+import { useToast } from "@/components/ui/use-toast"
+import { useQueryClient } from "@tanstack/react-query"
 import type { PlanWeekMeal } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 
@@ -10,6 +15,7 @@ interface PlanDetailsModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   meal: PlanWeekMeal | null
+  onDelete?: () => void
 }
 
 interface RecipeFromJsonb {
@@ -24,8 +30,59 @@ interface RecipeFromJsonb {
   notes?: string
 }
 
-export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalProps) {
+export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDetailsModalProps) {
   const { user } = useSession()
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDeleteMeal = async () => {
+    if (!meal) return
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete ${meal.name}? This action cannot be undone.`
+    )
+    if (!confirmDelete) return
+
+    setIsDeleting(true)
+    try {
+      const response = await fetch("/api/v1/nutrition/meal/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mealId: meal.id,
+          date: meal.date,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to delete meal")
+      }
+
+      toast({
+        title: "Meal deleted",
+        description: `${meal.name} has been removed from your plan.`,
+      })
+
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+      
+      // Close modal
+      onOpenChange(false)
+      
+      // Call optional callback
+      onDelete?.()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete meal",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   if (!meal) {
     return (
@@ -115,8 +172,30 @@ export function PlanDetailsModal({ open, onOpenChange, meal }: PlanDetailsModalP
           </div>
         </div>
 
-        <div className="text-xs text-muted-foreground">
-          Planned for {format(new Date(meal.date), "EEEE, MMM d")}
+        <div className="space-y-3 border-t border-border/50 pt-4">
+          <div className="text-xs text-muted-foreground">
+            Planned for {format(new Date(meal.date), "EEEE, MMM d")}
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-900/30"
+            onClick={handleDeleteMeal}
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <>
+                <Loader className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete meal
+              </>
+            )}
+          </Button>
         </div>
       </div>
     </NotionModal>

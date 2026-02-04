@@ -531,7 +531,14 @@ export default function PlansPage() {
         </div>
       </div>
 
-      <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
+      <PlanDetailsModal 
+        open={detailsOpen} 
+        onOpenChange={setDetailsOpen} 
+        meal={selectedMeal}
+        onDelete={() => {
+          queryClient.invalidateQueries({ queryKey: ["db", "plan-week"] })
+        }}
+      />
       <WorkoutDetailsModal
         open={workoutDetailsOpen}
         onOpenChange={setWorkoutDetailsOpen}
@@ -544,6 +551,9 @@ export default function PlansPage() {
             date: m.date,
           })) : undefined}
         onUpdate={() => {
+          queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+        }}
+        onDelete={() => {
           queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
         }}
       />
