@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { ChevronDown, Flame, Droplet, Apple, Heart } from "lucide-react"
+import { ChevronDown, Apple, Droplet, Heart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { MealPlanItem, NutritionMacros } from "@/lib/db/types"
 
@@ -42,39 +42,6 @@ export function SessionNutritionToggle({
     }
   }, [fuelMeals])
 
-  // Calculate totals for each section
-  const sectionTotals = useMemo(() => {
-    return {
-      pre: mealsByTiming.pre.reduce(
-        (acc, meal) => ({
-          kcal: acc.kcal + (meal.kcal || 0),
-          protein_g: acc.protein_g + (meal.protein_g || 0),
-          carbs_g: acc.carbs_g + (meal.carbs_g || 0),
-          fat_g: acc.fat_g + (meal.fat_g || 0),
-        }),
-        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
-      ),
-      during: mealsByTiming.during.reduce(
-        (acc, meal) => ({
-          kcal: acc.kcal + (meal.kcal || 0),
-          protein_g: acc.protein_g + (meal.protein_g || 0),
-          carbs_g: acc.carbs_g + (meal.carbs_g || 0),
-          fat_g: acc.fat_g + (meal.fat_g || 0),
-        }),
-        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
-      ),
-      post: mealsByTiming.post.reduce(
-        (acc, meal) => ({
-          kcal: acc.kcal + (meal.kcal || 0),
-          protein_g: acc.protein_g + (meal.protein_g || 0),
-          carbs_g: acc.carbs_g + (meal.carbs_g || 0),
-          fat_g: acc.fat_g + (meal.fat_g || 0),
-        }),
-        { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
-      ),
-    }
-  }, [mealsByTiming])
-
   if (isLoading || fuelMeals.length === 0) {
     return null
   }
@@ -85,10 +52,7 @@ export function SessionNutritionToggle({
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center justify-between gap-2 px-0 py-2 text-sm font-medium text-foreground hover:bg-muted/50 rounded transition-colors"
       >
-        <div className="flex items-center gap-2">
-          <span>⚡ Nutrition</span>
-          <span className="text-xs text-muted-foreground">({fuelMeals.length} meals)</span>
-        </div>
+        <span>⚡ Nutrition</span>
         <ChevronDown
           className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-180")}
         />
@@ -104,7 +68,6 @@ export function SessionNutritionToggle({
               subtitle="30-60 min before"
               color="emerald"
               meals={mealsByTiming.pre}
-              totals={sectionTotals.pre}
             />
           )}
 
@@ -113,10 +76,9 @@ export function SessionNutritionToggle({
             <NutritionCard
               icon={Droplet}
               title="During Workout"
-              subtitle={`Every 30 min • ${mealsByTiming.during.length} items`}
+              subtitle="Every 30 min"
               color="blue"
               meals={mealsByTiming.during}
-              totals={sectionTotals.during}
             />
           )}
 
@@ -128,7 +90,6 @@ export function SessionNutritionToggle({
               subtitle="30-60 min after"
               color="pink"
               meals={mealsByTiming.post}
-              totals={sectionTotals.post}
             />
           )}
         </div>
@@ -143,12 +104,6 @@ interface NutritionCardProps {
   subtitle: string
   color: "emerald" | "blue" | "pink"
   meals: MealPlanItem[]
-  totals: {
-    kcal: number
-    protein_g: number
-    carbs_g: number
-    fat_g: number
-  }
 }
 
 function NutritionCard({
@@ -157,10 +112,7 @@ function NutritionCard({
   subtitle,
   color,
   meals,
-  totals,
 }: NutritionCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-
   const colorConfig = {
     emerald: {
       bg: "bg-emerald-50",
@@ -170,6 +122,7 @@ function NutritionCard({
       title: "text-emerald-900",
       subtitle: "text-emerald-700",
       hoverBg: "hover:bg-emerald-100",
+      mealBg: "bg-white border border-emerald-100",
     },
     blue: {
       bg: "bg-blue-50",
@@ -179,6 +132,7 @@ function NutritionCard({
       title: "text-blue-900",
       subtitle: "text-blue-700",
       hoverBg: "hover:bg-blue-100",
+      mealBg: "bg-white border border-blue-100",
     },
     pink: {
       bg: "bg-pink-50",
@@ -188,6 +142,7 @@ function NutritionCard({
       title: "text-pink-900",
       subtitle: "text-pink-700",
       hoverBg: "hover:bg-pink-100",
+      mealBg: "bg-white border border-pink-100",
     },
   }
 
@@ -195,115 +150,33 @@ function NutritionCard({
 
   return (
     <div className={cn("rounded-lg border overflow-hidden", config.bg, config.border)}>
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={cn(
-          "w-full p-2.5 flex items-center justify-between transition-colors",
-          config.hoverBg
-        )}
-      >
-        <div className="flex items-center gap-2.5 flex-1 text-left min-w-0">
-          <div className={cn("w-7 h-7 rounded flex items-center justify-center flex-shrink-0", config.iconBg)}>
-            <Icon className={cn("w-3.5 h-3.5", config.icon)} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h4 className={cn("font-semibold text-xs", config.title)}>{title}</h4>
-            <p className={cn("text-xs", config.subtitle)}>{subtitle}</p>
-          </div>
-          {/* Macro pills on desktop */}
-          <div className="hidden sm:flex gap-1 flex-shrink-0">
-            {totals.carbs_g > 0 && (
-              <MacroPill icon={Flame} value={`${totals.carbs_g}g`} color={color} />
-            )}
-            {totals.protein_g > 0 && (
-              <MacroPill icon={Flame} value={`${totals.protein_g}g`} color={color} type="protein" />
-            )}
-          </div>
+      <div className={cn("w-full p-2.5 flex items-center gap-2.5", config.hoverBg)}>
+        <div className={cn("w-7 h-7 rounded flex items-center justify-center flex-shrink-0", config.iconBg)}>
+          <Icon className={cn("w-3.5 h-3.5", config.icon)} />
         </div>
-        <ChevronDown
-          className={cn(
-            "h-3.5 w-3.5 transition-transform flex-shrink-0",
-            isExpanded && "rotate-180",
-            config.icon
-          )}
-        />
-      </button>
+        <div className="flex-1 min-w-0">
+          <h4 className={cn("font-semibold text-xs", config.title)}>{title}</h4>
+          <p className={cn("text-xs", config.subtitle)}>{subtitle}</p>
+        </div>
+      </div>
 
-      {isExpanded && (
-        <div className={cn("border-t p-2.5 space-y-2", config.border)}>
-          {/* Macro summary */}
-          <div className="grid grid-cols-2 gap-1.5">
-            {totals.carbs_g > 0 && (
-              <div className="bg-white rounded p-1.5 text-center text-xs">
-                <div className="font-semibold text-slate-900">{totals.carbs_g}g</div>
-                <div className="text-muted-foreground text-[0.65rem]">Carbs</div>
-              </div>
-            )}
-            {totals.protein_g > 0 && (
-              <div className="bg-white rounded p-1.5 text-center text-xs">
-                <div className="font-semibold text-slate-900">{totals.protein_g}g</div>
-                <div className="text-muted-foreground text-[0.65rem]">Protein</div>
-              </div>
-            )}
-            {totals.fat_g > 0 && (
-              <div className="bg-white rounded p-1.5 text-center text-xs">
-                <div className="font-semibold text-slate-900">{totals.fat_g}g</div>
-                <div className="text-muted-foreground text-[0.65rem]">Fat</div>
-              </div>
-            )}
-            {totals.kcal > 0 && (
-              <div className="bg-white rounded p-1.5 text-center text-xs">
-                <div className="font-semibold text-slate-900">{totals.kcal}</div>
-                <div className="text-muted-foreground text-[0.65rem]">kcal</div>
-              </div>
-            )}
-          </div>
-
-          {/* Meals list */}
-          <div className="space-y-1">
-            {meals.map((meal) => (
-              <div key={meal.id} className="bg-white rounded p-1.5 text-xs">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-900 truncate text-[0.7rem]">
-                      {meal.name}
-                    </div>
-                    {meal.time && (
-                      <div className="text-muted-foreground text-[0.6rem]">@{meal.time}</div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-0.5 text-slate-600 font-semibold whitespace-nowrap text-[0.65rem]">
-                    <Flame className="h-2.5 w-2.5" />
-                    {meal.kcal}
-                  </div>
+      {/* Meals list */}
+      <div className={cn("border-t p-2.5 space-y-1.5", config.border)}>
+        {meals.map((meal) => (
+          <div key={meal.id} className={cn("rounded p-2 text-xs", config.mealBg)}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-slate-900">
+                  {meal.name.replace(/Fuel:\s*(Pre|During|Post)\s*·\s*/i, '')}
                 </div>
+                {meal.time && (
+                  <div className="text-muted-foreground text-[0.65rem]">@{meal.time}</div>
+                )}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-interface MacroPillProps {
-  icon: React.ComponentType<{ className?: string }>
-  value: string
-  color: "emerald" | "blue" | "pink"
-  type?: "carbs" | "protein"
-}
-
-function MacroPill({ icon: Icon, value, color, type = "carbs" }: MacroPillProps) {
-  const colorMap = {
-    emerald: "bg-emerald-100 text-emerald-700",
-    blue: "bg-blue-100 text-blue-700",
-    pink: "bg-pink-100 text-pink-700",
-  }
-
-  return (
-    <div className={cn("flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold", colorMap[color])}>
-      <Icon className="h-2.5 w-2.5" />
-      <span>{value}</span>
+        ))}
+      </div>
     </div>
   )
 }
