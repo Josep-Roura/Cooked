@@ -3,6 +3,7 @@ import { z } from "zod"
 import crypto from "node:crypto"
 import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
+import { generateDynamicRecipe, resetWeeklyRecipeTracking } from "@/lib/nutrition/recipe-generator"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
@@ -403,6 +404,8 @@ function splitMacrosAcrossMeals(
     const fat = Math.round(macros.fat_g * mealShares[index])
     const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4))
 
+    const targetMacros = { kcal, protein_g: protein, carbs_g: carbs, fat_g: fat }
+    
     return {
       slot: index + 1,
       meal_type: meal.meal_type,
@@ -413,7 +416,12 @@ function splitMacrosAcrossMeals(
       protein_g: protein,
       carbs_g: carbs,
       fat_g: fat,
-      recipe: fallbackRecipeForMeal(meal.meal_type, meal.name, dayIndex),
+      recipe: generateDynamicRecipe(
+        meal.meal_type as "breakfast" | "snack" | "lunch" | "dinner",
+        targetMacros,
+        dayIndex,
+        index,
+      ),
     }
   })
 }
@@ -1106,6 +1114,9 @@ export async function POST(req: NextRequest) {
     try {
       const allDays: typeof aiResponseSchema._output['days'] = []
       
+      // Reset recipe tracking for the new week
+      resetWeeklyRecipeTracking(start)
+      
       for (const chunk of chunks) {
         console.log(`[${requestId}] Processing chunk: ${chunk.start} to ${chunk.end}`)
         
@@ -1190,6 +1201,8 @@ export async function POST(req: NextRequest) {
         const message = error instanceof Error ? error.message : String(error)
         aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
       }
+      // Reset recipe tracking for fallback plan
+      resetWeeklyRecipeTracking(start)
       const fallback = buildFallbackPlan({
         start,
         end,
