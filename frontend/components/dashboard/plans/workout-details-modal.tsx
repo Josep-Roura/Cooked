@@ -30,7 +30,8 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [displayedTime, setDisplayedTime] = useState("")
   const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
-   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
+  const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
+  const [customDuration, setCustomDuration] = useState<number | null>(null)
    
    const loadNutritionPlan = useCallback(async () => {
       if (!workout) return
@@ -126,15 +127,17 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
     )
   }
 
-  const title = workout.title ?? workout.workout_type ?? "Workout"
-  const duration = workout.planned_hours 
-    ? Math.round(workout.planned_hours * 60) 
-    : workout.actual_hours 
-      ? Math.round(workout.actual_hours * 60) 
-      : null
-  const description = duration 
-    ? `${duration} min · ${workout.workout_type || "Training"}` 
-    : workout.workout_type || "Training session"
+   const title = workout.title ?? workout.workout_type ?? "Workout"
+   const duration = customDuration !== null
+     ? customDuration
+     : workout.planned_hours 
+     ? Math.round(workout.planned_hours * 60) 
+     : workout.actual_hours 
+       ? Math.round(workout.actual_hours * 60) 
+       : null
+   const description = duration 
+     ? `${duration} min · ${workout.workout_type || "Training"}` 
+     : workout.workout_type || "Training session"
 
   const workoutType = workout.workout_type?.toLowerCase() ?? ""
   const emoji = workoutType.includes("swim")
@@ -333,17 +336,30 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
           </div>
         </div>
 
-        {/* Quick Stats - Compact */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {duration && (
-            <div className="bg-blue-50 rounded-lg p-2 border border-blue-200/60">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Clock className="h-3.5 w-3.5 text-blue-600" />
-                <span className="text-lg font-bold text-blue-900">{duration}</span>
-              </div>
-              <p className="text-xs text-blue-700 font-medium">min</p>
-            </div>
-          )}
+         {/* Quick Stats - Compact */}
+         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+           {duration ? (
+             <div className="bg-blue-50 rounded-lg p-2 border border-blue-200/60">
+               <div className="flex items-center gap-1.5 mb-0.5">
+                 <Clock className="h-3.5 w-3.5 text-blue-600" />
+                 <span className="text-lg font-bold text-blue-900">{duration}</span>
+               </div>
+               <p className="text-xs text-blue-700 font-medium">min</p>
+             </div>
+           ) : (
+             <div className="bg-blue-50 rounded-lg p-2 border border-blue-200/60">
+               <div className="flex flex-col gap-1">
+                 <label className="text-xs text-blue-700 font-medium">Duration (min)</label>
+                 <Input
+                   type="number"
+                   placeholder="e.g. 60"
+                   value={customDuration ?? ""}
+                   onChange={(e) => setCustomDuration(e.target.value ? parseInt(e.target.value) : null)}
+                   className="h-7 px-2 text-xs bg-white border border-blue-200"
+                 />
+               </div>
+             </div>
+           )}
           {workout.tss && (
             <div className="bg-orange-50 rounded-lg p-2 border border-orange-200/60">
               <div className="flex items-center gap-1.5 mb-0.5">
