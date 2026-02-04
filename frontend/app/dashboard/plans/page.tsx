@@ -302,9 +302,15 @@ export default function PlansPage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
-        console.error(`[handleDragEnd] API error:`, errorData)
-        throw new Error(errorData.error || `Failed to update item (${response.status})`)
+        let errorData
+        const text = await response.text()
+        try {
+          errorData = JSON.parse(text)
+        } catch {
+          errorData = { error: text || `HTTP ${response.status}` }
+        }
+        console.error(`[handleDragEnd] API error (${response.status}):`, errorData)
+        throw new Error(errorData.error || errorData?.message || `Failed to update item (${response.status})`)
       }
       const result = await response.json().catch(() => null)
       console.log(`[handleDragEnd] API success:`, result)
