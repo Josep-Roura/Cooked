@@ -50,6 +50,7 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
       
       const response = await fetch("/api/v1/nutrition/meal/delete", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mealId: meal.id,
