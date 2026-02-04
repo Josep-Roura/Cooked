@@ -617,12 +617,20 @@ async function fetchPlanWeek(start: string, end: string) {
 
 async function fetchUserEvents(from: string, to: string) {
   const params = new URLSearchParams({ from, to })
-  const response = await fetch(`/api/v1/events?${params.toString()}`)
+  const url = `/api/v1/events?${params.toString()}`
+  console.log("[fetchUserEvents] Requesting:", { url, from, to })
+  
+  const response = await fetch(url)
+  
+  console.log("[fetchUserEvents] Response status:", response.status)
+  
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
+    console.error("[fetchUserEvents] Error response:", errorBody)
     throw new Error(errorBody?.error ?? "Failed to load events")
   }
   const data = (await response.json()) as UserEventsPayload
+  console.log("[fetchUserEvents] Success:", { count: data.events?.length ?? 0 })
   return Array.isArray(data.events) ? data.events : []
 }
 
@@ -1467,7 +1475,12 @@ export function useUserEvents(
 ) {
   return useQuery({
     queryKey: ["db", "events", userId, from, to],
-    queryFn: () => fetchUserEvents(from, to),
+    queryFn: async () => {
+      console.log("[useUserEvents] Query starting:", { userId, from, to })
+      const events = await fetchUserEvents(from, to)
+      console.log("[useUserEvents] Events loaded:", { count: events.length })
+      return events
+    },
     enabled: Boolean(userId) && Boolean(from) && Boolean(to),
     staleTime: 1000 * 30,
   })
