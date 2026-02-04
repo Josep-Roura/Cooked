@@ -6,7 +6,17 @@ const TIME_REGEX = /^\d{2}:\d{2}$/
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
+    let body
+    try {
+      body = await req.json()
+    } catch (parseError) {
+      console.error("[POST /api/v1/plans/update-item] JSON parse error:", parseError)
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      )
+    }
+    
     const { itemId, itemType, newDate, newStartTime } = body
 
     console.log(`[POST /api/v1/plans/update-item] Request:`, { itemId, itemType, newDate, newStartTime })
@@ -92,10 +102,12 @@ export async function POST(req: NextRequest) {
 
     // Handle workout updates
     if (itemType === "workout") {
+      console.log(`[POST /api/v1/plans/update-item] Updating workout ${itemId}`)
       // Extract workout ID (format: "workout-{id}")
       const workoutId = Number(itemId)
 
       if (!workoutId || Number.isNaN(workoutId)) {
+        console.error(`[POST /api/v1/plans/update-item] Invalid workout ID format:`, itemId)
         return NextResponse.json(
           { error: "Invalid workout ID format" },
           { status: 400 }
@@ -115,6 +127,7 @@ export async function POST(req: NextRequest) {
         .select("id")
 
       if (updateError) {
+        console.error(`[POST /api/v1/plans/update-item] Workout update error:`, updateError)
         return NextResponse.json(
           { error: "Failed to update workout", details: updateError.message },
           { status: 500 }
@@ -122,12 +135,14 @@ export async function POST(req: NextRequest) {
       }
 
       if (!updatedWorkout || updatedWorkout.length === 0) {
+        console.warn(`[POST /api/v1/plans/update-item] Workout not found: ${itemId}`)
         return NextResponse.json(
           { error: "Workout not found or access denied" },
           { status: 404 }
         )
       }
 
+      console.log(`[POST /api/v1/plans/update-item] Workout updated successfully:`, updatedWorkout)
       return NextResponse.json(
         { success: true, message: "Workout updated successfully" },
         { status: 200 }
