@@ -9,25 +9,32 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { itemId, itemType, newDate, newStartTime } = body
 
+    console.log(`[POST /api/v1/plans/update-item] Request:`, { itemId, itemType, newDate, newStartTime })
+
     // Validate required fields
     if (!itemId || !itemType || !newDate || !newStartTime) {
+      const error = "Missing required fields: itemId, itemType, newDate, newStartTime"
+      console.error(`[POST /api/v1/plans/update-item] Validation error:`, { itemId, itemType, newDate, newStartTime })
       return NextResponse.json(
-        { error: "Missing required fields: itemId, itemType, newDate, newStartTime" },
+        { error },
         { status: 400 }
       )
     }
 
     // Validate date and time formats
     if (!DATE_REGEX.test(newDate)) {
+      console.error(`[POST /api/v1/plans/update-item] Invalid date format:`, newDate)
       return NextResponse.json({ error: "Invalid date format. Expected: yyyy-MM-dd" }, { status: 400 })
     }
 
     if (!TIME_REGEX.test(newStartTime)) {
+      console.error(`[POST /api/v1/plans/update-item] Invalid time format:`, newStartTime)
       return NextResponse.json({ error: "Invalid time format. Expected: HH:mm" }, { status: 400 })
     }
 
     // Validate item type
     if (!["meal", "workout"].includes(itemType)) {
+      console.error(`[POST /api/v1/plans/update-item] Invalid itemType:`, itemType)
       return NextResponse.json({ error: "Invalid itemType. Must be 'meal' or 'workout'" }, { status: 400 })
     }
 
@@ -38,6 +45,7 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
+      console.error(`[POST /api/v1/plans/update-item] Auth error:`, authError?.message)
       return NextResponse.json(
         { error: "Not authenticated", details: authError?.message ?? null },
         { status: 401 }
@@ -46,6 +54,7 @@ export async function POST(req: NextRequest) {
 
     // Handle meal updates
     if (itemType === "meal") {
+      console.log(`[POST /api/v1/plans/update-item] Updating meal ${itemId}`)
       const { data: updatedMeal, error: updateError } = await supabase
         .from("nutrition_meals")
         .update({
@@ -59,6 +68,7 @@ export async function POST(req: NextRequest) {
         .select("id")
 
       if (updateError) {
+        console.error(`[POST /api/v1/plans/update-item] Meal update error:`, updateError)
         return NextResponse.json(
           { error: "Failed to update meal", details: updateError.message },
           { status: 500 }
@@ -66,12 +76,14 @@ export async function POST(req: NextRequest) {
       }
 
       if (!updatedMeal || updatedMeal.length === 0) {
+        console.warn(`[POST /api/v1/plans/update-item] Meal not found or locked: ${itemId}`)
         return NextResponse.json(
           { error: "Meal not found or locked" },
           { status: 404 }
         )
       }
 
+      console.log(`[POST /api/v1/plans/update-item] Meal updated successfully:`, updatedMeal)
       return NextResponse.json(
         { success: true, message: "Meal updated successfully" },
         { status: 200 }
