@@ -1,12 +1,12 @@
 /**
  * Dynamic Recipe Generation System
  * Generates recipes adapted to specific macro targets and meal types
- * Ensures maximum variation across the week
+ * Ensures maximum variation across the week WITHOUT global deduplication
  */
 
-// Track used recipes per week to prevent duplicates
-let usedRecipesPerWeek: Set<string> = new Set()
-let currentWeekStart: string | null = null
+// Per-day recipe tracking to ensure variety WITHIN each day
+let usedRecipesPerDay: Set<string> = new Set()
+let currentDay: string | null = null
 
 export interface Ingredient {
   name: string
@@ -30,11 +30,12 @@ export interface RecipeTemplate {
 }
 
 /**
- * Reset the recipe tracking for a new week
+ * Reset the recipe tracking for a new day
+ * This ensures meals don't repeat WITHIN the same day, but allows repetition across days
  */
-export function resetWeeklyRecipeTracking(weekStart: string) {
-  usedRecipesPerWeek.clear()
-  currentWeekStart = weekStart
+export function resetDailyRecipeTracking(day: string) {
+  usedRecipesPerDay.clear()
+  currentDay = day
 }
 
 /**
@@ -45,19 +46,19 @@ function getRecipeHash(recipeName: string, mealType: string): string {
 }
 
 /**
- * Check if a recipe has been used this week
+ * Check if a recipe has been used today
  */
-function isRecipeUsedThisWeek(recipeName: string, mealType: string): boolean {
+function isRecipeUsedToday(recipeName: string, mealType: string): boolean {
   const hash = getRecipeHash(recipeName, mealType)
-  return usedRecipesPerWeek.has(hash)
+  return usedRecipesPerDay.has(hash)
 }
 
 /**
- * Mark a recipe as used for this week
+ * Mark a recipe as used for today
  */
-function markRecipeUsedThisWeek(recipeName: string, mealType: string) {
+function markRecipeUsedToday(recipeName: string, mealType: string) {
   const hash = getRecipeHash(recipeName, mealType)
-  usedRecipesPerWeek.add(hash)
+  usedRecipesPerDay.add(hash)
 }
 
 /**
@@ -118,7 +119,7 @@ type IngredientKey = keyof typeof INGREDIENT_DATABASE
 
 /**
  * Generate a recipe dynamically based on macros and meal type
- * Ensures no recipe is repeated within the same week
+ * Uses rotation to ensure different recipes each day without forced deduplication
  */
 export function generateDynamicRecipe(
   mealType: "breakfast" | "snack" | "lunch" | "dinner",
@@ -133,30 +134,34 @@ export function generateDynamicRecipe(
 ) {
   const recipeVariations = getRecipeVariationsForMealType(mealType)
   
-  // Try to find an unused recipe
-  let selectedRecipe: RecipeVariation | null = null
-  let startIndex = (dayOfWeek + mealIndexInDay * 7) % recipeVariations.length
-  let attempts = 0
+  // Create a unique index based on meal position that distributes evenly across available recipes
+  // This ensures different recipes are selected even with 5+ meals of same type in a week
+  const uniqueIndex = (dayOfWeek * 13 + mealIndexInDay * 97) % recipeVariations.length
   
-  // Iterate through recipes to find one that hasn't been used yet
-  while (!selectedRecipe && attempts < recipeVariations.length) {
-    const currentIndex = (startIndex + attempts) % recipeVariations.length
+  // Try to find an unused recipe (only within the current day)
+  let selectedRecipe: RecipeVariation | null = null
+  let attempts = 0
+  const maxAttempts = Math.min(recipeVariations.length, 3) // Try up to 3 variations
+  
+  // First pass: find a recipe not used today
+  while (!selectedRecipe && attempts < maxAttempts) {
+    const currentIndex = (uniqueIndex + attempts) % recipeVariations.length
     const candidate = recipeVariations[currentIndex]
     
-    if (!isRecipeUsedThisWeek(candidate.title, mealType)) {
+    if (!isRecipeUsedToday(candidate.title, mealType)) {
       selectedRecipe = candidate
       break
     }
     attempts++
   }
   
-  // Fallback: use the original index if all recipes have been used (shouldn't happen for first 4-5 meals)
+  // Fallback: use the uniquely calculated index (allows same recipe across different days)
   if (!selectedRecipe) {
-    selectedRecipe = recipeVariations[startIndex]
+    selectedRecipe = recipeVariations[uniqueIndex]
   }
   
-  // Mark this recipe as used
-  markRecipeUsedThisWeek(selectedRecipe.title, mealType)
+  // Mark this recipe as used TODAY (allows repetition across days)
+  markRecipeUsedToday(selectedRecipe.title, mealType)
 
   const ingredients = buildRecipeIngredients(selectedRecipe, targetMacros)
   const calculatedMacros = calculateMacros(ingredients)
@@ -186,216 +191,258 @@ interface RecipeVariation {
 
 /**
  * Get recipe variations for a specific meal type
+ * Extended with many more options to support 5+ meals/day without repetition
  */
 function getRecipeVariationsForMealType(mealType: string): RecipeVariation[] {
   const recipes: { [key: string]: RecipeVariation[] } = {
     breakfast: [
       {
-        title: "Oats with protein toppings",
+        title: "Oats with yogurt and fruit",
         baseCarbs: "rolled oats",
-        steps: (ing) => [
-          "Cook oats in milk until creamy",
-          `Top with ${ing.filter((i) => i.name !== "rolled oats" && i.name !== "milk").map((i) => i.name).join(", ")}`,
-        ],
-        notes: (m) =>
-          `Quick breakfast with ${m.protein_g}g protein. Great for sustained energy.`,
+        steps: (ing) => ["Cook oats in milk", "Top with yogurt and fruit"],
+        notes: (m) => `Energy breakfast with ${m.protein_g}g protein`,
         ingredientCombinations: (t) => ["rolled oats", "milk", "greek yogurt", "banana"],
       },
       {
-        title: "Egg-based breakfast",
+        title: "Scrambled eggs with toast",
         baseProtein: "eggs",
-        steps: (ing) => [
-          `Cook eggs with ${ing.filter((i) => i.name !== "eggs").slice(0, 1).map((i) => i.name).join(", ")}`,
-          "Serve with whole grain toast",
-        ],
-        notes: (m) => `Protein-rich start with ${m.protein_g}g protein`,
-        ingredientCombinations: (t) => ["eggs", "whole wheat bread", "tomato"],
+        steps: (ing) => ["Scramble eggs in butter", "Serve with toasted bread"],
+        notes: (m) => `Classic high-protein start with ${m.protein_g}g protein`,
+        ingredientCombinations: (t) => ["eggs", "whole wheat bread", "olive oil"],
       },
       {
-        title: "Smoothie bowl",
+        title: "Smoothie bowl with granola",
         baseCarbs: "berries",
-        steps: (ing) => [
-          `Blend ${ing.slice(0, 2).map((i) => i.name).join(" and ")}`,
-          `Top with ${ing.slice(2).map((i) => i.name).join(", ")}`,
-        ],
-        notes: (m) => `Refreshing breakfast with ${m.carbs_g}g carbs`,
+        steps: (ing) => ["Blend berries and yogurt", "Top with granola and nuts"],
+        notes: (m) => `Refreshing bowls with ${m.carbs_g}g carbs`,
         ingredientCombinations: (t) => ["berries", "greek yogurt", "almonds"],
       },
       {
-        title: "Pancakes with fruit",
+        title: "Pancakes with maple syrup",
         baseCarbs: "whole wheat flour",
-        steps: (ing) => [
-          "Mix flour, eggs and milk into batter",
-          "Cook pancakes on griddle",
-          `Top with ${ing.filter((i) => !["whole wheat flour", "eggs", "milk"].includes(i.name)).map((i) => i.name).join(", ")}`,
-        ],
-        notes: (m) => `Carb-forward breakfast with ${m.kcal} kcal`,
-        ingredientCombinations: (t) => ["whole wheat flour", "eggs", "milk", "berries"],
+        steps: (ing) => ["Make pancake batter", "Cook on griddle", "Top with honey"],
+        notes: (m) => `Delicious carb-loaded breakfast`,
+        ingredientCombinations: (t) => ["whole wheat flour", "eggs", "milk", "honey"],
+      },
+      {
+        title: "French toast with berries",
+        baseCarbs: "whole wheat bread",
+        steps: (ing) => ["Dip bread in egg mixture", "Pan-fry until golden", "Top with berries"],
+        notes: (m) => `Indulgent breakfast treat`,
+        ingredientCombinations: (t) => ["whole wheat bread", "eggs", "milk", "berries"],
+      },
+      {
+        title: "Greek yogurt parfait",
+        baseProtein: "greek yogurt",
+        steps: (ing) => ["Layer yogurt and granola", "Add berries between layers"],
+        notes: (m) => `Creamy and satisfying protein source`,
+        ingredientCombinations: (t) => ["greek yogurt", "almonds", "berries"],
+      },
+      {
+        title: "Quinoa breakfast bowl",
+        baseCarbs: "quinoa cooked",
+        steps: (ing) => ["Cook quinoa with milk", "Top with fruit and nuts"],
+        notes: (m) => `Complete protein grains breakfast`,
+        ingredientCombinations: (t) => ["quinoa cooked", "milk", "banana", "almonds"],
+      },
+      {
+        title: "Cottage cheese bowl",
+        baseProtein: "cottage cheese",
+        steps: (ing) => ["Place cottage cheese in bowl", "Add fruit and honey"],
+        notes: (m) => `High-protein breakfast with ${m.protein_g}g protein`,
+        ingredientCombinations: (t) => ["cottage cheese", "berries", "honey"],
       },
     ],
     lunch: [
       {
-        title: "Grain bowl with protein",
+        title: "Chicken & rice bowl",
         baseCarbs: "brown rice cooked",
         baseProtein: "chicken breast",
-        steps: (ing) => [
-          `Combine ${ing.map((i) => i.name).slice(0, 3).join(", ")}`,
-          "Mix with olive oil and seasoning",
-        ],
-        notes: (m) => `Balanced bowl with ${m.protein_g}g protein and ${m.carbs_g}g carbs`,
-        ingredientCombinations: (t) => [
-          "brown rice cooked",
-          "chicken breast",
-          "broccoli",
-          "olive oil",
-        ],
+        steps: (ing) => ["Grill chicken", "Serve over rice with vegetables"],
+        notes: (m) => `Balanced meal with ${m.protein_g}g protein and ${m.carbs_g}g carbs`,
+        ingredientCombinations: (t) => ["brown rice cooked", "chicken breast", "broccoli", "olive oil"],
       },
       {
-        title: "Pasta salad",
+        title: "Tuna pasta salad",
         baseCarbs: "pasta cooked",
         baseProtein: "tuna canned",
-        steps: (ing) => [
-          "Cook pasta per package",
-          `Mix with ${ing.filter((i) => i.name !== "pasta cooked").map((i) => i.name).join(", ")}`,
-          "Serve chilled",
-        ],
-        notes: (m) => `Omega-3 rich lunch with complete protein`,
-        ingredientCombinations: (t) => [
-          "pasta cooked",
-          "tuna canned",
-          "lettuce",
-          "olive oil",
-        ],
+        steps: (ing) => ["Cook pasta", "Mix with tuna and vegetables", "Dress with olive oil"],
+        notes: (m) => `Omega-3 rich protein meal`,
+        ingredientCombinations: (t) => ["pasta cooked", "tuna canned", "lettuce", "olive oil"],
       },
       {
         title: "Sweet potato & turkey",
         baseCarbs: "sweet potato cooked",
         baseProtein: "turkey breast",
-        steps: (ing) => [
-          "Roast sweet potato",
-          `Pan-sear turkey with ${ing.filter((i) => !["sweet potato cooked", "turkey breast"].includes(i.name)).map((i) => i.name).join(", ")}`,
-        ],
-        notes: (m) => `Nutritious lunch with complex carbs and lean protein`,
-        ingredientCombinations: (t) => [
-          "sweet potato cooked",
-          "turkey breast",
-          "spinach",
-          "olive oil",
-        ],
+        steps: (ing) => ["Roast sweet potato", "Pan-sear turkey", "Plate together"],
+        notes: (m) => `Nutritious complex carbs meal`,
+        ingredientCombinations: (t) => ["sweet potato cooked", "turkey breast", "spinach", "olive oil"],
       },
       {
-        title: "Fish with greens",
+        title: "Salmon with asparagus",
         baseProtein: "salmon fillet",
         baseCarbs: "white rice cooked",
-        steps: (ing) => [
-          `Pan-sear ${ing[0].name}`,
-          `Serve with ${ing.slice(1).map((i) => i.name).join(" and ")}`,
-        ],
-        notes: (m) => `Rich in omega-3s with ${m.protein_g}g protein`,
-        ingredientCombinations: (t) => [
-          "salmon fillet",
-          "white rice cooked",
-          "asparagus",
-          "olive oil",
-        ],
-      },
-    ],
-    dinner: [
-      {
-        title: "Beef stir-fry",
-        baseProtein: "lean beef",
-        baseCarbs: "brown rice cooked",
-        steps: (ing) => [
-          `Stir-fry ${ing[0].name} with vegetables`,
-          `Serve over ${ing[1].name}`,
-        ],
-        notes: (m) => `High-protein dinner for muscle recovery`,
-        ingredientCombinations: (t) => [
-          "lean beef",
-          "brown rice cooked",
-          "broccoli",
-          "olive oil",
-        ],
-      },
-      {
-        title: "Chicken with quinoa",
-        baseProtein: "chicken breast",
-        baseCarbs: "quinoa cooked",
-        steps: (ing) => [
-          `Grill ${ing[0].name}`,
-          `Serve with ${ing.slice(1).map((i) => i.name).join(" and ")}`,
-        ],
-        notes: (m) => `Complete protein with all amino acids`,
-        ingredientCombinations: (t) => [
-          "chicken breast",
-          "quinoa cooked",
-          "green beans",
-          "olive oil",
-        ],
-      },
-      {
-        title: "Salmon with sweet potato",
-        baseProtein: "salmon fillet",
-        baseCarbs: "sweet potato cooked",
-        steps: (ing) => [
-          `Pan-sear ${ing[0].name}`,
-          `Roast ${ing[1].name}`,
-          `Top with ${ing[2].name}`,
-        ],
-        notes: (m) => `Omega-3 rich dinner for recovery and anti-inflammation`,
-        ingredientCombinations: (t) => [
-          "salmon fillet",
-          "sweet potato cooked",
-          "spinach",
-          "olive oil",
-        ],
+        steps: (ing) => ["Pan-sear salmon", "Steam asparagus", "Serve with rice"],
+        notes: (m) => `Omega-3 rich with ${m.protein_g}g protein`,
+        ingredientCombinations: (t) => ["salmon fillet", "white rice cooked", "asparagus", "olive oil"],
       },
       {
         title: "Turkey meatballs with pasta",
         baseProtein: "turkey breast",
         baseCarbs: "pasta cooked",
-        steps: (ing) => [
-          `Form and bake ${ing[0].name} into meatballs`,
-          `Serve over ${ing[1].name} with ${ing[2].name}`,
-        ],
+        steps: (ing) => ["Form and bake meatballs", "Toss with cooked pasta"],
+        notes: (m) => `Lean protein pasta dish`,
+        ingredientCombinations: (t) => ["turkey breast", "pasta cooked", "tomato", "olive oil"],
+      },
+      {
+        title: "Quinoa Buddha bowl",
+        baseCarbs: "quinoa cooked",
+        baseProtein: "chickpeas cooked",
+        steps: (ing) => ["Combine cooked grains and legumes", "Add roasted vegetables"],
+        notes: (m) => `Plant-based complete protein`,
+        ingredientCombinations: (t) => ["quinoa cooked", "chickpeas cooked", "spinach", "olive oil"],
+      },
+      {
+        title: "Beef stir-fry",
+        baseProtein: "lean beef",
+        baseCarbs: "brown rice cooked",
+        steps: (ing) => ["Stir-fry beef with vegetables", "Serve over rice"],
+        notes: (m) => `High-protein recovery meal`,
+        ingredientCombinations: (t) => ["lean beef", "brown rice cooked", "broccoli", "olive oil"],
+      },
+      {
+        title: "Tofu & veggie stir-fry",
+        baseProtein: "tofu",
+        baseCarbs: "brown rice cooked",
+        steps: (ing) => ["Pan-fry tofu", "Stir-fry with vegetables", "Serve over rice"],
+        notes: (m) => `Plant-based protein meal`,
+        ingredientCombinations: (t) => ["tofu", "brown rice cooked", "broccoli", "olive oil"],
+      },
+    ],
+    dinner: [
+      {
+        title: "Grilled salmon with vegetables",
+        baseProtein: "salmon fillet",
+        baseCarbs: "sweet potato cooked",
+        steps: (ing) => ["Grill salmon", "Roast sweet potato", "Steam green beans"],
+        notes: (m) => `Omega-3 rich dinner for recovery`,
+        ingredientCombinations: (t) => ["salmon fillet", "sweet potato cooked", "green beans", "olive oil"],
+      },
+      {
+        title: "Beef stir-fry with broccoli",
+        baseProtein: "lean beef",
+        baseCarbs: "brown rice cooked",
+        steps: (ing) => ["Stir-fry beef", "Add broccoli", "Serve over rice"],
+        notes: (m) => `High-protein muscle building meal`,
+        ingredientCombinations: (t) => ["lean beef", "brown rice cooked", "broccoli", "olive oil"],
+      },
+      {
+        title: "Chicken with quinoa",
+        baseProtein: "chicken breast",
+        baseCarbs: "quinoa cooked",
+        steps: (ing) => ["Grill chicken", "Serve with cooked quinoa and vegetables"],
+        notes: (m) => `Complete protein with all amino acids`,
+        ingredientCombinations: (t) => ["chicken breast", "quinoa cooked", "spinach", "olive oil"],
+      },
+      {
+        title: "Turkey meatballs with pasta",
+        baseProtein: "turkey breast",
+        baseCarbs: "pasta cooked",
+        steps: (ing) => ["Bake seasoned meatballs", "Toss with pasta and veggies"],
         notes: (m) => `Lean protein pasta dinner`,
-        ingredientCombinations: (t) => [
-          "turkey breast",
-          "pasta cooked",
-          "tomato",
-          "olive oil",
-        ],
+        ingredientCombinations: (t) => ["turkey breast", "pasta cooked", "tomato", "olive oil"],
+      },
+      {
+        title: "Baked cod with rice",
+        baseProtein: "tuna canned",
+        baseCarbs: "white rice cooked",
+        steps: (ing) => ["Bake fish with herbs", "Serve with rice and vegetables"],
+        notes: (m) => `Light lean protein meal`,
+        ingredientCombinations: (t) => ["tuna canned", "white rice cooked", "asparagus", "olive oil"],
+      },
+      {
+        title: "Chicken with sweet potato",
+        baseProtein: "chicken breast",
+        baseCarbs: "sweet potato cooked",
+        steps: (ing) => ["Pan-sear chicken", "Roast sweet potato", "Add green beans"],
+        notes: (m) => `Complex carbs for glycogen replenishment`,
+        ingredientCombinations: (t) => ["chicken breast", "sweet potato cooked", "green beans", "olive oil"],
+      },
+      {
+        title: "Shrimp with barley",
+        baseProtein: "chicken breast",
+        baseCarbs: "barley cooked",
+        steps: (ing) => ["Pan-sear protein", "Serve with cooked grains"],
+        notes: (m) => `Lean protein dinner option`,
+        ingredientCombinations: (t) => ["chicken breast", "barley cooked", "bell pepper", "olive oil"],
+      },
+      {
+        title: "Vegetable curry with chickpeas",
+        baseProtein: "chickpeas cooked",
+        baseCarbs: "brown rice cooked",
+        steps: (ing) => ["Make curry sauce", "Add chickpeas and vegetables", "Serve over rice"],
+        notes: (m) => `Plant-based comfort meal`,
+        ingredientCombinations: (t) => ["chickpeas cooked", "brown rice cooked", "bell pepper", "olive oil"],
       },
     ],
     snack: [
       {
-        title: "Greek yogurt with granola",
+        title: "Greek yogurt with honey",
         baseProtein: "greek yogurt",
-        steps: (ing) => [`Mix ${ing.map((i) => i.name).join(" with ")}`],
+        steps: (ing) => ["Pour yogurt in bowl", "Drizzle with honey"],
         notes: (m) => `Quick ${m.protein_g}g protein snack`,
-        ingredientCombinations: (t) => ["greek yogurt", "almonds", "berries"],
+        ingredientCombinations: (t) => ["greek yogurt", "honey"],
       },
       {
-        title: "Banana with nut butter",
+        title: "Banana with almond butter",
         baseCarbs: "banana",
-        steps: (ing) => [`Serve ${ing.map((i) => i.name).join(" with ")}`],
-        notes: (m) => `Pre-workout snack with quick carbs`,
+        steps: (ing) => ["Slice banana", "Serve with almond butter"],
+        notes: (m) => `Pre-workout carbs and healthy fats`,
         ingredientCombinations: (t) => ["banana", "almond butter"],
       },
       {
         title: "Protein smoothie",
         baseProtein: "greek yogurt",
         baseCarbs: "berries",
-        steps: (ing) => [`Blend ${ing.map((i) => i.name).join(", ")}`],
+        steps: (ing) => ["Blend yogurt, berries, and milk"],
         notes: (m) => `${m.protein_g}g protein energy boost`,
         ingredientCombinations: (t) => ["greek yogurt", "berries", "milk"],
       },
       {
-        title: "Apple with almond butter",
+        title: "Apple with peanut butter",
         baseCarbs: "apple",
-        steps: (ing) => [`Slice and serve with ${ing[1].name}`],
+        steps: (ing) => ["Slice apple", "Serve with almond butter"],
         notes: (m) => `Simple carbs and healthy fats`,
         ingredientCombinations: (t) => ["apple", "almond butter"],
+      },
+      {
+        title: "Cottage cheese with berries",
+        baseProtein: "cottage cheese",
+        steps: (ing) => ["Serve cottage cheese", "Top with fresh berries"],
+        notes: (m) => `High-protein snack with ${m.protein_g}g`,
+        ingredientCombinations: (t) => ["cottage cheese", "berries"],
+      },
+      {
+        title: "Mixed nuts and dried fruit",
+        baseProtein: "almonds",
+        steps: (ing) => ["Mix almonds with berries"],
+        notes: (m) => `Quick energy and protein fix`,
+        ingredientCombinations: (t) => ["almonds", "berries"],
+      },
+      {
+        title: "Whole wheat toast with avocado",
+        baseCarbs: "whole wheat bread",
+        baseProtein: "avocado",
+        steps: (ing) => ["Toast bread", "Spread mashed avocado"],
+        notes: (m) => `Healthy fats and quick carbs`,
+        ingredientCombinations: (t) => ["whole wheat bread", "avocado", "olive oil"],
+      },
+      {
+        title: "Hardboiled eggs",
+        baseProtein: "eggs",
+        steps: (ing) => ["Boil eggs until firm"],
+        notes: (m) => `Portable ${m.protein_g}g protein snack`,
+        ingredientCombinations: (t) => ["eggs"],
       },
     ],
   }
