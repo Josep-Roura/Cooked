@@ -10,9 +10,14 @@ export async function POST(req: NextRequest) {
     }
 
     const workoutId = body.workoutId
-    const date = body.date
+    let date = body.date
 
-    console.log("Delete request received:", { workoutId, date, workoutIdType: typeof workoutId })
+    // Handle ISO date format (e.g., 2024-01-15T00:00:00.000Z) by extracting just the date
+    if (typeof date === "string" && date.includes("T")) {
+      date = date.split("T")[0]
+    }
+
+    console.log("Workout delete request:", { workoutId, date, dateType: typeof date, dateRaw: body.date, workoutIdType: typeof workoutId })
 
     if (!Number.isFinite(workoutId) || workoutId <= 0) {
       console.error("Invalid workoutId:", workoutId)
