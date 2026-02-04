@@ -654,13 +654,17 @@ function normalizeTime(time: unknown): string {
   return "12:00"
 }
 
-function normalizeAiResponse(response: unknown): AiResponse | null {
+function normalizeAiResponse(response: unknown, requestId?: string): AiResponse | null {
   if (!response || typeof response !== "object" || !("days" in response)) {
+    if (requestId) console.log(`[${requestId}] Response missing 'days' field:`, response)
     return null
   }
   
   const raw = response as Record<string, unknown>
-  if (!Array.isArray(raw.days)) return null
+  if (!Array.isArray(raw.days)) {
+    if (requestId) console.log(`[${requestId}] Days is not an array:`, typeof raw.days)
+    return null
+  }
   
   const days = raw.days.map((day: unknown) => {
     if (typeof day !== "object" || !day) return null
@@ -1062,9 +1066,9 @@ export async function POST(req: NextRequest) {
         }
         
         // Normalize the response to fix any unit inconsistencies
-        const normalized = normalizeAiResponse(parsedJson)
+        const normalized = normalizeAiResponse(parsedJson, `${requestId}-chunk-${chunks.indexOf(chunk) + 1}`)
         if (!normalized) {
-          console.error(`[${requestId}] Failed to normalize chunk response`)
+          console.error(`[${requestId}] Failed to normalize chunk response. Raw keys:`, Object.keys(parsedJson as any))
           aiErrorCode = "INVALID_JSON"
           throw new Error("Failed to normalize AI response")
         }
