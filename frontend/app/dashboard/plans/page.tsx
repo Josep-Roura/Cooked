@@ -289,6 +289,11 @@ export default function PlansPage() {
 
     // Check if item actually moved
     try {
+      if (!item.source) {
+        console.warn(`[handleDragEnd] Item has no source:`, item)
+        throw new Error("Item source not defined")
+      }
+      
       const payload = {
         itemId: item.source.sourceId,
         itemType: item.source.type,
