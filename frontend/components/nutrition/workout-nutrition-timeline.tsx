@@ -8,6 +8,47 @@ import { useToast } from "@/components/ui/use-toast"
 import { exportNutritionToPDF, exportNutritionAsTextPDF } from "@/lib/nutrition/export-pdf"
 import { NutritionReminders } from "./nutrition-reminders"
 
+// Helper function to convert Spanish keys to English
+function convertSpanishToEnglish(plan: any): any {
+  if (!plan || typeof plan !== "object") return plan
+  
+  // Map Spanish keys to English
+  const keyMap: Record<string, string> = {
+    pre_entrenamiento: "preWorkout",
+    durante_entrenamiento: "duringWorkout",
+    post_entrenamiento: "postWorkout",
+    carbohidratos_por_hora_g: "carbsPerHour",
+    hidratacion_por_hora_ml: "hydrationPerHour",
+    sodio_por_hora_mg: "sodiumPerHour",
+    timing: "timing",
+    items: "items",
+    totalCarbs: "totalCarbs",
+    totalProtein: "totalProtein",
+    totalCalories: "totalCalories",
+    rationale: "rationale",
+  }
+  
+  const converted: any = {}
+  
+  for (const [key, value] of Object.entries(plan)) {
+    const newKey = keyMap[key] || key
+    
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      // Recursively convert nested objects
+      converted[newKey] = convertSpanishToEnglish(value)
+    } else if (Array.isArray(value)) {
+      // Handle arrays
+      converted[newKey] = value.map((item: any) =>
+        typeof item === "object" && item !== null ? convertSpanishToEnglish(item) : item
+      )
+    } else {
+      converted[newKey] = value
+    }
+  }
+  
+  return converted
+}
+
 interface WorkoutNutritionPlanProps {
   plan: {
     preWorkout?: {
@@ -94,6 +135,9 @@ export function WorkoutNutritionTimeline({
       return <div className="text-red-600">Error parsing nutrition plan</div>
     }
   }
+
+  // Convert Spanish keys to English if needed
+  parsedPlan = convertSpanishToEnglish(parsedPlan)
 
   // Validate plan structure
   if (!parsedPlan || typeof parsedPlan !== "object") {
