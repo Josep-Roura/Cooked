@@ -1,16 +1,3 @@
-/* Tailwind v4 + Turbopack compatibility fix */
-/* Import this BEFORE tailwindcss to prevent lab() parsing errors */
-@layer utilities {
-  /* Disable @supports rules with lab/lch colors by providing empty utility layer */
-  @supports (color: lab(0% 0 0)) {
-    /* Empty - prevents Turbopack parsing error */
-  }
-  
-  @supports (color: lch(0% 0 0deg)) {
-    /* Empty - prevents Turbopack parsing error */
-  }
-}
-
 @import "tailwindcss";
 @import "./tw-animate-css.css";
 

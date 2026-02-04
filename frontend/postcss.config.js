@@ -5,8 +5,6 @@ module.exports = {
       // See: https://github.com/vercel/next.js/issues/65179
       support: false,
     },
-    // Remove lab/lch color functions that Turbopack can't parse
-    "./postcss-remove-lab.js": {},
     autoprefixer: {},
   },
 };
