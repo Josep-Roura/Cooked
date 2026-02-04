@@ -3,7 +3,7 @@ import { z } from "zod"
 import crypto from "node:crypto"
 import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateDynamicRecipe, resetWeeklyRecipeTracking } from "@/lib/nutrition/recipe-generator"
+import { generateDynamicRecipe, resetDailyRecipeTracking } from "@/lib/nutrition/recipe-generator"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
@@ -561,6 +561,10 @@ function buildFallbackPlan({
     const cursor = new Date(`${start}T00:00:00Z`)
     cursor.setUTCDate(cursor.getUTCDate() + index)
     const date = cursor.toISOString().split("T")[0]
+    
+    // Reset daily recipe tracking for each new day to prevent same meal appearing multiple times
+    resetDailyRecipeTracking(date)
+    
     const dayWorkouts = workoutsByDay.get(date) ?? []
     const dayType = pickDayType(dayWorkouts)
     const dailyTargets = computeMacros(weightKg, dayType)
@@ -1114,9 +1118,6 @@ export async function POST(req: NextRequest) {
     try {
       const allDays: typeof aiResponseSchema._output['days'] = []
       
-      // Reset recipe tracking for the new week
-      resetWeeklyRecipeTracking(start)
-      
       for (const chunk of chunks) {
         console.log(`[${requestId}] Processing chunk: ${chunk.start} to ${chunk.end}`)
         
@@ -1201,8 +1202,6 @@ export async function POST(req: NextRequest) {
         const message = error instanceof Error ? error.message : String(error)
         aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
       }
-      // Reset recipe tracking for fallback plan
-      resetWeeklyRecipeTracking(start)
       const fallback = buildFallbackPlan({
         start,
         end,
