@@ -902,12 +902,15 @@ export function useTrainingSessions(
   return useQuery({
     queryKey: ["db", "training-sessions", userId, startDate, endDate],
     queryFn: async () => {
+      console.log("[Training Sessions] Query starting:", { userId, startDate, endDate })
       const workouts = await fetchWorkoutsByDateRange(
         userId as string,
         startDate,
         endDate,
       )
-      return buildTrainingSessions(workouts)
+      const sessions = buildTrainingSessions(workouts)
+      console.log("[Training Sessions] Built sessions:", { count: sessions.length, sessions })
+      return sessions
     },
     enabled: Boolean(userId) && Boolean(startDate) && Boolean(endDate),
     staleTime: 1000 * 45,

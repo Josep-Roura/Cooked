@@ -46,8 +46,11 @@ export function TodaysTrainingCard({ isLoading, sessions, onSelect, title }: Tod
   const [selectedSession, setSelectedSession] = useState<TrainingSessionSummary | null>(null)
 
   const filteredSessions = useMemo(
-    () =>
-      [...sessions].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title)),
+    () => {
+      const sorted = [...sessions].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.title.localeCompare(b.title))
+      console.log("[TodaysTrainingCard] Sessions loaded:", { count: sorted.length, sessions: sorted })
+      return sorted
+    },
     [sessions],
   )
 

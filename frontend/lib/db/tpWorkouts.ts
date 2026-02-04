@@ -78,6 +78,8 @@ export async function fetchWorkoutsByDateRange(
   startDate: string,
   endDate: string,
 ): Promise<TpWorkout[]> {
+  console.log("[Workouts] Fetching workouts:", { userId, startDate, endDate })
+  
   const { data, error } = await supabase
     .from("tp_workouts")
     .select("*")
@@ -87,8 +89,10 @@ export async function fetchWorkoutsByDateRange(
     .order("workout_day", { ascending: true })
 
   if (error) {
+    console.error("[Workouts] Fetch error:", error)
     throw new Error(error.message)
   }
 
+  console.log("[Workouts] Fetched successfully:", { count: data?.length ?? 0, data })
   return data ?? []
 }
