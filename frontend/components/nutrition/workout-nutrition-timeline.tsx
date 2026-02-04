@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, Clock, Droplet, Zap, Flame, Apple, AlertCircle, Download } from "lucide-react"
+import { ChevronDown, Clock, Droplet, Zap, Flame, Apple, AlertCircle, Download, Maximize2, Minimize2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -225,6 +225,7 @@ export function WorkoutNutritionTimeline({
   const [expandedSection, setExpandedSection] = useState<"pre" | "during" | "post" | null>("pre")
   const [isSaving, setIsSaving] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   // Handle if plan is a string instead of object
   let parsedPlan = plan
@@ -337,24 +338,142 @@ export function WorkoutNutritionTimeline({
   const timeWarning = !isTimeValid ? `(Using current time as workout start time was ${workoutStartTime === "TBD" ? "not set" : "invalid"})` : null
 
    return (
-     <div className="space-y-3">
-        {/* Export Container - Scrollable and Better Layout */}
-        <div id="nutrition-timeline-export" className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-slate-200 overflow-hidden max-h-[70vh] flex flex-col">
-           {/* Fixed Header */}
-           <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 z-10">
-             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-               <div>
-                 <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
-                 <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
-                 {timeWarning && (
-                   <p className="text-xs text-amber-600 mt-1.5 font-medium">{timeWarning}</p>
-                 )}
-               </div>
-               <span className="text-sm font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full whitespace-nowrap">
-                 {workoutDuration} min workout
-              </span>
+      <div className="space-y-3">
+        {/* Fullscreen Modal */}
+        {isFullscreen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2">
+            <div className="bg-white rounded-lg w-full h-full max-h-screen flex flex-col shadow-2xl">
+              {/* Fullscreen Header */}
+              <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
+                  <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
+                </div>
+                <button
+                  onClick={() => setIsFullscreen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                  title="Close fullscreen"
+                >
+                  <X className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+
+              {/* Fullscreen Content - Unlimited Height */}
+              <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
+                {/* Science Breakdown Section */}
+                {(parsedPlan?.rationale || (parsedPlan?.warnings && parsedPlan.warnings.length > 0)) && (
+                  <ScienceBreakdownSection
+                    rationale={parsedPlan.rationale}
+                    warnings={parsedPlan.warnings}
+                  />
+                )}
+
+                {/* Pre-Workout Section */}
+                {parsedPlan?.preWorkout && (
+                  <PreWorkoutSection
+                    data={parsedPlan.preWorkout}
+                    isExpanded={expandedSection === "pre"}
+                    onToggle={() => setExpandedSection(expandedSection === "pre" ? null : "pre")}
+                  />
+                )}
+
+                {/* During-Workout Section */}
+                {parsedPlan?.duringWorkout && (
+                  <DuringWorkoutSection
+                    data={parsedPlan.duringWorkout}
+                    workoutDuration={workoutDuration}
+                    workoutStartTime={workoutStartTime}
+                    calculateTime={calculateTime}
+                    isExpanded={expandedSection === "during"}
+                    onToggle={() => setExpandedSection(expandedSection === "during" ? null : "during")}
+                  />
+                )}
+
+                {/* Post-Workout Section */}
+                {parsedPlan?.postWorkout && (
+                  <PostWorkoutSection
+                    data={parsedPlan.postWorkout}
+                    workoutDuration={workoutDuration}
+                    workoutStartTime={workoutStartTime}
+                    calculateTime={calculateTime}
+                    isExpanded={expandedSection === "post"}
+                    onToggle={() => setExpandedSection(expandedSection === "post" ? null : "post")}
+                  />
+                )}
+
+                {/* Recommendations */}
+                {parsedPlan?.recommendations && (
+                  <div className="bg-white rounded-lg p-3 border border-amber-200">
+                    <div className="flex gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-amber-900">{parsedPlan.recommendations}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Fullscreen Footer */}
+              <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex gap-2 flex-wrap">
+                {recordId && onSave && (
+                  <Button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    size="sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    {isSaving ? "Saving..." : "Save Nutrition Plan"}
+                  </Button>
+                )}
+                <Button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  {isExporting ? "Exporting..." : "Export to PDF"}
+                </Button>
+                <Button
+                  onClick={() => setIsFullscreen(false)}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 ml-auto"
+                >
+                  <Minimize2 className="w-4 h-4" />
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
+        )}
+
+         {/* Export Container - Scrollable and Better Layout */}
+         <div id="nutrition-timeline-export" className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-slate-200 overflow-hidden max-h-[70vh] flex flex-col">
+            {/* Fixed Header */}
+            <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 z-10">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
+                  <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
+                  {timeWarning && (
+                    <p className="text-xs text-amber-600 mt-1.5 font-medium">{timeWarning}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full whitespace-nowrap">
+                    {workoutDuration} min workout
+                  </span>
+                  <button
+                    onClick={() => setIsFullscreen(true)}
+                    className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                    title="Expand to fullscreen"
+                  >
+                    <Maximize2 className="w-4 h-4 text-slate-600" />
+                  </button>
+                </div>
+              </div>
+            </div>
 
           {/* Scrollable Content */}
           <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
