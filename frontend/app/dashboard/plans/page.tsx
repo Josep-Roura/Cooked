@@ -428,58 +428,60 @@ export default function PlansPage() {
   }, [calendarById, planRowsByDay, weekMealsQuery.data, workoutsByDayForRender])
 
   return (
-    <main className="flex-1 p-8 overflow-auto">
-      <div className="max-w-6xl space-y-6">
-        <WeeklyPlanHeader
-          weekLabel={weekLabel}
-          onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
-          onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
-          onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-          onRegenerateWeek={handleRegenerateWeek}
-          onResetWeek={handleResetWeek}
-          isGenerating={isGenerating}
-        />
+    <main className="flex-1 p-8 overflow-hidden flex flex-col">
+      <WeeklyPlanHeader
+        weekLabel={weekLabel}
+        onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
+        onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
+        onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+        onRegenerateWeek={handleRegenerateWeek}
+        onResetWeek={handleResetWeek}
+        isGenerating={isGenerating}
+      />
 
-        {weekMealsQuery.isLoading || workoutsQuery.isLoading || planRowsQuery.isLoading ? (
-          <div className="rounded-3xl border border-border/60 bg-card p-6">
-            <Skeleton className="h-[520px] w-full" />
-          </div>
-        ) : (weekMealsQuery.data ?? []).length === 0 && (workoutsQuery.data ?? []).length === 0 ? (
-          <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
-            <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
-            <Button
-              variant="outline"
-              className="rounded-full text-xs"
-              onClick={() => handleGenerateWeek(false, true)}
-              disabled={isGenerating}
-            >
-              Generate plan
-            </Button>
-          </div>
-        ) : (
-          <WeeklyTimeGrid
-            days={days}
-            items={scheduleItems}
-            onSelectItem={(item) => {
-              if (item.type === "meal" || item.type.startsWith("nutrition_")) {
-                const meal = item.meta?.meal as PlanWeekMeal | undefined
-                if (meal) {
-                  openMealDetails(meal)
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl space-y-6 mt-6">
+          {weekMealsQuery.isLoading || workoutsQuery.isLoading || planRowsQuery.isLoading ? (
+            <div className="rounded-3xl border border-border/60 bg-card p-6">
+              <Skeleton className="h-[520px] w-full" />
+            </div>
+          ) : (weekMealsQuery.data ?? []).length === 0 && (workoutsQuery.data ?? []).length === 0 ? (
+            <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
+              <Button
+                variant="outline"
+                className="rounded-full text-xs"
+                onClick={() => handleGenerateWeek(false, true)}
+                disabled={isGenerating}
+              >
+                Generate plan
+              </Button>
+            </div>
+          ) : (
+            <WeeklyTimeGrid
+              days={days}
+              items={scheduleItems}
+              onSelectItem={(item) => {
+                if (item.type === "meal" || item.type.startsWith("nutrition_")) {
+                  const meal = item.meta?.meal as PlanWeekMeal | undefined
+                  if (meal) {
+                    openMealDetails(meal)
+                  }
+                } else if (item.type === "workout") {
+                  const workout = item.meta?.workout as TpWorkout | undefined
+                  if (workout) {
+                    openWorkoutDetails(workout)
+                  }
                 }
-              } else if (item.type === "workout") {
-                const workout = item.meta?.workout as TpWorkout | undefined
-                if (workout) {
-                  openWorkoutDetails(workout)
-                }
-              }
-            }}
-            onDragEnd={handleDragEnd}
-          />
-        )}
+              }}
+              onDragEnd={handleDragEnd}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="sticky bottom-6 mt-8">
-        <div className="max-w-6xl mx-auto bg-card border border-border rounded-full px-6 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+      <div className="flex-shrink-0">
+        <div className="max-w-6xl mx-auto bg-card border border-border rounded-full px-6 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm mt-8">
           <div className="text-xs text-muted-foreground">Weekly totals</div>
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <Badge variant="secondary">{weeklyTotals.kcal} kcal</Badge>
