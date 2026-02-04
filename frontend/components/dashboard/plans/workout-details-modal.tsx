@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { format } from "date-fns"
 import { Clock, Flame, Activity, Dumbbell, Timer, Zap, Loader, MapPin, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -30,93 +30,93 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [displayedTime, setDisplayedTime] = useState("")
   const [nutritionRecordId, setNutritionRecordId] = useState<string | null>(null)
-  const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
-  
-  // Reset state when modal opens/closes
-  useEffect(() => {
-    if (!open) {
-       setIsEditingTime(false)
-       setCustomDuringNutrition(null)
-       setNutritionPlan(null)
-       setNutritionRecordId(null)
-     } else if (workout) {
-       setDisplayedTime(workout.start_time ?? "TBD")
-       // Auto-load nutrition if it exists
-       loadNutritionPlan()
-     }
-   }, [open, workout])
-
-   const loadNutritionPlan = async () => {
-     if (!workout) return
-     
-     setIsLoadingNutrition(true)
-     try {
-       const response = await fetch(
-         `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=50`
-       )
-       
-       if (response.ok) {
-         const data = await response.json()
-         const records = data.records ?? []
-         
-         console.log(`[Nutrition Load] Found ${records.length} records for date ${workout.workout_day}`)
-         console.log(`[Nutrition Load] Looking for workout_id: ${workout.id} (type: ${typeof workout.id})`)
-         records.forEach((r: any, idx: number) => {
-           console.log(`  [Record ${idx}] workout_id: ${r.workout_id} (type: ${typeof r.workout_id}), has nutrition_plan_json: ${!!r.nutrition_plan_json}`)
-         })
-         
-         // Try matching by workout_id (as string or number)
-         const matchingRecord = records.find((r: any) => 
-           String(r.workout_id) === String(workout.id)
-         )
-         
-         if (matchingRecord) {
-           console.log(`[Nutrition Load] ✅ Found matching record`)
-           setNutritionRecordId(matchingRecord.id)
-           setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
-           
-           // Try to load the complete plan from nutrition_plan_json first
-           if (matchingRecord.nutrition_plan_json) {
-             try {
-               console.log(`[Nutrition Load] Parsing nutrition_plan_json...`)
-               const plan = typeof matchingRecord.nutrition_plan_json === 'string' 
-                 ? JSON.parse(matchingRecord.nutrition_plan_json)
-                 : matchingRecord.nutrition_plan_json
-               console.log(`[Nutrition Load] ✅ Parsed nutrition_plan_json:`, plan)
-               setNutritionPlan(plan)
-               return
-             } catch (e) {
-               console.warn(`[Nutrition Load] Failed to parse nutrition_plan_json:`, e)
-             }
-           } else {
-             console.log(`[Nutrition Load] nutrition_plan_json is null/empty`)
-           }
-           
-           // Fallback to during_workout_recommendation
-           if (matchingRecord.during_workout_recommendation) {
-             try {
-               console.log(`[Nutrition Load] Parsing during_workout_recommendation...`)
-               const plan = typeof matchingRecord.during_workout_recommendation === 'string'
-                 ? JSON.parse(matchingRecord.during_workout_recommendation)
-                 : matchingRecord.during_workout_recommendation
-               console.log(`[Nutrition Load] ✅ Parsed during_workout_recommendation:`, plan)
-               setNutritionPlan(plan)
-             } catch (e) {
-               console.warn(`[Nutrition Load] Failed to parse during_workout_recommendation:`, e)
-             }
-           } else {
-             console.log(`[Nutrition Load] during_workout_recommendation is also null/empty`)
-           }
-         } else {
-           console.log(`[Nutrition Load] ❌ No matching record found for workout_id: ${workout.id}`)
-         }
-       }
-     } catch (error) {
-       console.warn("Could not load nutrition plan:", error)
-     } finally {
-       setIsLoadingNutrition(false)
-     }
-   }
+   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
+   
+   const loadNutritionPlan = useCallback(async () => {
+      if (!workout) return
+      
+      setIsLoadingNutrition(true)
+      try {
+        const response = await fetch(
+          `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=50`
+        )
+        
+        if (response.ok) {
+          const data = await response.json()
+          const records = data.records ?? []
+          
+          console.log(`[Nutrition Load] Found ${records.length} records for date ${workout.workout_day}`)
+          console.log(`[Nutrition Load] Looking for workout_id: ${workout.id} (type: ${typeof workout.id})`)
+          records.forEach((r: any, idx: number) => {
+            console.log(`  [Record ${idx}] workout_id: ${r.workout_id} (type: ${typeof r.workout_id}), has nutrition_plan_json: ${!!r.nutrition_plan_json}`)
+          })
+          
+          // Try matching by workout_id (as string or number)
+          const matchingRecord = records.find((r: any) => 
+            String(r.workout_id) === String(workout.id)
+          )
+          
+          if (matchingRecord) {
+            console.log(`[Nutrition Load] ✅ Found matching record`)
+            setNutritionRecordId(matchingRecord.id)
+            setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
+            
+            // Try to load the complete plan from nutrition_plan_json first
+            if (matchingRecord.nutrition_plan_json) {
+              try {
+                console.log(`[Nutrition Load] Parsing nutrition_plan_json...`)
+                const plan = typeof matchingRecord.nutrition_plan_json === 'string' 
+                  ? JSON.parse(matchingRecord.nutrition_plan_json)
+                  : matchingRecord.nutrition_plan_json
+                console.log(`[Nutrition Load] ✅ Parsed nutrition_plan_json:`, plan)
+                setNutritionPlan(plan)
+                return
+              } catch (e) {
+                console.warn(`[Nutrition Load] Failed to parse nutrition_plan_json:`, e)
+              }
+            } else {
+              console.log(`[Nutrition Load] nutrition_plan_json is null/empty`)
+            }
+            
+            // Fallback to during_workout_recommendation
+            if (matchingRecord.during_workout_recommendation) {
+              try {
+                console.log(`[Nutrition Load] Parsing during_workout_recommendation...`)
+                const plan = typeof matchingRecord.during_workout_recommendation === 'string'
+                  ? JSON.parse(matchingRecord.during_workout_recommendation)
+                  : matchingRecord.during_workout_recommendation
+                console.log(`[Nutrition Load] ✅ Parsed during_workout_recommendation:`, plan)
+                setNutritionPlan(plan)
+              } catch (e) {
+                console.warn(`[Nutrition Load] Failed to parse during_workout_recommendation:`, e)
+              }
+            } else {
+              console.log(`[Nutrition Load] during_workout_recommendation is also null/empty`)
+            }
+          } else {
+            console.log(`[Nutrition Load] ❌ No matching record found for workout_id: ${workout.id}`)
+          }
+        }
+      } catch (error) {
+        console.warn("Could not load nutrition plan:", error)
+      } finally {
+        setIsLoadingNutrition(false)
+      }
+    }, [workout])
+   
+   // Reset state when modal opens/closes
+   useEffect(() => {
+     if (!open) {
+        setIsEditingTime(false)
+        setCustomDuringNutrition(null)
+        setNutritionPlan(null)
+        setNutritionRecordId(null)
+      } else if (workout) {
+        setDisplayedTime(workout.start_time ?? "TBD")
+        // Auto-load nutrition if it exists
+        loadNutritionPlan()
+      }
+    }, [open, workout, loadNutritionPlan])
   
   if (!workout) {
     return (
@@ -199,69 +199,84 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
     }
   }
 
-  const handleGenerateDuringNutrition = async () => {
-    if (!duration) {
-      toast({
-        title: "Duration required",
-        description: "Unable to determine workout duration",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Filter nearby meals from the same day
-    const todaysMeals = nearbyMeals?.filter(m => m.date === workout.workout_day) ?? []
-
-    setIsGeneratingNutrition(true)
-    try {
-      const response = await fetch("/api/ai/nutrition/during-workout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workoutId: workout.id,
-          workoutDate: workout.workout_day,
-          workoutType: workout.workout_type,
-          durationMinutes: duration,
-          intensity: workout.if ?? "moderate",
-          tss: workout.tss ?? 0,
-          description: workout.description ?? "",
-          workoutStartTime: displayedTime,
-          workoutEndTime: addMinutesToTime(displayedTime, duration),
-          nearbyMealTimes: todaysMeals.map(m => ({
-            mealType: m.type,
-            time: m.time,
-          })),
-          save: true, // Save to database
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to generate nutrition plan")
-      }
-
-      const data = await response.json()
-       setCustomDuringNutrition(data.nutrition)
-       if (data.plan) {
-         setNutritionPlan(data.plan)
-       }
-       if (data.recordId) {
-         setNutritionRecordId(data.recordId)
-       }
-       
+   const handleGenerateDuringNutrition = async () => {
+     console.log("[Generate Nutrition] Button clicked")
+     console.log("[Generate Nutrition] Duration:", duration)
+     console.log("[Generate Nutrition] Workout ID:", workout.id)
+     console.log("[Generate Nutrition] Displayed time:", displayedTime)
+     
+     if (!duration) {
+       console.error("[Generate Nutrition] No duration found")
        toast({
-         title: "Nutrition plan generated",
-         description: data.saved ? "Saved to database" : "Custom nutrition plan created",
+         title: "Duration required",
+         description: "Unable to determine workout duration",
+         variant: "destructive",
        })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate nutrition",
-        variant: "destructive",
-      })
-    } finally {
-      setIsGeneratingNutrition(false)
-    }
-  }
+       return
+     }
+
+     // Filter nearby meals from the same day
+     const todaysMeals = nearbyMeals?.filter(m => m.date === workout.workout_day) ?? []
+
+     setIsGeneratingNutrition(true)
+     try {
+       console.log("[Generate Nutrition] Sending request to API...")
+       const response = await fetch("/api/ai/nutrition/during-workout", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           workoutId: workout.id,
+           workoutDate: workout.workout_day,
+           workoutType: workout.workout_type,
+           durationMinutes: duration,
+           intensity: workout.if ?? "moderate",
+           tss: workout.tss ?? 0,
+           description: workout.description ?? "",
+           workoutStartTime: displayedTime,
+           workoutEndTime: addMinutesToTime(displayedTime, duration),
+           nearbyMealTimes: todaysMeals.map(m => ({
+             mealType: m.type,
+             time: m.time,
+           })),
+           save: true, // Save to database
+         }),
+       })
+
+       console.log("[Generate Nutrition] API Response status:", response.status)
+       
+       if (!response.ok) {
+         const errorData = await response.json().catch(() => ({}))
+         console.error("[Generate Nutrition] API Error:", errorData)
+         throw new Error(errorData.error || "Failed to generate nutrition plan")
+       }
+
+       const data = await response.json()
+       console.log("[Generate Nutrition] Response data:", data)
+       
+        setCustomDuringNutrition(data.nutrition)
+        if (data.plan) {
+          setNutritionPlan(data.plan)
+        }
+        if (data.recordId) {
+          setNutritionRecordId(data.recordId)
+        }
+        
+        toast({
+          title: "Nutrition plan generated",
+          description: data.saved ? "Saved to database" : "Custom nutrition plan created",
+        })
+        console.log("[Generate Nutrition] Success")
+     } catch (error) {
+       console.error("[Generate Nutrition] Error:", error)
+       toast({
+         title: "Error",
+         description: error instanceof Error ? error.message : "Failed to generate nutrition",
+         variant: "destructive",
+       })
+     } finally {
+       setIsGeneratingNutrition(false)
+     }
+   }
 
   const workoutDate = format(new Date(workout.workout_day), "EEEE, MMM d, yyyy")
 
