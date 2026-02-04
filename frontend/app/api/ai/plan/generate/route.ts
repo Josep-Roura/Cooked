@@ -3,7 +3,7 @@ import { z } from "zod"
 import crypto from "node:crypto"
 import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateDynamicRecipe, resetDailyRecipeTracking } from "@/lib/nutrition/recipe-generator"
+import { generateDynamicRecipe, resetDailyRecipeTracking, setWeekSeed } from "@/lib/nutrition/recipe-generator"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
@@ -562,29 +562,42 @@ function summarizeWorkoutsByDay(
 }
 
 function buildFallbackPlan({
-  start,
-  end,
-  workouts,
-  weightKg,
-  mealsPerDay,
-}: {
-  start: string
-  end: string
-  workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
-  weightKg: number
-  mealsPerDay: number
-}): AiResponse {
-  const range = buildDateRange(start, end)
-  if (!range) {
-    return { days: [], rationale: "Fallback plan unavailable for the requested range." }
-  }
-  const workoutsByDay = workouts.reduce((map, workout) => {
-    if (!map.has(workout.workout_day)) {
-      map.set(workout.workout_day, [])
-    }
-    map.get(workout.workout_day)?.push(workout)
-    return map
-  }, new Map<string, Array<typeof workouts[number]>>())
+   start,
+   end,
+   workouts,
+   weightKg,
+   mealsPerDay,
+ }: {
+   start: string
+   end: string
+   workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
+   weightKg: number
+   mealsPerDay: number
+ }): AiResponse {
+   const range = buildDateRange(start, end)
+   if (!range) {
+     return { days: [], rationale: "Fallback plan unavailable for the requested range." }
+   }
+   
+   // Calculate week seed from start date for consistency
+   const startDate = new Date(`${start}T00:00:00Z`)
+   // Use a better hash that incorporates year, month, and week
+   const year = startDate.getUTCFullYear()
+   const month = startDate.getUTCMonth() + 1
+   const dayOfMonth = startDate.getUTCDate()
+   const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
+   const weekNumber = Math.floor(dayOfYear / 7)
+   
+   const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
+   setWeekSeed(weekSeed)
+   
+   const workoutsByDay = workouts.reduce((map, workout) => {
+     if (!map.has(workout.workout_day)) {
+       map.set(workout.workout_day, [])
+     }
+     map.get(workout.workout_day)?.push(workout)
+     return map
+   }, new Map<string, Array<typeof workouts[number]>>())
 
   const templates = defaultMealTemplates(mealsPerDay)
   const days = Array.from({ length: range.days }, (_value, index) => {
@@ -1137,6 +1150,22 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[${requestId}] Request split into ${chunks.length} chunks of ${CHUNK_SIZE_DAYS} days`)
+
+    // Calculate week seed from start date to ensure consistent recipes within the same week
+    const startDate = new Date(`${start}T00:00:00Z`)
+    // Use a better hash that incorporates year, month, and week
+    // This ensures different weeks get very different seeds
+    const year = startDate.getUTCFullYear()
+    const month = startDate.getUTCMonth() + 1
+    const dayOfMonth = startDate.getUTCDate()
+    // Calculate week number for better distribution
+    const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
+    const weekNumber = Math.floor(dayOfYear / 7)
+    
+    // Create a seed that combines year, month, day for maximum variation
+    const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
+    setWeekSeed(weekSeed)
+    console.log(`[${requestId}] Set week seed to ${weekSeed} for start date ${start} (year: ${year}, month: ${month}, week: ${weekNumber})`)
 
     let aiResponse: AiResponse | null = null
     let aiRaw: unknown = null
