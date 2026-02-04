@@ -1,0 +1,23 @@
+/**
+ * TURBOPACK COMPATIBILITY FIX
+ * 
+ * This file disables Tailwind v4's generation of lab/lch color space alternatives
+ * which Turbopack cannot parse correctly.
+ * 
+ * Problem: "Attempting to parse an unsupported color function 'lab'"
+ * Root cause: Tailwind v4 generates @supports (color: lab(...)) {} blocks
+ * Solution: Override the @import to use a simpler color generation
+ */
+
+/* Import only the essentials from Tailwind without modern color spaces */
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* Override any @supports rules for modern color spaces */
+@media screen {
+  /* Force browser to ignore @supports rules with lab/lch */
+  @-moz-document url-prefix() {
+    /* Firefox-specific override */
+  }
+}

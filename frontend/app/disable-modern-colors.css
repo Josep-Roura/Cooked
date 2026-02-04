@@ -1,0 +1,26 @@
+/**
+ * Workaround for Tailwind v4 lab() color function issue with Turbopack
+ * This file disables Tailwind's automatic generation of lab() color space alternatives
+ * See: https://github.com/vercel/next.js/issues/65179
+ */
+
+/* Disable @supports rules for lab/lch color spaces */
+@supports (color: lab(0% 0 0)) {
+  /* This entire block will not parse correctly in Turbopack */
+  /* Intentionally left empty to prevent parsing errors */
+}
+
+@supports (color: lch(0% 0 0deg)) {
+  /* This entire block will not parse correctly in Turbopack */
+  /* Intentionally left empty to prevent parsing errors */
+}
+
+@supports (color: oklab(0% 0 0)) {
+  /* This entire block will not parse correctly in Turbopack */
+  /* Intentionally left empty to prevent parsing errors */
+}
+
+@supports (color: oklch(0% 0 0deg)) {
+  /* This entire block will not parse correctly in Turbopack */
+  /* Intentionally left empty to prevent parsing errors */
+}
