@@ -1,18 +1,16 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { ChevronDown, Loader } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
 import { WorkoutNutritionTimeline } from "@/components/nutrition/workout-nutrition-timeline"
-import type { MealPlanItem, NutritionMacros, TpWorkout } from "@/lib/db/types"
+import type { TpWorkout } from "@/lib/db/types"
 
 interface SessionNutritionToggleProps {
   sessionId: string
   date: string
   workout?: TpWorkout | null
-  meals?: MealPlanItem[]
-  target?: NutritionMacros | null
   isLoading?: boolean
 }
 
@@ -20,8 +18,6 @@ export function SessionNutritionToggle({
   sessionId,
   date,
   workout,
-  meals = [],
-  target,
   isLoading = false,
 }: SessionNutritionToggleProps) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -29,13 +25,13 @@ export function SessionNutritionToggle({
   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
   const { toast } = useToast()
 
-  // Load nutrition plan from DB or generate it
-  const loadOrGenerateNutrition = useCallback(async () => {
+  // Load nutrition plan from existing record in DB
+  const loadNutritionPlan = useCallback(async () => {
     if (!workout) return
 
     setIsLoadingNutrition(true)
     try {
-      // First, try to load existing nutrition plan from DB
+      // Load nutrition plan from database
       const response = await fetch(
         `/api/v1/nutrition/during-workout?startDate=${date}&endDate=${date}&limit=50`,
         { method: "GET" }
@@ -50,83 +46,49 @@ export function SessionNutritionToggle({
           String(r.workout_id) === String(workout.id)
         )
 
-        if (matchingRecord?.nutrition_plan_json) {
-          try {
-            const plan = typeof matchingRecord.nutrition_plan_json === "string"
-              ? JSON.parse(matchingRecord.nutrition_plan_json)
-              : matchingRecord.nutrition_plan_json
-            setNutritionPlan(plan)
-            return
-          } catch (e) {
-            console.warn("Failed to parse nutrition_plan_json:", e)
+        if (matchingRecord) {
+          // Try nutrition_plan_json first
+          if (matchingRecord.nutrition_plan_json) {
+            try {
+              const plan = typeof matchingRecord.nutrition_plan_json === "string"
+                ? JSON.parse(matchingRecord.nutrition_plan_json)
+                : matchingRecord.nutrition_plan_json
+              setNutritionPlan(plan)
+              return
+            } catch (e) {
+              console.warn("Failed to parse nutrition_plan_json:", e)
+            }
           }
-        }
 
-        if (matchingRecord?.during_workout_recommendation) {
-          try {
-            const plan = typeof matchingRecord.during_workout_recommendation === "string"
-              ? JSON.parse(matchingRecord.during_workout_recommendation)
-              : matchingRecord.during_workout_recommendation
-            setNutritionPlan(plan)
-            return
-          } catch (e) {
-            console.warn("Failed to parse during_workout_recommendation:", e)
+          // Try during_workout_recommendation as fallback
+          if (matchingRecord.during_workout_recommendation) {
+            try {
+              const plan = typeof matchingRecord.during_workout_recommendation === "string"
+                ? JSON.parse(matchingRecord.during_workout_recommendation)
+                : matchingRecord.during_workout_recommendation
+              setNutritionPlan(plan)
+              return
+            } catch (e) {
+              console.warn("Failed to parse during_workout_recommendation:", e)
+            }
           }
-        }
-      }
-
-      // If no existing plan, generate one with AI
-      console.log("No existing nutrition plan found, generating new one...")
-      const duration = workout.actual_hours 
-        ? Math.round(workout.actual_hours * 60)
-        : workout.planned_hours
-          ? Math.round(workout.planned_hours * 60)
-          : 60
-
-      const generateResponse = await fetch("/api/ai/nutrition/during-workout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workoutId: workout.id,
-          workoutDate: date,
-          workoutType: workout.workout_type,
-          durationMinutes: duration,
-          intensity: workout.if ?? "moderate",
-          tss: workout.tss ?? 0,
-          description: workout.description ?? "",
-          workoutStartTime: workout.start_time ?? "06:00",
-          workoutEndTime: workout.end_time ?? "07:00",
-          nearbyMealTimes: [],
-          save: true,
-        }),
-      })
-
-      if (generateResponse.ok) {
-        const data = await generateResponse.json()
-        if (data.plan) {
-          setNutritionPlan(data.plan)
         }
       }
     } catch (error) {
-      console.error("Error loading/generating nutrition plan:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load nutrition plan",
-        variant: "destructive",
-      })
+      console.error("Error loading nutrition plan:", error)
     } finally {
       setIsLoadingNutrition(false)
     }
-  }, [workout, date, toast])
+  }, [workout, date])
 
   // Load nutrition when component mounts or when expanded
   useEffect(() => {
-    if (isExpanded && !nutritionPlan && !isLoadingNutrition) {
-      loadOrGenerateNutrition()
+    if (isExpanded && !nutritionPlan && !isLoadingNutrition && workout) {
+      loadNutritionPlan()
     }
-  }, [isExpanded, nutritionPlan, isLoadingNutrition, loadOrGenerateNutrition])
+  }, [isExpanded, nutritionPlan, isLoadingNutrition, loadNutritionPlan, workout])
 
-  if (isLoading) {
+  if (isLoading || !workout) {
     return null
   }
 
@@ -150,17 +112,19 @@ export function SessionNutritionToggle({
               <span className="text-sm text-muted-foreground">Loading nutrition plan...</span>
             </div>
           ) : nutritionPlan ? (
-            <WorkoutNutritionTimeline
-              plan={nutritionPlan}
-              workoutDuration={
-                workout?.actual_hours
-                  ? Math.round(workout.actual_hours * 60)
-                  : workout?.planned_hours
-                    ? Math.round(workout.planned_hours * 60)
-                    : 60
-              }
-              workoutStartTime={workout?.start_time ?? "06:00"}
-            />
+            <div className="scale-95 origin-top-left">
+              <WorkoutNutritionTimeline
+                plan={nutritionPlan}
+                workoutDuration={
+                  workout.actual_hours
+                    ? Math.round(workout.actual_hours * 60)
+                    : workout.planned_hours
+                      ? Math.round(workout.planned_hours * 60)
+                      : 60
+                }
+                workoutStartTime={workout.start_time ?? "06:00"}
+              />
+            </div>
           ) : (
             <div className="text-sm text-muted-foreground py-4">
               No nutrition plan available
