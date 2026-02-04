@@ -38,35 +38,46 @@ RULE 2: MEAL TIMING
 - Use 30-minute gaps minimum between meals
 - Respect athlete circadian rhythm: breakfast early, dinner late
 
-RULE 3: RECIPE REPETITION
-- Each unique recipe.title can appear MAX 2 times per week
-- Count ALL occurrences (breakfast, lunch, dinner, snacks - same across all meals)
-- EXAMPLES:
-  ✅ OK: "Chicken Rice Bowl" on Mon lunch + Wed dinner = 2x total
-  ❌ WRONG: "Chicken Rice Bowl" on Mon lunch, Wed breakfast, Fri lunch = 3x (VIOLATION)
-- Vary recipes even if dish appears 2x (e.g., different chicken recipes)
+RULE 3: MEAL NAMING - SPECIFIC DISH TITLES ONLY
+- "name" field MUST be a specific, executable dish title (NOT meal type classification)
+- ✅ CORRECT: "Scrambled Eggs with Toast", "Pan-Seared Salmon with Asparagus", "Greek Yogurt Bowl"
+- ❌ FORBIDDEN: "Breakfast", "Snack", "Lunch", "Dinner", "Pre-Workout", "Post-Workout", "Intra Meal"
+- "name" MUST match "recipe.title" EXACTLY (same string, same capitalization)
+- These names are displayed to the athlete - they MUST be useful, specific, and appetizing
+- Use names that describe what the meal actually is, not when it's eaten
 
-RULE 4: MACRONUTRIENT TARGETS
+RULE 4: RECIPE REPETITION (STRICT)
+- Each unique recipe.title can appear MAX 2 times across the entire date range
+- Count ALL occurrences across breakfast, snack, lunch, dinner, intra - all must be counted together
+- EXAMPLES:
+  ✅ OK: "Chicken Rice Bowl" on Mon lunch + Wed dinner = 2x total (allowed)
+  ❌ WRONG: "Chicken Rice Bowl" on Mon lunch, Wed breakfast, Fri lunch = 3x (VIOLATION - will be corrected)
+  ✅ OK: "Pan-Seared Salmon" on Mon lunch + "Pan-Seared Salmon with Asparagus" on Wed = 0 collisions (different titles)
+  ❌ WRONG: Same title slight variations like "Salmon", "Salmon with Asparagus" treated as same dish if intent matches
+- When a title appears 2x already, substitute with a completely different dish
+- Keep substituted meal macros within ±10% of original targets
+
+RULE 5: MACRONUTRIENT TARGETS
 - Athlete has PRE-COMPUTED targets (see INPUT section)
 - DO NOT override or negotiate targets
 - Distribute targets across meals using provided percentages
 - Total macros per day MUST equal targets (±5% tolerance)
 - Meal macros MUST sum to daily targets
 
-RULE 5: INTRA-TRAINING MEALS
+RULE 6: INTRA-TRAINING MEALS
 - Include meal_type='intra' ONLY if flagged in daily_targets.intra_cho_g_per_h > 0
 - Intra meals are sports nutrition (gels, drinks, bars) - NOT full meals
 - Intra macros: carbs = intra_cho_g_per_h × session_duration_hours
 - Intra meals are ONLY during training window (example: 10:00-12:00 session → 11:00 intra meal)
 
-RULE 6: RECIPE QUALITY + PRACTICALITY
+RULE 7: RECIPE QUALITY + PRACTICALITY
 - All recipes MUST be real (athlete-friendly, executable, <45 min prep)
 - Include ingredients with realistic quantities (not "a pinch" - use grams/ml)
 - Steps MUST be clear + numbered (1, 2, 3...)
 - Notes MUST include: prep time, storage tips, or performance benefit
 - Avoid exotic ingredients (stick to grocery store + online sports nutrition shops)
 
-RULE 7: DAY_TYPE CONTEXT
+RULE 8: DAY_TYPE CONTEXT
 - "rest": recovery day, lower intensity. Use lighter meals, focus on hydration + antioxidants
 - "training": moderate workout. Balanced macros, emphasis on glycogen repletion
 - "high": high intensity / race prep / long session. CHO-forward, higher calories, intra-training nutrition
@@ -172,19 +183,19 @@ OUTPUT:
     "intra_cho_g_per_h": 60
   },
   "meals": [
-    {
-      "slot": 1,
-      "meal_type": "breakfast",
-      "time": "07:30",
-      "emoji": "🍳",
-      "name": "Eggs & Toast",
-      "kcal": 480,
-      "protein_g": 34,
-      "carbs_g": 56,
-      "fat_g": 14,
-      "recipe": {
-        "title": "Scrambled Eggs with Whole Grain Toast",
-        "servings": 1,
+     {
+       "slot": 1,
+       "meal_type": "breakfast",
+       "time": "07:30",
+       "emoji": "🍳",
+       "name": "Scrambled Eggs with Whole Grain Toast",
+       "kcal": 480,
+       "protein_g": 34,
+       "carbs_g": 56,
+       "fat_g": 14,
+       "recipe": {
+         "title": "Scrambled Eggs with Whole Grain Toast",
+         "servings": 1,
         "ingredients": [
           {"name": "large eggs", "quantity": 3, "unit": "unit"},
           {"name": "whole grain bread", "quantity": 2, "unit": "slices"},
@@ -199,19 +210,19 @@ OUTPUT:
         "notes": "Prep: 8 min. Perfect pre-ride fuel with quick carbs + protein"
       }
     },
-    {
-      "slot": 2,
-      "meal_type": "snack",
-      "time": "09:30",
-      "emoji": "🍌",
-      "name": "Banana & Almonds",
-      "kcal": 240,
-      "protein_g": 8,
-      "carbs_g": 28,
-      "fat_g": 10,
-      "recipe": {
-        "title": "Banana with Almond Butter",
-        "servings": 1,
+     {
+       "slot": 2,
+       "meal_type": "snack",
+       "time": "09:30",
+       "emoji": "🍌",
+       "name": "Banana with Almond Butter",
+       "kcal": 240,
+       "protein_g": 8,
+       "carbs_g": 28,
+       "fat_g": 10,
+       "recipe": {
+         "title": "Banana with Almond Butter",
+         "servings": 1,
         "ingredients": [
           {"name": "banana", "quantity": 1, "unit": "unit"},
           {"name": "almond butter", "quantity": 20, "unit": "g"}
@@ -247,19 +258,19 @@ OUTPUT:
         "notes": "During-ride fueling: 36g CHO/h at high intensity. Tested in training."
       }
     },
-    {
-      "slot": 4,
-      "meal_type": "lunch",
-      "time": "13:30",
-      "emoji": "🥗",
-      "name": "Chicken & Rice Bowl",
-      "kcal": 600,
-      "protein_g": 56,
-      "carbs_g": 72,
-      "fat_g": 14,
-      "recipe": {
-        "title": "Grilled Chicken with Jasmine Rice & Vegetables",
-        "servings": 1,
+     {
+       "slot": 4,
+       "meal_type": "lunch",
+       "time": "13:30",
+       "emoji": "🥗",
+       "name": "Grilled Chicken with Jasmine Rice & Vegetables",
+       "kcal": 600,
+       "protein_g": 56,
+       "carbs_g": 72,
+       "fat_g": 14,
+       "recipe": {
+         "title": "Grilled Chicken with Jasmine Rice & Vegetables",
+         "servings": 1,
         "ingredients": [
           {"name": "chicken breast", "quantity": 180, "unit": "g"},
           {"name": "jasmine rice (cooked)", "quantity": 200, "unit": "g"},
@@ -275,19 +286,19 @@ OUTPUT:
         "notes": "Prep: 25 min. Post-ride glycogen repletion + protein for recovery"
       }
     },
-    {
-      "slot": 5,
-      "meal_type": "dinner",
-      "time": "19:00",
-      "emoji": "🍝",
-      "name": "Salmon & Pasta",
-      "kcal": 530,
-      "protein_g": 42,
-      "carbs_g": 66,
-      "fat_g": 14,
-      "recipe": {
-        "title": "Pan-Seared Salmon with Pasta & Green Salad",
-        "servings": 1,
+     {
+       "slot": 5,
+       "meal_type": "dinner",
+       "time": "19:00",
+       "emoji": "🍝",
+       "name": "Pan-Seared Salmon with Pasta & Green Salad",
+       "kcal": 530,
+       "protein_g": 42,
+       "carbs_g": 66,
+       "fat_g": 14,
+       "recipe": {
+         "title": "Pan-Seared Salmon with Pasta & Green Salad",
+         "servings": 1,
         "ingredients": [
           {"name": "salmon fillet", "quantity": 150, "unit": "g"},
           {"name": "whole wheat pasta", "quantity": 80, "unit": "g dry"},
@@ -312,12 +323,13 @@ OUTPUT:
 KEY REMINDERS
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. TIMES: Must be HH:MM, unique per day, spaced logically
-2. SCHEMA: Match output exactly - no extra fields, no missing fields
-3. MACROS: Sum to daily targets (±5%), consistent with meal distribution
-4. RECIPES: Real, athlete-friendly, <45 min prep, clear steps
-5. REPETITION: Count title() across ALL days received - max 2x
-6. JSON ONLY: No markdown, no explanations, VALID JSON only
+1. MEAL NAMING: "name" field MUST match "recipe.title" EXACTLY and be a specific dish (NOT "Breakfast")
+2. TIMES: Must be HH:MM, unique per day, spaced logically
+3. SCHEMA: Match output exactly - no extra fields, no missing fields
+4. MACROS: Sum to daily targets (±5%), consistent with meal distribution
+5. RECIPES: Real, athlete-friendly, <45 min prep, clear steps
+6. REPETITION: Count title() across ALL days received - max 2x per unique title
+7. JSON ONLY: No markdown, no explanations, VALID JSON only
 
 Start generating now. Produce ONE day of meals, perfect schema, zero violations.`
 
@@ -352,19 +364,19 @@ export const fewShotExample = {
       intra_cho_g_per_h: 60,
     },
     meals: [
-      {
-        slot: 1,
-        meal_type: "breakfast",
-        time: "07:30",
-        emoji: "🍳",
-        name: "Eggs & Toast",
-        kcal: 480,
-        protein_g: 34,
-        carbs_g: 56,
-        fat_g: 14,
-        recipe: {
-          title: "Scrambled Eggs with Whole Grain Toast",
-          servings: 1,
+       {
+         slot: 1,
+         meal_type: "breakfast",
+         time: "07:30",
+         emoji: "🍳",
+         name: "Scrambled Eggs with Whole Grain Toast",
+         kcal: 480,
+         protein_g: 34,
+         carbs_g: 56,
+         fat_g: 14,
+         recipe: {
+           title: "Scrambled Eggs with Whole Grain Toast",
+           servings: 1,
           ingredients: [
             { name: "large eggs", quantity: 3, unit: "unit" },
             { name: "whole grain bread", quantity: 2, unit: "slices" },

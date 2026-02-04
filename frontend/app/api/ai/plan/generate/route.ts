@@ -529,7 +529,7 @@ function validateAndFixAiResponseRules(response: AiResponse): { valid: boolean; 
     return { valid: true, errors: [], fixed: false }
   }
 
-  // Second pass: attempt to fix overlapping times
+  // Second pass: attempt to fix violations
   let fixedResponse: AiResponse | undefined
   let fixed = false
 
@@ -563,6 +563,54 @@ function validateAndFixAiResponseRules(response: AiResponse): { valid: boolean; 
           usedTimes.add(currentTime)
         }
       })
+    })
+
+    // Fix dish repetition violations (>2x per week)
+    const dishCountMap = new Map<string, number>()
+    const mealsToRemove: Array<{ dayIndex: number; mealIndex: number; dishName: string }> = []
+
+    // First pass: count occurrences and mark excess meals for removal
+    fixedResponse.days.forEach((day, dayIndex) => {
+      day.meals.forEach((meal, mealIndex) => {
+        const dishName = meal.recipe?.title?.toLowerCase() ?? meal.name.toLowerCase()
+        const currentCount = dishCountMap.get(dishName) ?? 0
+
+        if (currentCount >= 2) {
+          // This is the 3rd+ occurrence - mark for removal
+          mealsToRemove.push({ dayIndex, mealIndex, dishName })
+          console.log(
+            `Marking excess meal for removal: "${meal.name}" (${dishName}) - occurrence ${currentCount + 1}`,
+          )
+        } else {
+          dishCountMap.set(dishName, currentCount + 1)
+        }
+      })
+    })
+
+    // Remove marked meals in reverse order to avoid index shifting
+    mealsToRemove.sort((a, b) => (b.dayIndex !== a.dayIndex ? b.dayIndex - a.dayIndex : b.mealIndex - a.mealIndex))
+
+    mealsToRemove.forEach(({ dayIndex, mealIndex, dishName }) => {
+      const meal = fixedResponse!.days[dayIndex].meals[mealIndex]
+      console.log(`Removing excess meal: "${meal.name}" (${dishName})`)
+      fixedResponse!.days[dayIndex].meals.splice(mealIndex, 1)
+      fixed = true
+    })
+
+    // If meals were removed, recalculate daily macro totals (for logging purposes)
+    fixedResponse.days.forEach((day) => {
+      const mealCount = day.meals.length
+      if (mealCount === 0) {
+        console.warn(`Day ${day.date} has no meals after violation fixes!`)
+      } else {
+        const totalKcal = day.meals.reduce((sum, m) => sum + (m.kcal ?? 0), 0)
+        const totalProtein = day.meals.reduce((sum, m) => sum + (m.protein_g ?? 0), 0)
+        const totalCarbs = day.meals.reduce((sum, m) => sum + (m.carbs_g ?? 0), 0)
+        const totalFat = day.meals.reduce((sum, m) => sum + (m.fat_g ?? 0), 0)
+        console.log(
+          `After fixes - Day ${day.date}: ${mealCount} meals, macros: ${totalKcal}kcal, ${totalProtein}g P, ${totalCarbs}g C, ${totalFat}g F`,
+        )
+      }
     })
   }
 
@@ -1219,7 +1267,7 @@ export async function POST(req: NextRequest) {
           diff.meals_added += 1
         } else {
           const updated =
-            existingMeal.name !== meal.name ||
+            existingMeal.name !== meal.recipe.title ||
             (existingMeal.time ?? null) !== (meal.time ?? null) ||
             (existingMeal.kcal ?? 0) !== meal.kcal ||
             (existingMeal.protein_g ?? 0) !== meal.protein_g ||
@@ -1234,7 +1282,7 @@ export async function POST(req: NextRequest) {
           slot: meal.slot,
           meal_type: meal.meal_type,
           emoji: meal.emoji,
-          name: meal.name,
+          name: meal.recipe.title, // Use recipe title (specific dish name, not "Breakfast")
           time: meal.time ?? null,
           kcal: meal.kcal,
           protein_g: meal.protein_g,
