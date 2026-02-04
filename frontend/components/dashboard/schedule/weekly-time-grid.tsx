@@ -134,7 +134,10 @@ export function WeeklyTimeGrid({
     const clientY = activator.clientY + event.delta.y
 
     const relativeX = clientX - gridRect.left - timeColumnWidth
-    const relativeY = clientY - gridRect.top - headerHeight
+    
+    // Account for scroll position in the grid container
+    const scrollTop = gridRef.current.scrollTop
+    const relativeY = clientY - gridRect.top - headerHeight + scrollTop
 
     const dayIndex = Math.floor(relativeX / dayColumnWidth)
     if (dayIndex < 0 || dayIndex >= 7) return null
@@ -159,24 +162,26 @@ export function WeeklyTimeGrid({
     }
   }, [])
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const position = getDragPosition(event)
-    const item = activeItem
-    if (!position || !item) {
-      setHoveredSlot(null)
-      return
-    }
+   const handleDragMove = useCallback((event: DragMoveEvent) => {
+     const position = getDragPosition(event)
+     const item = activeItem
+     if (!position || !item) {
+       setHoveredSlot(null)
+       return
+     }
 
-    const durationMinutes = Math.max(timeToMinutes(item.endTime) - timeToMinutes(item.startTime), SNAP_MINUTES)
-    const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 24)
-    const top = ((position.clampedMinutes - startHour * 60) / 60) * HOUR_HEIGHT
+     const durationMinutes = Math.max(timeToMinutes(item.endTime) - timeToMinutes(item.startTime), SNAP_MINUTES)
+     const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 24)
+     const top = ((position.clampedMinutes - startHour * 60) / 60) * HOUR_HEIGHT
 
-    setHoveredSlot({
-      dayIndex: position.dayIndex,
-      top,
-      height,
-    })
-  }, [activeItem, getDragPosition, startHour])
+     console.log(`[DragMove] Slot: day=${position.dayIndex}, time=${position.newStartTime}, top=${top}px, scrollTop=${gridRef.current?.scrollTop}`)
+
+     setHoveredSlot({
+       dayIndex: position.dayIndex,
+       top,
+       height,
+     })
+   }, [activeItem, getDragPosition, startHour])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const position = getDragPosition(event)
