@@ -222,7 +222,39 @@ export function WorkoutNutritionTimeline({
   }
 
   // Parse start time to calculate actual times
-  const [startHour, startMin] = workoutStartTime.split(":").map(Number)
+  // Handle 'TBD' or invalid time formats gracefully
+  const parseStartTime = (timeStr: string) => {
+    if (!timeStr || timeStr === "TBD" || !timeStr.includes(":")) {
+      // Default to current time if TBD
+      const now = new Date()
+      return {
+        hour: now.getHours(),
+        minute: now.getMinutes(),
+        isValid: false
+      }
+    }
+    try {
+      const [hour, minute] = timeStr.split(":").map(Number)
+      if (isNaN(hour) || isNaN(minute)) {
+        throw new Error("Invalid time format")
+      }
+      return {
+        hour,
+        minute,
+        isValid: true
+      }
+    } catch (e) {
+      const now = new Date()
+      return {
+        hour: now.getHours(),
+        minute: now.getMinutes(),
+        isValid: false
+      }
+    }
+  }
+
+  const { hour: startHour, minute: startMin, isValid: isTimeValid } = parseStartTime(workoutStartTime)
+  
   const calculateTime = (minutesOffset: number) => {
     const date = new Date()
     date.setHours(startHour, startMin)
@@ -230,19 +262,25 @@ export function WorkoutNutritionTimeline({
     return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
   }
 
+  // Show warning if time is not valid
+  const timeWarning = !isTimeValid ? `(Using current time as workout start time was ${workoutStartTime === "TBD" ? "not set" : "invalid"})` : null
+
    return (
      <div className="space-y-3">
         {/* Export Container - Scrollable and Better Layout */}
         <div id="nutrition-timeline-export" className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-slate-200 overflow-hidden max-h-[70vh] flex flex-col">
-          {/* Fixed Header */}
-          <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 z-10">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
-                <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
-              </div>
-              <span className="text-sm font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full whitespace-nowrap">
-                {workoutDuration} min workout
+           {/* Fixed Header */}
+           <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 z-10">
+             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+               <div>
+                 <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
+                 <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
+                 {timeWarning && (
+                   <p className="text-xs text-amber-600 mt-1.5 font-medium">{timeWarning}</p>
+                 )}
+               </div>
+               <span className="text-sm font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full whitespace-nowrap">
+                 {workoutDuration} min workout
               </span>
             </div>
           </div>
