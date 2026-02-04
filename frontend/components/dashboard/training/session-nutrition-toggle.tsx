@@ -65,7 +65,6 @@ export function SessionNutritionToggle({
             <NutritionCard
               icon={Apple}
               title="Pre-Workout"
-              subtitle="30-60 min before"
               color="emerald"
               meals={mealsByTiming.pre}
             />
@@ -76,7 +75,6 @@ export function SessionNutritionToggle({
             <NutritionCard
               icon={Droplet}
               title="During Workout"
-              subtitle="Every 30 min"
               color="blue"
               meals={mealsByTiming.during}
             />
@@ -87,7 +85,6 @@ export function SessionNutritionToggle({
             <NutritionCard
               icon={Heart}
               title="Post-Workout"
-              subtitle="30-60 min after"
               color="pink"
               meals={mealsByTiming.post}
             />
@@ -101,7 +98,6 @@ export function SessionNutritionToggle({
 interface NutritionCardProps {
   icon: React.ComponentType<{ className?: string }>
   title: string
-  subtitle: string
   color: "emerald" | "blue" | "pink"
   meals: MealPlanItem[]
 }
@@ -109,71 +105,47 @@ interface NutritionCardProps {
 function NutritionCard({
   icon: Icon,
   title,
-  subtitle,
   color,
   meals,
 }: NutritionCardProps) {
   const colorConfig = {
     emerald: {
-      bg: "bg-emerald-50",
-      border: "border-emerald-200",
-      iconBg: "bg-emerald-100",
+      header: "bg-emerald-100",
+      headerText: "text-emerald-800",
+      body: "bg-emerald-50",
       icon: "text-emerald-600",
-      title: "text-emerald-900",
-      subtitle: "text-emerald-700",
-      hoverBg: "hover:bg-emerald-100",
-      mealBg: "bg-white border border-emerald-100",
     },
     blue: {
-      bg: "bg-blue-50",
-      border: "border-blue-200",
-      iconBg: "bg-blue-100",
+      header: "bg-blue-100",
+      headerText: "text-blue-800",
+      body: "bg-blue-50",
       icon: "text-blue-600",
-      title: "text-blue-900",
-      subtitle: "text-blue-700",
-      hoverBg: "hover:bg-blue-100",
-      mealBg: "bg-white border border-blue-100",
     },
     pink: {
-      bg: "bg-pink-50",
-      border: "border-pink-200",
-      iconBg: "bg-pink-100",
+      header: "bg-pink-100",
+      headerText: "text-pink-800",
+      body: "bg-pink-50",
       icon: "text-pink-600",
-      title: "text-pink-900",
-      subtitle: "text-pink-700",
-      hoverBg: "hover:bg-pink-100",
-      mealBg: "bg-white border border-pink-100",
     },
   }
 
   const config = colorConfig[color]
 
   return (
-    <div className={cn("rounded-lg border overflow-hidden", config.bg, config.border)}>
-      <div className={cn("w-full p-2.5 flex items-center gap-2.5", config.hoverBg)}>
-        <div className={cn("w-7 h-7 rounded flex items-center justify-center flex-shrink-0", config.iconBg)}>
-          <Icon className={cn("w-3.5 h-3.5", config.icon)} />
+    <div className="rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className={cn("p-2.5 flex items-center gap-2", config.header)}>
+        <div className={cn("w-5 h-5 flex items-center justify-center flex-shrink-0", config.icon)}>
+          <Icon className="w-4 h-4" />
         </div>
-        <div className="flex-1 min-w-0">
-          <h4 className={cn("font-semibold text-xs", config.title)}>{title}</h4>
-          <p className={cn("text-xs", config.subtitle)}>{subtitle}</p>
-        </div>
+        <h4 className={cn("font-semibold text-sm", config.headerText)}>{title}</h4>
       </div>
 
-      {/* Meals list */}
-      <div className={cn("border-t p-2.5 space-y-1.5", config.border)}>
+      {/* Body - Meals list */}
+      <div className={cn("p-3 space-y-2", config.body)}>
         {meals.map((meal) => (
-          <div key={meal.id} className={cn("rounded p-2 text-xs", config.mealBg)}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-slate-900">
-                  {meal.name.replace(/Fuel:\s*(Pre|During|Post)\s*·\s*/i, '')}
-                </div>
-                {meal.time && (
-                  <div className="text-muted-foreground text-[0.65rem]">@{meal.time}</div>
-                )}
-              </div>
-            </div>
+          <div key={meal.id} className="text-sm font-medium text-slate-800">
+            {meal.name.replace(/Fuel:\s*(Pre|During|Post)\s*·\s*/i, '')}
           </div>
         ))}
       </div>
