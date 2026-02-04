@@ -36,6 +36,8 @@ export interface ProfileRow {
   sweat_rate?: string | null
   gi_sensitivity?: string | null
   caffeine_use?: string | null
+  // Location field for country-specific products
+  country?: string | null
 }
 
 export interface NutritionPlanRow {

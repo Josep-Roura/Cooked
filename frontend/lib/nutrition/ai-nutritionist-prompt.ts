@@ -27,6 +27,10 @@ export interface NutritionistContext {
   description?: string
   distance_km?: number
   elevation_gain_m?: number
+  
+  // Location for country-specific products
+  country?: string
+  availableProducts?: string
 }
 
 /**
@@ -77,6 +81,14 @@ DETALLES DEL ENTRENAMIENTO:
 ${context.distance_km ? `- Distancia: ${context.distance_km} km` : ''}
 ${context.elevation_gain_m ? `- Ganancia de elevación: ${context.elevation_gain_m} m` : ''}
 ${context.description ? `- Descripción: ${context.description}` : ''}
+${context.country ? `- País: ${context.country}` : ''}
+
+${context.availableProducts ? `PRODUCTOS DISPONIBLES EN EL PAÍS:
+${context.availableProducts}
+
+IMPORTANTE: Usa SOLO productos de la lista anterior. Si no hay un producto adecuado en la lista, 
+elige el más cercano en términos de macronutrientes y características.
+` : ''}
 
 INSTRUCCIONES:
 Genera un plan de nutrición ESPECÍFICO, PERSONALIZADO y BASADO EN CIENCIA para este entrenamiento.
