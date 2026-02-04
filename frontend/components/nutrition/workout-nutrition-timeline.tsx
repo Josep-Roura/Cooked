@@ -12,20 +12,39 @@ import { NutritionReminders } from "./nutrition-reminders"
 function convertSpanishToEnglish(plan: any): any {
   if (!plan || typeof plan !== "object") return plan
   
-  // Map Spanish keys to English
+  // Map Spanish keys to English - comprehensive mapping
   const keyMap: Record<string, string> = {
+    // Top-level sections
     pre_entrenamiento: "preWorkout",
     durante_entrenamiento: "duringWorkout",
     post_entrenamiento: "postWorkout",
+    
+    // Nutrition metrics (Spanish)
     carbohidratos_por_hora_g: "carbsPerHour",
     hidratacion_por_hora_ml: "hydrationPerHour",
     sodio_por_hora_mg: "sodiumPerHour",
+    
+    // Common fields (keep as-is or map if needed)
     timing: "timing",
     items: "items",
     totalCarbs: "totalCarbs",
     totalProtein: "totalProtein",
     totalCalories: "totalCalories",
+    totalHydration: "totalHydration",
+    totalSodium: "totalSodium",
     rationale: "rationale",
+    warnings: "warnings",
+    interval: "interval",
+    
+    // Item-level fields
+    time: "time",
+    product: "product",
+    quantity: "quantity",
+    unit: "unit",
+    carbs: "carbs",
+    protein: "protein",
+    sodium: "sodium",
+    notes: "notes",
   }
   
   const converted: any = {}
@@ -230,7 +249,7 @@ export function WorkoutNutritionTimeline({
         {/* Pre-Workout Section */}
         {parsedPlan?.preWorkout && (
           <PreWorkoutSection
-            data={plan.preWorkout}
+            data={parsedPlan.preWorkout}
             isExpanded={expandedSection === "pre"}
             onToggle={() => setExpandedSection(expandedSection === "pre" ? null : "pre")}
           />
@@ -239,7 +258,7 @@ export function WorkoutNutritionTimeline({
         {/* During-Workout Section */}
         {parsedPlan?.duringWorkout && (
           <DuringWorkoutSection
-            data={plan.duringWorkout}
+            data={parsedPlan.duringWorkout}
             workoutDuration={workoutDuration}
             workoutStartTime={workoutStartTime}
             calculateTime={calculateTime}
@@ -251,7 +270,7 @@ export function WorkoutNutritionTimeline({
         {/* Post-Workout Section */}
         {parsedPlan?.postWorkout && (
           <PostWorkoutSection
-            data={plan.postWorkout}
+            data={parsedPlan.postWorkout}
             workoutDuration={workoutDuration}
             workoutStartTime={workoutStartTime}
             calculateTime={calculateTime}
