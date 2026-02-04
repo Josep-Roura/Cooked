@@ -289,16 +289,19 @@ export default function PlansPage() {
 
     // Check if item actually moved
     try {
+      const payload = {
+        itemId: item.source.sourceId,
+        itemType: item.source.type,
+        sourceTable: item.source.sourceTable,
+        newDate,
+        newStartTime,
+      }
+      console.log(`[handleDragEnd] Sending request:`, payload)
+      
       const response = await fetch("/api/v1/plans/update-item", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          itemId: item.source.sourceId,
-          itemType: item.source.type,
-          sourceTable: item.source.sourceTable,
-          newDate,
-          newStartTime,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
