@@ -144,16 +144,34 @@ export function calculateRemindersFromPlan(
     return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
   }
 
+  // Helper to get product name (supports both Spanish and English)
+  const getProductName = (item: any): string | null => {
+    return item.product || item.producto || null
+  }
+
+  // Helper to get quantity (supports both Spanish and English)
+  const getQuantity = (item: any): number => {
+    return item.quantity ?? item.cantidad ?? 0
+  }
+
+  // Helper to get unit (supports both Spanish and English)
+  const getUnit = (item: any): string => {
+    return item.unit || item.unidad || ""
+  }
+
   // Pre-workout reminders (2-3 hours before)
   if (plan.preWorkout?.items) {
     plan.preWorkout.items.forEach((item: any) => {
+      const product = getProductName(item)
+      if (!product) return // Skip if no product name
+      
       // Pre-workout is typically 2-3 hours before (use -180 minutes as default)
       reminders.push({
         id: `pre-${reminderId++}`,
         time: calculateTime(-180),
-        product: item.product,
-        quantity: item.quantity,
-        unit: item.unit,
+        product,
+        quantity: getQuantity(item),
+        unit: getUnit(item),
         type: "food",
         scheduled: false,
       })
@@ -166,13 +184,21 @@ export function calculateRemindersFromPlan(
     for (let i = 0; i < numIntervals; i++) {
       const offset = i * plan.duringWorkout.interval
       plan.duringWorkout.items.forEach((item: any) => {
+        const product = getProductName(item)
+        if (!product) return // Skip if no product name
+        
+        const productLower = product.toLowerCase()
+        const type = productLower.includes("water") || productLower.includes("agua") 
+          ? "hydration" 
+          : "carbs"
+        
         reminders.push({
           id: `during-${reminderId++}`,
           time: calculateTime(offset),
-          product: item.product,
-          quantity: item.quantity,
-          unit: item.unit,
-          type: item.product.toLowerCase().includes("water") ? "hydration" : "carbs",
+          product,
+          quantity: getQuantity(item),
+          unit: getUnit(item),
+          type,
           scheduled: false,
         })
       })
@@ -182,12 +208,15 @@ export function calculateRemindersFromPlan(
   // Post-workout reminders (within 30 minutes after)
   if (plan.postWorkout?.items) {
     plan.postWorkout.items.forEach((item: any) => {
+      const product = getProductName(item)
+      if (!product) return // Skip if no product name
+      
       reminders.push({
         id: `post-${reminderId++}`,
         time: calculateTime(workoutDuration + 15),
-        product: item.product,
-        quantity: item.quantity,
-        unit: item.unit,
+        product,
+        quantity: getQuantity(item),
+        unit: getUnit(item),
         type: "food",
         scheduled: false,
       })
