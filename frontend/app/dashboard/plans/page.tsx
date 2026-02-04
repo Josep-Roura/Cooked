@@ -307,12 +307,17 @@ export default function PlansPage() {
       if (!response.ok) {
         let errorData
         const text = await response.text()
+        console.log(`[handleDragEnd] Response text (${response.status}):`, JSON.stringify(text))
         try {
           errorData = JSON.parse(text)
         } catch {
           errorData = { error: text || `HTTP ${response.status}` }
         }
-        console.error(`[handleDragEnd] API error (${response.status}):`, errorData)
+        console.error(`[handleDragEnd] API error (${response.status}):`, errorData, {
+          text,
+          responseStatus: response.status,
+          hasError: !!errorData?.error,
+        })
         throw new Error(errorData.error || errorData?.message || `Failed to update item (${response.status})`)
       }
       const result = await response.json().catch(() => null)
