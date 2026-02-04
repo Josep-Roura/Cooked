@@ -38,6 +38,20 @@ RULE 2: MEAL TIMING
 - Use 30-minute gaps minimum between meals
 - Respect athlete circadian rhythm: breakfast early, dinner late
 
+RULE 2.5: WORKOUT-SYNCHRONIZED MEAL TIMING
+- If workouts_today contains start_time, use it to schedule meals optimally around training
+- PRE-WORKOUT MEALS: Schedule 45-60 minutes BEFORE workout start_time
+  - Example: Workout at 10:00 → schedule pre-workout meal at 9:00-9:15
+  - Macros: Focus on easily digestible carbs + moderate protein
+- INTRA-WORKOUT MEALS (meal_type='intra'): Schedule DURING workout window
+  - Example: Workout 10:00-12:30 → intra meal at 11:00 (middle of session)
+  - Duration: meal at ~start_time + (duration_hours / 2)
+  - Macros: ONLY carbs (sports nutrition: gels, drinks, bars)
+- POST-WORKOUT MEALS: Schedule 30-60 minutes AFTER workout end
+  - Example: Workout ends 12:30 → schedule post-workout meal at 13:00-14:00
+  - Macros: Focus on protein + carbs for recovery
+- REST DAYS: No workout timing constraints, distribute meals evenly across waking hours
+
 RULE 3: MEAL NAMING - SPECIFIC DISH TITLES ONLY
 - "name" field MUST be a specific, executable dish title (NOT meal type classification)
 - ✅ CORRECT: "Scrambled Eggs with Toast", "Pan-Seared Salmon with Asparagus", "Greek Yogurt Bowl"
@@ -97,15 +111,14 @@ You will receive:
     "fat_g": 70,
     "intra_cho_g_per_h": 60  // carbs per hour during workout (0 if no intra meal needed)
   },
-  "workouts_today": [
-    {
-      "type": "bike",
-      "duration_hours": 2.5,
-      "intensity": "high",
-      "tss": 150,
-      "notes": "Threshold intervals"
-    }
-  ],
+   "workouts_today": [
+     {
+       "start_time": "10:00",
+       "duration_hours": 2.5,
+       "type": "bike",
+       "intensity": "high"
+     }
+   ],
   "profile": {
     "weight_kg": 75,
     "meals_per_day": 5,

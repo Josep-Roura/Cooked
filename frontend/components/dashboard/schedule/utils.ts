@@ -1,5 +1,5 @@
-export const DEFAULT_START_HOUR = 6
-export const DEFAULT_END_HOUR = 22
+export const DEFAULT_START_HOUR = 5
+export const DEFAULT_END_HOUR = 23
 export const HOUR_HEIGHT = 56
 
 export function timeToMinutes(time: string) {

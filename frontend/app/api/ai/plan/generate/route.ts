@@ -3,7 +3,7 @@ import { z } from "zod"
 import crypto from "node:crypto"
 import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateDynamicRecipe, resetDailyRecipeTracking } from "@/lib/nutrition/recipe-generator"
+import { generateDynamicRecipe, resetDailyRecipeTracking, setWeekSeed } from "@/lib/nutrition/recipe-generator"
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
@@ -439,6 +439,7 @@ function normalizeSportType(value: string | null) {
 function summarizeWorkoutsByDay(
   workouts: Array<{
     workout_day: string
+    start_time: string | null
     workout_type: string | null
     planned_hours: number | null
     actual_hours: number | null
@@ -459,6 +460,12 @@ function summarizeWorkoutsByDay(
       sports: Set<string>
       intensityScore: number
       key_sessions: string[]
+      workouts: Array<{
+        start_time: string | null
+        duration_hours: number
+        type: string
+        intensity: "rest" | "training" | "high"
+      }>
     }
   >()
 
@@ -471,6 +478,7 @@ function summarizeWorkoutsByDay(
         sports: new Set<string>(),
         intensityScore: 0,
         key_sessions: [],
+        workouts: [],
       })
     }
     const entry = summaryMap.get(key)
@@ -497,6 +505,21 @@ function summarizeWorkoutsByDay(
         entry.key_sessions.push(workout.title)
       }
     }
+
+    // Store individual workout details for AI meal planning
+    const workoutIntensity =
+      entry.intensityScore >= 120
+        ? "high"
+        : entry.intensityScore >= 60
+          ? "training"
+          : "rest"
+
+    entry.workouts.push({
+      start_time: workout.start_time,
+      duration_hours: duration,
+      type: normalizeSportType(workout.workout_type),
+      intensity: workoutIntensity,
+    })
   })
 
   return dateKeys.map((date) => {
@@ -509,6 +532,7 @@ function summarizeWorkoutsByDay(
         sports: [],
         intensity: "rest",
         key_sessions: [],
+        workouts: [],
       }
     }
     const intensity =
@@ -517,8 +541,8 @@ function summarizeWorkoutsByDay(
         : entry.intensityScore >= 120
           ? "high"
           : entry.intensityScore >= 60
-            ? "moderate"
-            : "low"
+            ? "training"
+            : "training"
 
     return {
       date,
@@ -527,34 +551,53 @@ function summarizeWorkoutsByDay(
       sports: Array.from(entry.sports).filter((value) => value !== "rest"),
       intensity,
       key_sessions: entry.key_sessions.slice(0, 3),
+      workouts: entry.workouts.map((w) => ({
+        start_time: w.start_time,
+        duration_hours: Number(w.duration_hours.toFixed(2)),
+        type: w.type,
+        intensity: w.intensity,
+      })),
     }
   })
 }
 
 function buildFallbackPlan({
-  start,
-  end,
-  workouts,
-  weightKg,
-  mealsPerDay,
-}: {
-  start: string
-  end: string
-  workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
-  weightKg: number
-  mealsPerDay: number
-}): AiResponse {
-  const range = buildDateRange(start, end)
-  if (!range) {
-    return { days: [], rationale: "Fallback plan unavailable for the requested range." }
-  }
-  const workoutsByDay = workouts.reduce((map, workout) => {
-    if (!map.has(workout.workout_day)) {
-      map.set(workout.workout_day, [])
-    }
-    map.get(workout.workout_day)?.push(workout)
-    return map
-  }, new Map<string, Array<typeof workouts[number]>>())
+   start,
+   end,
+   workouts,
+   weightKg,
+   mealsPerDay,
+ }: {
+   start: string
+   end: string
+   workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
+   weightKg: number
+   mealsPerDay: number
+ }): AiResponse {
+   const range = buildDateRange(start, end)
+   if (!range) {
+     return { days: [], rationale: "Fallback plan unavailable for the requested range." }
+   }
+   
+   // Calculate week seed from start date for consistency
+   const startDate = new Date(`${start}T00:00:00Z`)
+   // Use a better hash that incorporates year, month, and week
+   const year = startDate.getUTCFullYear()
+   const month = startDate.getUTCMonth() + 1
+   const dayOfMonth = startDate.getUTCDate()
+   const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
+   const weekNumber = Math.floor(dayOfYear / 7)
+   
+   const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
+   setWeekSeed(weekSeed)
+   
+   const workoutsByDay = workouts.reduce((map, workout) => {
+     if (!map.has(workout.workout_day)) {
+       map.set(workout.workout_day, [])
+     }
+     map.get(workout.workout_day)?.push(workout)
+     return map
+   }, new Map<string, Array<typeof workouts[number]>>())
 
   const templates = defaultMealTemplates(mealsPerDay)
   const days = Array.from({ length: range.days }, (_value, index) => {
@@ -1061,7 +1104,7 @@ export async function POST(req: NextRequest) {
 
     const { data: workouts } = await supabase
       .from("tp_workouts")
-      .select("workout_day, workout_type, planned_hours, actual_hours, tss, if, rpe, title")
+      .select("workout_day, start_time, workout_type, planned_hours, actual_hours, tss, if, rpe, title")
       .eq("user_id", user.id)
       .gte("workout_day", start)
       .lte("workout_day", end)
@@ -1107,6 +1150,22 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[${requestId}] Request split into ${chunks.length} chunks of ${CHUNK_SIZE_DAYS} days`)
+
+    // Calculate week seed from start date to ensure consistent recipes within the same week
+    const startDate = new Date(`${start}T00:00:00Z`)
+    // Use a better hash that incorporates year, month, and week
+    // This ensures different weeks get very different seeds
+    const year = startDate.getUTCFullYear()
+    const month = startDate.getUTCMonth() + 1
+    const dayOfMonth = startDate.getUTCDate()
+    // Calculate week number for better distribution
+    const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
+    const weekNumber = Math.floor(dayOfYear / 7)
+    
+    // Create a seed that combines year, month, day for maximum variation
+    const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
+    setWeekSeed(weekSeed)
+    console.log(`[${requestId}] Set week seed to ${weekSeed} for start date ${start} (year: ${year}, month: ${month}, week: ${weekNumber})`)
 
     let aiResponse: AiResponse | null = null
     let aiRaw: unknown = null
