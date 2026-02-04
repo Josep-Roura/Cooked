@@ -35,20 +35,6 @@ type HoveredSlot = {
   height: number
 }
 
-// Helper function to convert time string "HH:MM" to minutes from midnight
-function timeToPixels(timeStr: string | null, startHour: number, HOUR_HEIGHT: number): { top: number; valid: boolean } {
-  if (!timeStr) return { top: 0, valid: false }
-  try {
-    const [hours, minutes] = timeStr.split(":").map(Number)
-    const totalMinutes = hours * 60 + minutes
-    const startMinutes = startHour * 60
-    const pixelsFromTop = ((totalMinutes - startMinutes) / 60) * HOUR_HEIGHT
-    return { top: pixelsFromTop, valid: true }
-  } catch {
-    return { top: 0, valid: false }
-  }
-}
-
 // Memoized day column to prevent re-renders
 const DayColumn = memo(function DayColumn({
   day,
@@ -73,9 +59,6 @@ const DayColumn = memo(function DayColumn({
   
   // Calculate overlap positions for items in this day
   const itemsWithPositions = calculateOverlapPositions(dayItems, startHour, endHour, HOUR_HEIGHT)
-  
-  // Extract workout items that show scheduled workout times
-  const workoutItems = dayItems.filter((item) => item.type === "workout" && item.meta?.workout?.start_time)
 
   return (
     <div className="relative border-l border-border/30 first:border-l-0" style={{ height: gridHeight }}>
@@ -85,29 +68,6 @@ const DayColumn = memo(function DayColumn({
           style={{ top: highlight.top, height: highlight.height }}
         />
       ) : null}
-      
-      {/* Workout time indicators */}
-      {workoutItems.map((workoutItem) => {
-        const startTime = workoutItem.meta?.workout?.start_time
-        const durationHours = workoutItem.meta?.workout?.actual_hours ?? workoutItem.meta?.workout?.planned_hours ?? 1
-        
-        if (!startTime) return null
-        
-        const { top, valid } = timeToPixels(startTime, startHour, HOUR_HEIGHT)
-        if (!valid) return null
-        
-        const height = (durationHours / 60) * HOUR_HEIGHT * 60 // Convert hours to pixels
-        
-        return (
-          <div
-            key={`workout-indicator-${workoutItem.id}`}
-            className="absolute inset-x-0 bg-orange-100/40 border-l-4 border-orange-400 pointer-events-none opacity-60"
-            style={{ top, height: Math.max(height, 20), zIndex: 0 }}
-            title={`${startTime} - ${workoutItem.title || "Workout"} (${durationHours}h)`}
-          />
-        )
-      })}
-      
       {hours.map((hour) => (
         <div
           key={`${dateKey}-${hour}`}

@@ -103,8 +103,13 @@ export async function POST(req: NextRequest) {
     // Handle workout updates
     if (itemType === "workout") {
       console.log(`[POST /api/v1/plans/update-item] Updating workout ${itemId}`)
-      // Extract workout ID (format: "workout-{id}")
-      const workoutId = Number(itemId)
+      // Extract workout ID (format: "workout-{id}" or just the number from sourceId)
+      let workoutId = Number(itemId)
+      
+      // If it's in format "workout-123", extract the number
+      if (Number.isNaN(workoutId) && typeof itemId === "string" && itemId.startsWith("workout-")) {
+        workoutId = Number(itemId.replace("workout-", ""))
+      }
 
       if (!workoutId || Number.isNaN(workoutId)) {
         console.error(`[POST /api/v1/plans/update-item] Invalid workout ID format:`, itemId)
