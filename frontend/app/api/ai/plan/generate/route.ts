@@ -483,6 +483,97 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Validates AI response for business rule violations:
+ * 1. No overlapping meal times on the same day
+ * 2. No dish appears more than 2 times per week
+ * 
+ * Attempts to auto-correct overlapping times by adjusting meal times.
+ */
+function validateAndFixAiResponseRules(response: AiResponse): { valid: boolean; errors: string[]; fixed: boolean; fixedResponse?: AiResponse } {
+  const errors: string[] = []
+  let needsFixing = false
+
+  // First pass: detect violations
+  const dishCountPerWeek = new Map<string, number>()
+
+  response.days.forEach((day) => {
+    const timeSlots = new Map<string, number>()
+    
+    day.meals.forEach((meal) => {
+      const time = meal.time ?? "12:00"
+      const count = (timeSlots.get(time) ?? 0) + 1
+      timeSlots.set(time, count)
+      
+      if (count > 1) {
+        errors.push(`Day ${day.date}: Multiple meals at ${time}`)
+        needsFixing = true
+      }
+    })
+
+    day.meals.forEach((meal) => {
+      const dishName = meal.recipe?.title?.toLowerCase() ?? meal.name.toLowerCase()
+      dishCountPerWeek.set(dishName, (dishCountPerWeek.get(dishName) ?? 0) + 1)
+    })
+  })
+
+  dishCountPerWeek.forEach((count, dishName) => {
+    if (count > 2) {
+      errors.push(`Dish "${dishName}" appears ${count} times (max: 2)`)
+      needsFixing = true
+    }
+  })
+
+  // If no violations, return early
+  if (!needsFixing) {
+    return { valid: true, errors: [], fixed: false }
+  }
+
+  // Second pass: attempt to fix overlapping times
+  let fixedResponse: AiResponse | undefined
+  let fixed = false
+
+  if (needsFixing) {
+    fixedResponse = JSON.parse(JSON.stringify(response)) // Deep clone
+    
+    // Fix overlapping times within days
+    fixedResponse.days.forEach((day) => {
+      const usedTimes = new Set<string>()
+      const standardTimes = ["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"]
+      let timeIndex = 0
+
+      day.meals.forEach((meal) => {
+        const currentTime = meal.time ?? "12:00"
+        
+        if (usedTimes.has(currentTime)) {
+          // Find next available time
+          while (timeIndex < standardTimes.length && usedTimes.has(standardTimes[timeIndex])) {
+            timeIndex++
+          }
+          
+          if (timeIndex < standardTimes.length) {
+            const newTime = standardTimes[timeIndex]
+            console.log(`Auto-correcting meal time from ${currentTime} to ${newTime} for "${meal.name}"`)
+            meal.time = newTime
+            usedTimes.add(newTime)
+            timeIndex++
+            fixed = true
+          }
+        } else {
+          usedTimes.add(currentTime)
+        }
+      })
+    })
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    fixed,
+    fixedResponse,
+  }
+}
+
 function normalizeUnit(unit: string): "g" | "ml" | "unit" {
   const normalized = unit.toLowerCase().trim()
   if (normalized === "ml" || normalized === "milliliters" || normalized === "millilitre") return "ml"
@@ -1006,6 +1097,18 @@ export async function POST(req: NextRequest) {
     if (!aiResponse || aiResponse.days.length === 0) {
       console.error(`[${requestId}] AI response invalid: no days or missing response`)
       return jsonError(500, "ai_response_invalid", "AI response missing days")
+    }
+
+    // Validate and auto-fix business rules (no overlapping times, max 2x per week per dish)
+    const validation = validateAndFixAiResponseRules(aiResponse)
+    
+    if (validation.fixed && validation.fixedResponse) {
+      console.log(`[${requestId}] Auto-corrected ${validation.errors.length} business rule violations`)
+      aiResponse = validation.fixedResponse
+    } else if (!validation.valid) {
+      console.warn(`[${requestId}] AI response has business rule violations:`, validation.errors)
+      // Continue anyway - AI should mostly follow rules
+      console.log(`[${requestId}] Proceeding with AI response despite ${validation.errors.length} issues`)
     }
 
     const rowsByDateMap = new Map(normalizedRows.map((row) => [row.date, row]))
