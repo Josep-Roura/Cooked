@@ -160,8 +160,7 @@ export function SessionNutritionToggle({
 
   return (
     <div className="mt-3 pt-3 border-t border-border/50">
-      {/* Temporarily removed scale-90 to debug visibility */}
-      <div className="">
+      <div className="scale-90 origin-top-left -mx-8 -mb-4">
         <WorkoutNutritionTimeline
           plan={nutritionPlan}
           workoutDuration={
