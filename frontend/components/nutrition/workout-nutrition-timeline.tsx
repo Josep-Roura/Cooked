@@ -7,6 +7,77 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { exportNutritionToPDF, exportNutritionAsTextPDF } from "@/lib/nutrition/export-pdf"
 
+// Helper function to safely get a macro value from an item
+function getMacroValue(item: any, macroType: "carbs" | "protein" | "sodium" | "fat"): number {
+  // Spanish field names mapping
+  const spanishMap = {
+    carbs: "carbohidratos_g",
+    protein: "proteina_g",
+    fat: "grasas_g",
+    sodium: "sodio_mg",
+  }
+  
+  const englishFieldName = macroType
+  const spanishFieldName = spanishMap[macroType]
+  
+  // Try direct fields first
+  if (item[englishFieldName] !== undefined && item[englishFieldName] !== null) {
+    return Number(item[englishFieldName]) || 0
+  }
+  
+  // Try nested macronutrientes fields
+  if (item.macronutrientes?.[spanishFieldName] !== undefined) {
+    return Number(item.macronutrientes[spanishFieldName]) || 0
+  }
+  
+  // Try Spanish top-level fields
+  const spanishTopLevel = item[spanishFieldName]
+  if (spanishTopLevel !== undefined && spanishTopLevel !== null) {
+    return Number(spanishTopLevel) || 0
+  }
+  
+  return 0
+}
+
+// Calculate total carbs from items
+function calculateTotalCarbs(items: any[]): number {
+  if (!Array.isArray(items)) return 0
+  return items.reduce((sum, item) => sum + getMacroValue(item, "carbs"), 0)
+}
+
+// Calculate total protein from items
+function calculateTotalProtein(items: any[]): number {
+  if (!Array.isArray(items)) return 0
+  return items.reduce((sum, item) => sum + getMacroValue(item, "protein"), 0)
+}
+
+// Calculate total fat from items
+function calculateTotalFat(items: any[]): number {
+  if (!Array.isArray(items)) return 0
+  return items.reduce((sum, item) => sum + getMacroValue(item, "fat"), 0)
+}
+
+// Calculate total sodium from items
+function calculateTotalSodium(items: any[]): number {
+  if (!Array.isArray(items)) return 0
+  return items.reduce((sum, item) => sum + getMacroValue(item, "sodium"), 0)
+}
+
+// Calculate total hydration (ml) from items
+function calculateTotalHydration(items: any[]): number {
+  if (!Array.isArray(items)) return 0
+  return items.reduce((sum, item) => {
+    const quantity = Number(item.quantity || item.cantidad) || 0
+    const unit = (item.unit || item.unidad || "").toLowerCase()
+    
+    // Assume ml for most items, but convert liters if needed
+    if (unit.includes("l") && !unit.includes("ml")) {
+      return sum + (quantity * 1000)
+    }
+    return sum + quantity
+  }, 0)
+}
+
 // Helper function to convert Spanish keys to English
 function convertSpanishToEnglish(plan: any): any {
   if (!plan || typeof plan !== "object") return plan
@@ -288,7 +359,7 @@ export function WorkoutNutritionTimeline({
           {/* Scrollable Content */}
           <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
             {/* Science Breakdown Section */}
-            {(parsedPlan?.rationale || parsedPlan?.warnings?.length > 0) && (
+             {(parsedPlan?.rationale || (parsedPlan?.warnings && parsedPlan.warnings.length > 0)) && (
               <ScienceBreakdownSection
                 rationale={parsedPlan.rationale}
                 warnings={parsedPlan.warnings}
@@ -377,6 +448,9 @@ function PreWorkoutSection({
   isExpanded,
   onToggle,
 }: SectionProps & { data: any }) {
+  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  const totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
+  
   return (
     <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
       <button
@@ -392,8 +466,8 @@ function PreWorkoutSection({
             <p className="text-xs text-emerald-700">{data.timing}</p>
           </div>
           <div className="hidden sm:flex gap-2 flex-shrink-0">
-            <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g`} color="orange" />
-            <NutrientBadge icon={Zap} label="Protein" value={`${data.totalProtein}g`} color="purple" />
+            <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g`} color="orange" />
+            <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein}g`} color="purple" />
           </div>
         </div>
         <ChevronDown
@@ -458,6 +532,11 @@ function DuringWorkoutSection({
   calculateTime: (offset: number) => string
 }) {
   const numIntervals = Math.ceil(workoutDuration / data.interval)
+  
+  // Calculate totals from items if not provided
+  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  const totalHydration = data.totalHydration !== undefined ? data.totalHydration : calculateTotalHydration(data.items)
+  const totalSodium = data.totalSodium !== undefined ? data.totalSodium : calculateTotalSodium(data.items)
 
   return (
     <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
@@ -473,10 +552,10 @@ function DuringWorkoutSection({
             <h3 className="font-semibold text-blue-900 text-sm">During Workout</h3>
             <p className="text-xs text-blue-700">Every {data.interval} min • {numIntervals} times</p>
           </div>
-          <div className="hidden sm:flex gap-2 flex-shrink-0">
-            <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g/h`} color="orange" />
-            <NutrientBadge icon={Droplet} label="Hydration" value={`${data.totalHydration}ml/h`} color="cyan" />
-          </div>
+           <div className="hidden sm:flex gap-2 flex-shrink-0">
+             <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g/h`} color="orange" />
+             <NutrientBadge icon={Droplet} label="Hydration" value={`${totalHydration}ml/h`} color="cyan" />
+           </div>
         </div>
         <ChevronDown
           className={cn("w-5 h-5 text-blue-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
@@ -566,6 +645,11 @@ function PostWorkoutSection({
   calculateTime: (offset: number) => string
 }) {
   const postTime = calculateTime(workoutDuration + 10)
+  
+  // Calculate totals from items if not provided
+  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  const totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
+  
 
   return (
     <div className="bg-white rounded-lg border border-pink-200 overflow-hidden">
@@ -581,10 +665,10 @@ function PostWorkoutSection({
             <h3 className="font-semibold text-pink-900 text-sm">Post-Workout</h3>
             <p className="text-xs text-pink-700">{data.timing} (~{postTime})</p>
           </div>
-          <div className="hidden sm:flex gap-2 flex-shrink-0">
-            <NutrientBadge icon={Flame} label="Carbs" value={`${data.totalCarbs}g`} color="orange" />
-            <NutrientBadge icon={Zap} label="Protein" value={`${data.totalProtein}g`} color="purple" />
-          </div>
+           <div className="hidden sm:flex gap-2 flex-shrink-0">
+             <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g`} color="orange" />
+             <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein}g`} color="purple" />
+           </div>
         </div>
         <ChevronDown
           className={cn("w-5 h-5 text-pink-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
