@@ -11,5 +11,12 @@ export default {
   theme: {
     extend: {},
   },
+  // Disable CSS variables in modern color spaces (lab/lch) to avoid Turbopack issues
+  // See: https://github.com/tailwindlabs/tailwindcss/issues/15073
+  corePlugins: {
+    colorOpacity: true,
+  },
+  // CSS generation settings
+  respectPrefix: false,
   plugins: [],
 } satisfies Config

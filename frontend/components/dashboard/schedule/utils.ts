@@ -50,3 +50,91 @@ export function formatTimeRange(start: string, end: string, timeUnknown?: boolea
   if (timeUnknown) return "Time unknown"
   return `${start}–${end}`
 }
+
+// Overlap detection and positioning (Google Calendar style)
+import type { ScheduleItem } from "./types"
+
+export interface ScheduleItemWithPosition {
+  item: ScheduleItem
+  columnIndex: number
+  totalColumns: number
+  top: number
+  height: number
+}
+
+function itemsOverlap(item1: ScheduleItem, item2: ScheduleItem): boolean {
+  const start1 = timeToMinutes(item1.startTime)
+  const end1 = timeToMinutes(item1.endTime)
+  const start2 = timeToMinutes(item2.startTime)
+  const end2 = timeToMinutes(item2.endTime)
+
+  return start1 < end2 && start2 < end1
+}
+
+export function calculateOverlapPositions(
+  dayItems: ScheduleItem[],
+  startHour: number,
+  endHour: number,
+  hourHeight: number
+): ScheduleItemWithPosition[] {
+  if (dayItems.length === 0) return []
+
+  // Sort items by start time
+  const sorted = [...dayItems].sort((a, b) => 
+    timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+  )
+
+  // Create groups of overlapping events
+  const groups: ScheduleItem[][] = []
+  
+  sorted.forEach((item) => {
+    let addedToGroup = false
+    
+    for (const group of groups) {
+      // Check if item overlaps with any item in the group
+      const overlaps = group.some(groupItem => 
+        itemsOverlap(item, groupItem)
+      )
+      
+      if (overlaps) {
+        group.push(item)
+        addedToGroup = true
+        break
+      }
+    }
+    
+    if (!addedToGroup) {
+      groups.push([item])
+    }
+  })
+
+  // Calculate positions for each item
+  const result: ScheduleItemWithPosition[] = []
+  
+  groups.forEach((group) => {
+    // Re-sort group by start time
+    const sortedGroup = [...group].sort((a, b) =>
+      timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+    )
+
+    // Assign column positions
+    sortedGroup.forEach((item, index) => {
+      const startMinutes = timeToMinutes(item.startTime)
+      const endMinutes = timeToMinutes(item.endTime)
+      const clampedStart = Math.max(startMinutes, startHour * 60)
+      const clampedEnd = Math.min(endMinutes, endHour * 60)
+      const top = ((clampedStart - startHour * 60) / 60) * hourHeight
+      const height = Math.max(((clampedEnd - clampedStart) / 60) * hourHeight, 32)
+
+      result.push({
+        item,
+        columnIndex: index,
+        totalColumns: sortedGroup.length,
+        top,
+        height,
+      })
+    })
+  })
+
+  return result
+}

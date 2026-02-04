@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { DayNavigator } from "@/components/dashboard/widgets/day-navigator"
 import {
   useMealPlanDay,
+  useNutritionDayPlan,
   useProfile,
   useTrainingSessions,
   useUpdateNutritionDay,
@@ -36,6 +37,7 @@ export default function NutritionPage() {
   const { start: weekStart, end: weekEnd, startKey: weekStartKey, endKey: weekEndKey } = useWeekRange(selectedDate)
   const weeklyNutritionQuery = useWeeklyNutrition(user?.id, weekStartKey, weekEndKey)
   const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
+  const dayPlanQuery = useNutritionDayPlan(user?.id, selectedDateKey)
   const trainingWeekQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
   const updateMealMutation = useUpdateMealPlanItem()
   const updateNutritionDay = useUpdateNutritionDay(user?.id)
@@ -81,14 +83,19 @@ export default function NutritionPage() {
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
 
   const dayType = useMemo(() => {
+    const aiDayType = dayPlanQuery.data?.day_type
+    if (aiDayType === "high") return "High-load day"
+    if (aiDayType === "training") return "Training day"
+    if (aiDayType === "rest") return "Rest day"
     const sessions = trainingWeekQuery.data ?? []
     const hasTraining = sessions.some((session) => session.date === selectedDateKey)
     return hasTraining ? "Training day" : "Rest day"
-  }, [selectedDateKey, trainingWeekQuery.data])
+  }, [dayPlanQuery.data?.day_type, selectedDateKey, trainingWeekQuery.data])
 
-  const carbNote = dayType === "Training day"
+  const carbNote = dayType === "Training day" || dayType === "High-load day"
     ? "Carbs are higher today to fuel training sessions and recovery."
     : "Carbs ease off to match recovery needs on rest days."
+  const dayRationale = dayPlanQuery.data?.rationale ?? null
 
   const dayOffset = differenceInCalendarDays(selectedDate, weekStart)
   const handlePrevWeek = () => setSelectedDate(addDays(addWeeks(weekStart, -1), dayOffset))
@@ -246,7 +253,7 @@ export default function NutritionPage() {
             isLoading={mealPlanQuery.isLoading || weeklyNutritionQuery.isLoading}
             isUpdating={updateMealMutation.isPending}
             dayTypeLabel={dayType}
-            dayTypeNote={carbNote}
+            dayTypeNote={dayRationale ?? carbNote}
             onToggleMeal={(mealId, eaten) => updateMealMutation.mutate({ id: mealId, payload: { eaten } })}
           />
         </div>

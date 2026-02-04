@@ -39,6 +39,7 @@ function filterMeals(meals: MealPlanItem[], search: string) {
 }
 
 function getMealEmoji(meal: MealPlanItem) {
+  if (meal.emoji) return meal.emoji
   const label = meal.name.toLowerCase()
   if (label.includes("shake") || label.includes("protein")) return "🥤"
   if (label.includes("breakfast")) return "🍳"
@@ -51,10 +52,21 @@ function getMealEmoji(meal: MealPlanItem) {
 function normalizeIngredients(ingredients: MealPlanItem["ingredients"]) {
   return (ingredients ?? []).map((ingredient) => {
     if (typeof ingredient === "string") {
-      return { name: ingredient, quantity: null }
+      return { name: ingredient, quantity: null, unit: null }
     }
-    return { name: ingredient.name, quantity: ingredient.quantity ?? null }
+    return {
+      name: ingredient.name,
+      quantity: ingredient.quantity ?? null,
+      unit: ingredient.unit ?? null,
+    }
   })
+}
+
+function getRecipeTitle(meal: MealPlanItem) {
+  if (meal.recipe && typeof meal.recipe === "object" && "title" in meal.recipe) {
+    return String((meal.recipe as { title?: unknown }).title ?? "")
+  }
+  return ""
 }
 
 export function MealCards({
@@ -167,10 +179,14 @@ export function MealCards({
                           </span>
                         )}
                       </div>
+                      {getRecipeTitle(meal) ? (
+                        <p className="text-xs text-muted-foreground mt-1">Recipe: {getRecipeTitle(meal)}</p>
+                      ) : null}
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {meal.time ?? "Any time"} • 60 min
+                          {meal.time ?? "Any time"}
+                          {meal.meal_type ? ` • ${meal.meal_type}` : ""}
                         </span>
                         <span className="flex items-center gap-1">
                           <Flame className="h-3 w-3" />
@@ -247,7 +263,13 @@ export function MealCards({
           if (!selectedMeal) return
           const ingredients = normalizeIngredients(selectedMeal.ingredients)
           const text = ingredients.length
-            ? ingredients.map((ingredient) => `${ingredient.name}${ingredient.quantity ? ` (${ingredient.quantity})` : ""}`).join("\n")
+            ? ingredients
+                .map((ingredient) => {
+                  const quantity = ingredient.quantity ? ` ${ingredient.quantity}` : ""
+                  const unit = ingredient.unit ? ` ${ingredient.unit}` : ""
+                  return `${ingredient.name}${quantity}${unit}`
+                })
+                .join("\n")
             : "No ingredients listed."
           try {
             await navigator.clipboard.writeText(text)

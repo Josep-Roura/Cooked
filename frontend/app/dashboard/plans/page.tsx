@@ -89,6 +89,37 @@ export default function PlansPage() {
     try {
       await ensureNutritionPlanRange({ start: weekStartKey, end: weekEndKey, force, resetLocks })
       await weekMealsQuery.refetch()
+      
+      // Also generate nutrition plans for workouts
+      if (force) {
+        const workouts = workoutsQuery.data ?? []
+        for (const workout of workouts) {
+          // Skip if nutrition already exists
+          try {
+            const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
+            if (duration > 0) {
+              // Generate nutrition plan for this workout
+              await fetch("/api/ai/nutrition/during-workout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  workoutId: workout.id,
+                  workoutDate: workout.workout_day,
+                  workoutType: workout.workout_type,
+                  durationMinutes: duration,
+                  intensity: workout.if ? (parseFloat(workout.if as any) > 1.1 ? "high" : "moderate") : "moderate",
+                  tss: workout.tss ?? 0,
+                  description: workout.description ?? "",
+                  workoutStartTime: workout.start_time ?? "18:00",
+                  save: true,
+                }),
+              })
+            }
+          } catch (err) {
+            console.warn(`Could not generate nutrition for workout ${workout.id}:`, err)
+          }
+        }
+      }
     } catch (error) {
       toast({
         title: "Plan generation failed",
@@ -128,27 +159,20 @@ export default function PlansPage() {
     grouped.forEach((dayWorkouts, day) => {
       const distributed: { workout: TpWorkout; startTime: string; endTime: string }[] = []
 
-      dayWorkouts.forEach((workout, index) => {
+      dayWorkouts.forEach((workout) => {
         const duration = getWorkoutDurationMinutes(workout.actual_hours ?? workout.planned_hours ?? null)
 
-        let startTime: string
-        if (dayWorkouts.length > 1) {
-          if (index === 0) {
-            startTime = "08:00"
-          } else if (index === 1) {
-            startTime = "17:00"
-          } else {
-            startTime = `${8 + index * 3}:00`.padStart(5, "0")
-          }
-        } else {
-          const fallback = normalizeTime(workout.start_time, "18:00")
-          startTime = fallback.time
-        }
+        // Always use the start_time from the database
+        const fallback = normalizeTime(workout.start_time, "18:00")
+        const startTime = fallback.time
 
         const endTime = addMinutesToTime(startTime, duration)
         distributed.push({ workout, startTime, endTime })
       })
 
+      // Sort by start time
+      distributed.sort((a, b) => a.startTime.localeCompare(b.startTime))
+      
       map.set(day, distributed)
     })
 
@@ -391,21 +415,12 @@ export default function PlansPage() {
           meta: { workout },
         })
 
-        const intraFuel = planRowsByDay.get(day)
-        if (intraFuel && intraFuel > 0) {
-          items.push({
-            id: `fuel-${workout.id}`,
-            type: "nutrition_during",
-            date: day,
-            startTime,
-            endTime: addMinutesToTime(startTime, Math.min(workoutDuration, 15)),
-            title: `Fuel ${intraFuel}g/hr`,
-            emoji: "⚡",
-            timeUnknown: false,
-            locked: false,
-            meta: { workout },
-          })
-        }
+        // Note: Intra-workout fuel display is now shown in the nutrition strategy
+        // within the workout details modal instead of as calendar items
+        // const intraFuel = planRowsByDay.get(day)
+        // if (intraFuel && intraFuel > 0) {
+        //   items.push({...})
+        // }
       })
     })
 
@@ -413,58 +428,60 @@ export default function PlansPage() {
   }, [calendarById, planRowsByDay, weekMealsQuery.data, workoutsByDayForRender])
 
   return (
-    <main className="flex-1 p-8 overflow-auto">
-      <div className="max-w-6xl space-y-6">
-        <WeeklyPlanHeader
-          weekLabel={weekLabel}
-          onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
-          onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
-          onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-          onRegenerateWeek={handleRegenerateWeek}
-          onResetWeek={handleResetWeek}
-          isGenerating={isGenerating}
-        />
+    <main className="flex-1 p-8 overflow-hidden flex flex-col">
+      <WeeklyPlanHeader
+        weekLabel={weekLabel}
+        onPrevWeek={() => setAnchorDate(addWeeks(anchorDate, -1))}
+        onNextWeek={() => setAnchorDate(addWeeks(anchorDate, 1))}
+        onThisWeek={() => setAnchorDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+        onRegenerateWeek={handleRegenerateWeek}
+        onResetWeek={handleResetWeek}
+        isGenerating={isGenerating}
+      />
 
-        {weekMealsQuery.isLoading || workoutsQuery.isLoading || planRowsQuery.isLoading ? (
-          <div className="rounded-3xl border border-border/60 bg-card p-6">
-            <Skeleton className="h-[520px] w-full" />
-          </div>
-        ) : (weekMealsQuery.data ?? []).length === 0 && (workoutsQuery.data ?? []).length === 0 ? (
-          <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
-            <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
-            <Button
-              variant="outline"
-              className="rounded-full text-xs"
-              onClick={() => handleGenerateWeek(false, true)}
-              disabled={isGenerating}
-            >
-              Generate plan
-            </Button>
-          </div>
-        ) : (
-          <WeeklyTimeGrid
-            days={days}
-            items={scheduleItems}
-            onSelectItem={(item) => {
-              if (item.type === "meal" || item.type.startsWith("nutrition_")) {
-                const meal = item.meta?.meal as PlanWeekMeal | undefined
-                if (meal) {
-                  openMealDetails(meal)
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl space-y-6 mt-6">
+          {weekMealsQuery.isLoading || workoutsQuery.isLoading || planRowsQuery.isLoading ? (
+            <div className="rounded-3xl border border-border/60 bg-card p-6">
+              <Skeleton className="h-[520px] w-full" />
+            </div>
+          ) : (weekMealsQuery.data ?? []).length === 0 && (workoutsQuery.data ?? []).length === 0 ? (
+            <div className="bg-card border border-border rounded-2xl p-10 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">No meals planned for this week yet.</p>
+              <Button
+                variant="outline"
+                className="rounded-full text-xs"
+                onClick={() => handleGenerateWeek(false, true)}
+                disabled={isGenerating}
+              >
+                Generate plan
+              </Button>
+            </div>
+          ) : (
+            <WeeklyTimeGrid
+              days={days}
+              items={scheduleItems}
+              onSelectItem={(item) => {
+                if (item.type === "meal" || item.type.startsWith("nutrition_")) {
+                  const meal = item.meta?.meal as PlanWeekMeal | undefined
+                  if (meal) {
+                    openMealDetails(meal)
+                  }
+                } else if (item.type === "workout") {
+                  const workout = item.meta?.workout as TpWorkout | undefined
+                  if (workout) {
+                    openWorkoutDetails(workout)
+                  }
                 }
-              } else if (item.type === "workout") {
-                const workout = item.meta?.workout as TpWorkout | undefined
-                if (workout) {
-                  openWorkoutDetails(workout)
-                }
-              }
-            }}
-            onDragEnd={handleDragEnd}
-          />
-        )}
+              }}
+              onDragEnd={handleDragEnd}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="sticky bottom-6 mt-8">
-        <div className="max-w-6xl mx-auto bg-card border border-border rounded-full px-6 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+      <div className="flex-shrink-0">
+        <div className="max-w-6xl mx-auto bg-card border border-border rounded-full px-6 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm mt-8">
           <div className="text-xs text-muted-foreground">Weekly totals</div>
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <Badge variant="secondary">{weeklyTotals.kcal} kcal</Badge>
@@ -476,7 +493,21 @@ export default function PlansPage() {
       </div>
 
       <PlanDetailsModal open={detailsOpen} onOpenChange={setDetailsOpen} meal={selectedMeal} />
-      <WorkoutDetailsModal open={workoutDetailsOpen} onOpenChange={setWorkoutDetailsOpen} workout={selectedWorkout} />
+      <WorkoutDetailsModal
+        open={workoutDetailsOpen}
+        onOpenChange={setWorkoutDetailsOpen}
+        workout={selectedWorkout}
+        nearbyMeals={selectedWorkout ? (weekMealsQuery.data ?? [])
+          .filter(m => m.date === selectedWorkout.workout_day)
+          .map(m => ({
+            type: m.meal_type || "Meal",
+            time: m.time || "Unknown",
+            date: m.date,
+          })) : undefined}
+        onUpdate={() => {
+          queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+        }}
+      />
     </main>
   )
 }
