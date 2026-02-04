@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { format } from "date-fns"
-import { Clock, Flame, Activity, Dumbbell, Timer, Zap, Loader, MapPin, TrendingUp } from "lucide-react"
+import { Clock, Flame, Activity, Dumbbell, Timer, Zap, Loader, MapPin, TrendingUp, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NotionModal } from "@/components/ui/notion-modal"
 import { useToast } from "@/components/ui/use-toast"
+import { useQueryClient } from "@tanstack/react-query"
 import { WorkoutNutritionCard } from "@/components/nutrition/workout-nutrition-card"
 import { WorkoutNutritionTimeline } from "@/components/nutrition/workout-nutrition-timeline"
 import { addMinutesToTime } from "@/components/dashboard/schedule/utils"
@@ -17,15 +18,18 @@ interface WorkoutDetailsModalProps {
   onOpenChange: (open: boolean) => void
   workout: TpWorkout | null
   onUpdate?: () => void
+  onDelete?: () => void
   nearbyMeals?: Array<{ type: string; time: string; date: string }>
 }
 
-export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nearbyMeals }: WorkoutDetailsModalProps) {
+export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, onDelete, nearbyMeals }: WorkoutDetailsModalProps) {
    const { toast } = useToast()
+   const queryClient = useQueryClient()
    const [isEditingTime, setIsEditingTime] = useState(false)
    const [editedTime, setEditedTime] = useState("")
    const [isSavingTime, setIsSavingTime] = useState(false)
    const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false)
+   const [isDeleting, setIsDeleting] = useState(false)
    const [customDuringNutrition, setCustomDuringNutrition] = useState<string | null>(null)
    const [nutritionPlan, setNutritionPlan] = useState<any>(null)
    const [displayedTime, setDisplayedTime] = useState("")
@@ -123,15 +127,63 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
          // Auto-load nutrition if it exists
          loadNutritionPlan()
        }
-     }, [open, workout, loadNutritionPlan])
-  
-  if (!workout) {
-    return (
-      <NotionModal open={open} onOpenChange={onOpenChange} title="Workout details">
-        <p className="text-sm text-muted-foreground">Select a workout to see details.</p>
-      </NotionModal>
-    )
-  }
+      }, [open, workout, loadNutritionPlan])
+   
+   const handleDeleteWorkout = async () => {
+     if (!workout) return
+
+     const confirmDelete = window.confirm(
+       `Are you sure you want to delete ${workout.title || workout.workout_type || "this workout"}? This action cannot be undone.`
+     )
+     if (!confirmDelete) return
+
+     setIsDeleting(true)
+     try {
+       const response = await fetch("/api/v1/workouts/delete", {
+         method: "DELETE",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           workoutId: workout.id,
+           date: workout.workout_day,
+         }),
+       })
+
+       if (!response.ok) {
+         const error = await response.json()
+         throw new Error(error.error || "Failed to delete workout")
+       }
+
+       toast({
+         title: "Workout deleted",
+         description: `${workout.title || workout.workout_type || "Workout"} has been removed from your plan.`,
+       })
+
+       // Invalidate queries to refetch
+       await queryClient.invalidateQueries({ queryKey: ["db", "workouts-range"] })
+       
+       // Close modal
+       onOpenChange(false)
+       
+       // Call optional callback
+       onDelete?.()
+     } catch (error) {
+       toast({
+         title: "Error",
+         description: error instanceof Error ? error.message : "Failed to delete workout",
+         variant: "destructive",
+       })
+     } finally {
+       setIsDeleting(false)
+     }
+   }
+   
+   if (!workout) {
+     return (
+       <NotionModal open={open} onOpenChange={onOpenChange} title="Workout details">
+         <p className="text-sm text-muted-foreground">Select a workout to see details.</p>
+       </NotionModal>
+     )
+   }
 
    const title = workout.title ?? workout.workout_type ?? "Workout"
    const duration = workout.planned_hours 
@@ -479,8 +531,31 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                 </Button>
               </>
             ) : null}
-         </div>
-      </div>
+          </div>
+
+          {/* Delete Workout Button */}
+          <div className="border-t border-border/50 pt-4 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-900/30"
+              onClick={handleDeleteWorkout}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete workout
+                </>
+              )}
+            </Button>
+          </div>
+       </div>
     </NotionModal>
   )
 }
