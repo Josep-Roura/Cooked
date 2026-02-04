@@ -410,7 +410,7 @@ export default function PlansPage() {
         source: {
           type: "meal",
           sourceTable: "nutrition_meals",
-          sourceId: meal.id,
+          sourceId: meal.meal_plan_id ?? meal.id,
         },
         meta: { meal },
       })
