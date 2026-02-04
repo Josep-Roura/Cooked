@@ -46,8 +46,10 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
 
     setIsDeleting(true)
     try {
+      console.log("Deleting meal:", { id: meal.id, date: meal.date })
+      
       const response = await fetch("/api/v1/nutrition/meal/delete", {
-        method: "DELETE",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mealId: meal.id,
@@ -55,10 +57,16 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
         }),
       })
 
+      console.log("Delete response:", response.status, response.ok)
+
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || "Failed to delete meal")
+        console.error("Delete error:", error)
+        throw new Error(error.error || error.details || "Failed to delete meal")
       }
+
+      const data = await response.json()
+      console.log("Delete success:", data)
 
       toast({
         title: "Meal deleted",
@@ -74,6 +82,7 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
       // Call optional callback
       onDelete?.()
     } catch (error) {
+      console.error("Delete meal error:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to delete meal",
