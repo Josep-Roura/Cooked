@@ -35,12 +35,11 @@ ORDER BY tablename;
 -- AI Chat (legacy - not used in current Cooked)
 DROP TABLE IF EXISTS public.plan_chat_messages CASCADE;
 DROP TABLE IF EXISTS public.plan_chat_threads CASCADE;
-DROP TABLE IF EXISTS public.ai_messages CASCADE;
-DROP TABLE IF EXISTS public.ai_threads CASCADE;
-DROP TABLE IF EXISTS public.ai_requests CASCADE;
+-- NOTE: ai_messages and ai_threads ARE NEEDED - do not drop
+-- NOTE: ai_requests IS NEEDED by /app/api/ai/plan/generate - do not drop
 
--- Plan Revisions (legacy tracking - not used)
-DROP TABLE IF EXISTS public.plan_revisions CASCADE;
+-- Plan Revisions (NEEDED for tracking revisions)
+-- NOTE: plan_revisions IS NEEDED by /app/api/ai/plan/generate - do not drop
 
 -- Old Meal Tracking (replaced by nutrition_meals)
 DROP TABLE IF EXISTS public.meal_log CASCADE;
@@ -347,8 +346,6 @@ WHERE NOT EXISTS (SELECT 1 FROM public.nutrition_products WHERE name = 'Caffeine
 /*
 TABLES DELETED (unused):
 - plan_chat_messages, plan_chat_threads (old chat)
-- ai_messages, ai_threads, ai_requests (old AI)
-- plan_revisions (plan tracking)
 - meal_log (old meal tracking)
 - meal_schedule (old schedule)
 - meal_prep_items, meal_prep_sessions (old prep)
@@ -364,9 +361,9 @@ TABLES PRESERVED (essential):
 ✅ nutrition_products (product database)
 ✅ workout_nutrition (nutrition during workouts)
 ✅ user_food_rules (dietary restrictions)
-✅ grocery_items, pantry_items (pantry - if using)
-✅ workout_fueling (fueling data)
-✅ recipe_cook_log, recipe_favorites (recipe meta)
+✅ ai_messages, ai_threads (AI conversation history)
+✅ ai_requests (AI API call logging)
+✅ plan_revisions (plan revision tracking)
 
-RESULT: Database cleaned and optimized for Cooked
+RESULT: Database cleaned, with all essential tables preserved for Cooked
 */
