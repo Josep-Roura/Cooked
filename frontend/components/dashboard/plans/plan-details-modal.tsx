@@ -46,15 +46,15 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
 
     setIsDeleting(true)
     try {
-      console.log("Deleting meal:", { id: meal.id, date: meal.date })
+      console.log("Deleting meal:", { date: meal.date, slot: meal.slot })
       
       const response = await fetch("/api/v1/nutrition/meal/delete", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mealId: meal.id,
           date: meal.date,
+          slot: meal.slot,
         }),
       })
 
