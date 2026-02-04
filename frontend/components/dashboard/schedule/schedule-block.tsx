@@ -30,6 +30,15 @@ export function ScheduleBlock({ item, style, onSelect, columnIndex = 0, totalCol
   const isDraggable = (item.source?.type === "meal" || item.source?.type === "workout") && !isLocked
   const hasOverlap = totalColumns > 1
 
+  // Debug logging
+  if (item.type === "meal" && !isDraggable) {
+    console.warn(`Meal not draggable: ${item.title}`, {
+      hasSource: !!item.source,
+      sourceType: item.source?.type,
+      isLocked,
+    })
+  }
+
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
     data: item,

@@ -252,10 +252,25 @@ export default function PlansPage() {
   }, [calendarItems, workoutsById])
 
   const handleDragEnd = useCallback(async (item: ScheduleItem, newDate: string, newStartTime: string) => {
-    if (!item.source || item.locked) return
-    if (item.date === newDate && item.startTime === newStartTime) {
+    if (!item.source || item.locked) {
+      console.warn(`[handleDragEnd] Drag rejected: no source or locked`, {
+        hasSource: !!item.source,
+        isLocked: item.locked,
+      })
       return
     }
+    if (item.date === newDate && item.startTime === newStartTime) {
+      console.log(`[handleDragEnd] No position change, skipping`)
+      return
+    }
+
+    console.log(`[handleDragEnd] Updating ${item.source.type}:`, {
+      title: item.title,
+      fromDate: item.date,
+      fromTime: item.startTime,
+      toDate: newDate,
+      toTime: newStartTime,
+    })
 
     const previousItems = calendarItems
     setCalendarItems((prev) =>
@@ -288,9 +303,11 @@ export default function PlansPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        console.error(`[handleDragEnd] API error:`, errorData)
         throw new Error(errorData.error || `Failed to update item (${response.status})`)
       }
-      await response.json().catch(() => null)
+      const result = await response.json().catch(() => null)
+      console.log(`[handleDragEnd] API success:`, result)
 
       toast({
         title: "Item moved",

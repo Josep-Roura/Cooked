@@ -154,6 +154,7 @@ export function WeeklyTimeGrid({
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const item = event.active.data.current as ScheduleItem
     if (item) {
+      console.log(`[DragStart] ${item.type}: ${item.title}`)
       setActiveItem(item)
     }
   }, [])
@@ -184,6 +185,10 @@ export function WeeklyTimeGrid({
     // Always clear active item first for smooth UI
     setActiveItem(null)
     setHoveredSlot(null)
+    
+    if (position && item) {
+      console.log(`[DragEnd] ${item.type}: ${item.title} -> ${position.newDate} ${position.newStartTime}`)
+    }
     
     if (!position || !item) return
 
