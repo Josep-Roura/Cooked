@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServerClient } from "@/lib/supabase/server"
 import { generateSportsNutritionistPrompt, type NutritionistContext } from "@/lib/nutrition/ai-nutritionist-prompt"
+import { getCountryCode, getCountryProducts, formatProductsForPrompt, getCountryName } from "@/lib/nutrition/country-products"
 
 const duringWorkoutSchema = z.object({
   workoutId: z.union([z.string(), z.number()]).optional().transform(val => val ? String(val) : undefined),
@@ -115,6 +116,16 @@ export async function POST(request: NextRequest) {
       ? "low"
       : "moderate" as const
 
+    // Get country-specific products
+    const userCountry = profile.country || "OTHER"
+    const countryCode = getCountryCode(userCountry)
+    const countryProducts = getCountryProducts(countryCode)
+    const formattedProducts = formatProductsForPrompt(countryProducts)
+    const countryName = getCountryName(countryCode)
+
+    console.log(`[${requestId}] User country: ${userCountry} (${countryCode}) - ${countryName}`)
+    console.log(`[${requestId}] Available products for country: ${countryProducts.length} products`)
+
     // Build nutritionist context
     const nutritionistContext: NutritionistContext = {
       athleteName: profile.full_name,
@@ -130,6 +141,8 @@ export async function POST(request: NextRequest) {
       durationMinutes,
       intensity: normalizedIntensity,
       description,
+      country: countryName,
+      availableProducts: formattedProducts,
     }
 
     console.log(`[${requestId}] Generating sports nutritionist prompt...`)
