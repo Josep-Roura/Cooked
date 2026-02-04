@@ -71,6 +71,12 @@ CREATE POLICY plan_revisions_select_own ON public.plan_revisions FOR SELECT USIN
 CREATE POLICY plan_revisions_insert_own ON public.plan_revisions FOR INSERT WITH CHECK (user_id = auth.uid());
 CREATE POLICY plan_revisions_update_own ON public.plan_revisions FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY plan_revisions_delete_own ON public.plan_revisions FOR DELETE USING (user_id = auth.uid());
+
+-- ============================================================================
+-- FIX 3: Add missing nutrition_plan_json column to workout_nutrition
+-- ============================================================================
+ALTER TABLE public.workout_nutrition 
+ADD COLUMN IF NOT EXISTS nutrition_plan_json jsonb;
 ```
 
 ### Paso 3: Pega en Supabase
@@ -114,6 +120,11 @@ psql "postgresql://postgres:PASSWORD@host:5432/postgres"
 2. **Crea indexes** para búsquedas por usuario y fecha
 3. **Habilita RLS** con 4 políticas (select, insert, update, delete)
 
+### 🔧 FIX 3: Columna `nutrition_plan_json` en `workout_nutrition`
+1. **Agrega** la columna que faltaba en la tabla `workout_nutrition`
+   - ✅ Tipo `jsonb` para guardar planes completos de nutrición
+2. La API `/api/ai/nutrition/during-workout` guarda el plan aquí
+
 ---
 
 ## 🚨 IMPORTANTE
@@ -130,10 +141,11 @@ psql "postgresql://postgres:PASSWORD@host:5432/postgres"
 Tu aplicación ahora podrá:
 - ✅ Guardar logs de AI requests sin errores ("Could not find column")
 - ✅ Guardar revisiones de planes sin errores ("Could not find table plan_revisions")
-- ✅ Usar todas las columnas necesarias (tokens, prompt_preview, response_preview, latency_ms)
+- ✅ Guardar planes de nutrición sin errores ("Could not find column nutrition_plan_json")
+- ✅ Usar todas las columnas necesarias (tokens, prompt_preview, response_preview, latency_ms, nutrition_plan_json)
 - ✅ Funcionar correctamente con los endpoints:
   - `/api/ai/plan/generate` - genera planes y guarda revisiones
-  - `/api/ai/nutrition/during-workout` - guarda logs de AI requests
+  - `/api/ai/nutrition/during-workout` - guarda logs de AI requests y planes de nutrición
   - `/api/v1/ai/status` - lee histórico de AI requests
 
 ---
