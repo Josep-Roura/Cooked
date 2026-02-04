@@ -30,6 +30,15 @@ export function ScheduleBlock({ item, style, onSelect, columnIndex = 0, totalCol
   const isDraggable = (item.source?.type === "meal" || item.source?.type === "workout") && !isLocked
   const hasOverlap = totalColumns > 1
 
+  // Debug logging
+  if (item.type === "meal" && !isDraggable) {
+    console.warn(`Meal not draggable: ${item.title}`, {
+      hasSource: !!item.source,
+      sourceType: item.source?.type,
+      isLocked,
+    })
+  }
+
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
     data: item,
@@ -52,7 +61,8 @@ export function ScheduleBlock({ item, style, onSelect, columnIndex = 0, totalCol
         ...horizontalStyle,
         transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
         zIndex: 50,
-        opacity: 0.9,
+        opacity: 0.95,
+        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1)",
       }
     : { ...style, ...horizontalStyle }
 
@@ -69,17 +79,17 @@ export function ScheduleBlock({ item, style, onSelect, columnIndex = 0, totalCol
       type="button"
       onClick={handleClick}
       style={dragStyle}
-      className={cn(
-        "absolute rounded-sm border-0 text-left shadow-sm transition-all duration-200 overflow-hidden",
-        hasOverlap ? "inset-y-0.5" : "inset-x-1 inset-y-0.5",
-        "hover:shadow-md hover:z-10",
-        typeStyles[item.type],
-        item.timeUnknown ? "opacity-70" : "",
-        isCompact ? "px-2 py-1" : "px-2 py-2",
-        isDragging && "ring-2 ring-blue-500 shadow-lg",
-        isLocked && "cursor-not-allowed opacity-75",
-        isDraggable && "cursor-grab active:cursor-grabbing",
-      )}
+       className={cn(
+         "absolute rounded-sm border-0 text-left overflow-hidden",
+         hasOverlap ? "inset-y-0.5" : "inset-x-1 inset-y-0.5",
+         !isDragging && "shadow-sm hover:shadow-md hover:z-10 transition-all duration-200",
+         typeStyles[item.type],
+         item.timeUnknown ? "opacity-70" : "",
+         isCompact ? "px-2 py-1" : "px-2 py-2",
+         isDragging && "ring-2 ring-blue-500",
+         isLocked && "cursor-not-allowed opacity-75",
+         isDraggable && "cursor-grab active:cursor-grabbing",
+       )}
       {...(isDraggable ? { ...attributes, ...listeners } : {})}
     >
       {/* Locked indicator */}

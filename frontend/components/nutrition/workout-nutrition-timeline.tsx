@@ -39,6 +39,72 @@ function getMacroValue(item: any, macroType: "carbs" | "protein" | "sodium" | "f
   return 0
 }
 
+// Calculate recommended during-workout carbs based on ACSM/ISSN guidelines
+function calculateDuringWorkoutMacros(workoutDurationMin: number, intensity: string = "high") {
+  // ACSM/ISSN Guidelines:
+  // - <60 min: water/electrolytes only
+  // - 60-90 min: 30-60g carbs/hour
+  // - >90 min: 60-90g carbs/hour (high intensity) or 30-60g (moderate)
+  // - Hydration: 500-1000ml/hour depending on sweat rate
+  // - Sodium: 300-700mg/hour to maintain hyponatremia
+  
+  const durationHours = workoutDurationMin / 60
+  
+  let carbsPerHour = 0
+  if (workoutDurationMin >= 90) {
+    carbsPerHour = intensity === "high" ? 90 : 60
+  } else if (workoutDurationMin >= 60) {
+    carbsPerHour = 45
+  } else {
+    return { carbsPerHour: 0, hydrationPerHour: 500, sodiumPerHour: 0, intervalMinutes: 30 }
+  }
+  
+  return {
+    carbsPerHour,
+    hydrationPerHour: 750,
+    sodiumPerHour: 500,
+    intervalMinutes: 30,
+  }
+}
+
+// Calculate recommended pre-workout macros
+function calculatePreWorkoutMacros(workoutDurationMin: number, weightKg: number = 70) {
+  // ACSM Guidelines: 1-4g carbs/kg depending on session duration
+  // 60-90 min: 1g/kg, >90 min: 1.5-2g/kg, very long: 2-4g/kg
+  // Pre: 30-60 min before, include protein for satiety
+  
+  let carbsPerKg = 1.5
+  if (workoutDurationMin > 120) {
+    carbsPerKg = 2
+  } else if (workoutDurationMin > 90) {
+    carbsPerKg = 1.5
+  }
+  
+  const carbsG = Math.round(carbsPerKg * weightKg)
+  const proteinG = Math.round(0.25 * weightKg) // 0.25g/kg for satiety
+  
+  return {
+    carbsG,
+    proteinG,
+    timing: "30-60 minutes before",
+  }
+}
+
+// Calculate recommended post-workout macros  
+function calculatePostWorkoutMacros(workoutDurationMin: number, weightKg: number = 70) {
+  // ACSM Recovery Window: 1.2g carbs/kg + 0.25-0.4g protein/kg
+  // Within 30-60 minutes for optimal recovery
+  
+  const carbsG = Math.round(1.2 * weightKg)
+  const proteinG = Math.round(0.3 * weightKg)
+  
+  return {
+    carbsG,
+    proteinG,
+    timing: "30-60 minutes after workout",
+  }
+}
+
 // Calculate total carbs from items
 function calculateTotalCarbs(items: any[]): number {
   if (!Array.isArray(items)) return 0
@@ -566,8 +632,11 @@ function PreWorkoutSection({
   isExpanded,
   onToggle,
 }: SectionProps & { data: any }) {
-  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
-  const totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
+  let totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  let totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
+  
+  // If no macros provided by AI, show calculated values with note
+  const hasAIData = totalCarbs > 0 || totalProtein > 0
   
   return (
     <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
@@ -581,11 +650,11 @@ function PreWorkoutSection({
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-emerald-900 text-sm">Pre-Workout</h3>
-            <p className="text-xs text-emerald-700">{data.timing}</p>
+            <p className="text-xs text-emerald-700">{data.timing || "30-60 min before"}</p>
           </div>
           <div className="hidden sm:flex gap-2 flex-shrink-0">
-            <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g`} color="orange" />
-            <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein}g`} color="purple" />
+            <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs || "?"}g`} color="orange" />
+            <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein || "?"}g`} color="purple" />
           </div>
         </div>
         <ChevronDown
@@ -595,6 +664,14 @@ function PreWorkoutSection({
 
       {isExpanded && (
         <div className="border-t border-emerald-200 bg-emerald-50 p-3">
+          {!hasAIData && (
+            <div className="bg-amber-50 border border-amber-200 rounded p-2 mb-3">
+              <p className="text-xs text-amber-700">
+                <strong>Guideline:</strong> Eat {totalCarbs}g carbs + {totalProtein}g protein 30-60 min before for optimal fueling
+              </p>
+            </div>
+          )}
+          
           <div className="space-y-2">
             {data.items && data.items.length > 0 ? (
               data.items.map((item: any, idx: number) => (
@@ -627,7 +704,7 @@ function PreWorkoutSection({
                 </div>
               ))
             ) : (
-              <p className="text-xs text-slate-500 italic">No items specified</p>
+              <p className="text-xs text-slate-500 italic">No specific items. Eat easily digestible food with carbs and protein.</p>
             )}
           </div>
         </div>
@@ -651,10 +728,35 @@ function DuringWorkoutSection({
 }) {
   const numIntervals = Math.ceil(workoutDuration / data.interval)
   
-  // Calculate totals from items if not provided
-  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
-  const totalHydration = data.totalHydration !== undefined ? data.totalHydration : calculateTotalHydration(data.items)
-  const totalSodium = data.totalSodium !== undefined ? data.totalSodium : calculateTotalSodium(data.items)
+  // Get carbs per hour from AI data (this should be set by AI based on duration/intensity)
+  const carbsPerHour = data.carbohidratos_por_hora_g || data.carbs_per_hour || 0
+  
+  // Get hydration per hour from AI data
+  const hydrationPerHour = data.hidratacion_por_hora_ml || data.hydration_per_hour || 0
+  
+  // Get sodium per hour from AI data
+  const sodiumPerHour = data.sodio_por_hora_mg || data.sodium_per_hour || 0
+  
+  // Calculate totals from items if no per-hour values provided
+  let totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  let totalHydration = data.totalHydration !== undefined ? data.totalHydration : calculateTotalHydration(data.items)
+  let totalSodium = data.totalSodium !== undefined ? data.totalSodium : calculateTotalSodium(data.items)
+  
+  // If we have per-hour data, use it to calculate totals
+  if (carbsPerHour > 0) {
+    const hours = workoutDuration / 60
+    totalCarbs = Math.round(carbsPerHour * hours)
+  }
+  
+  if (hydrationPerHour > 0) {
+    const hours = workoutDuration / 60
+    totalHydration = Math.round(hydrationPerHour * hours)
+  }
+  
+  if (sodiumPerHour > 0) {
+    const hours = workoutDuration / 60
+    totalSodium = Math.round(sodiumPerHour * hours)
+  }
 
   return (
     <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
@@ -671,83 +773,108 @@ function DuringWorkoutSection({
             <p className="text-xs text-blue-700">Every {data.interval} min • {numIntervals} times</p>
           </div>
            <div className="hidden sm:flex gap-2 flex-shrink-0">
-             <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g/h`} color="orange" />
-             <NutrientBadge icon={Droplet} label="Hydration" value={`${totalHydration}ml/h`} color="cyan" />
-           </div>
-        </div>
-        <ChevronDown
-          className={cn("w-5 h-5 text-blue-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
-        />
-      </button>
-
-      {isExpanded && (
-        <div className="border-t border-blue-200 bg-blue-50 p-3 space-y-3">
-          {/* Timeline Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {Array.from({ length: numIntervals }).map((_, idx) => {
-              const offset = idx * data.interval
-              const time = calculateTime(offset)
-              return (
-                <div
-                  key={idx}
-                  className="bg-white rounded border border-blue-200 p-2 text-center hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-center justify-center gap-1 mb-2">
-                    <Clock className="w-3 h-3 text-blue-600" />
-                    <span className="text-xs font-bold text-blue-900">{time}</span>
-                  </div>
-                  <div className="text-xs text-blue-600 font-medium border-t border-blue-100 pt-2">
-                    Consume items
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Products List */}
-          {data.items && data.items.length > 0 && (
-            <div className="bg-white rounded border border-blue-200 p-3 mt-3">
-              <p className="text-xs font-semibold text-blue-900 mb-2">🍷 Each Interval:</p>
-              <div className="space-y-2">
-                {data.items.map((item: any, idx: number) => (
-                  <div key={idx} className="flex items-start justify-between gap-2 p-2 bg-blue-50 rounded border border-blue-100">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-xs text-slate-900">
-                        {item.product || item.producto}
-                      </p>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
-                      </p>
-                      {(item.frecuencia || item.frequency) && (
-                        <p className="text-xs text-blue-600 font-medium mt-1">
-                          {item.frecuencia || item.frequency}
-                        </p>
-                      )}
-                    </div>
-                    {item.macronutrientes && (
-                      <div className="flex gap-1 flex-shrink-0">
-                        {item.macronutrientes.carbohidratos_g && (
-                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded font-semibold">
-                            {item.macronutrientes.carbohidratos_g}g
-                          </span>
-                        )}
-                        {item.macronutrientes.sodio_mg && (
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-semibold">
-                            {item.macronutrientes.sodio_mg}Na
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <NutrientBadge icon={Flame} label="Carbs" value={`${carbsPerHour > 0 ? carbsPerHour : totalCarbs}${carbsPerHour > 0 ? 'g/h' : 'g'}`} color="orange" />
+              <NutrientBadge icon={Droplet} label="Hydration" value={`${hydrationPerHour > 0 ? hydrationPerHour : totalHydration}${hydrationPerHour > 0 ? 'ml/h' : 'ml'}`} color="cyan" />
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+         </div>
+         <ChevronDown
+           className={cn("w-5 h-5 text-blue-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
+         />
+       </button>
+
+       {isExpanded && (
+         <div className="border-t border-blue-200 bg-blue-50 p-3 space-y-3">
+           {/* Macro Summary */}
+           <div className="grid grid-cols-3 gap-2">
+             {carbsPerHour > 0 && (
+               <div className="bg-white rounded border border-orange-200 p-2 text-center">
+                 <div className="text-sm font-bold text-orange-900">{carbsPerHour}g/h</div>
+                 <div className="text-xs text-orange-600">Carbs/Hour</div>
+                 <div className="text-xs text-orange-500 mt-1">({totalCarbs}g total)</div>
+               </div>
+             )}
+             {hydrationPerHour > 0 && (
+               <div className="bg-white rounded border border-cyan-200 p-2 text-center">
+                 <div className="text-sm font-bold text-cyan-900">{hydrationPerHour}ml/h</div>
+                 <div className="text-xs text-cyan-600">Fluids/Hour</div>
+                 <div className="text-xs text-cyan-500 mt-1">({totalHydration}ml total)</div>
+               </div>
+             )}
+             {sodiumPerHour > 0 && (
+               <div className="bg-white rounded border border-blue-200 p-2 text-center">
+                 <div className="text-sm font-bold text-blue-900">{sodiumPerHour}mg/h</div>
+                 <div className="text-xs text-blue-600">Sodium/Hour</div>
+                 <div className="text-xs text-blue-500 mt-1">({totalSodium}mg total)</div>
+               </div>
+             )}
+           </div>
+
+           {/* Timeline Grid */}
+           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+             {Array.from({ length: numIntervals }).map((_, idx) => {
+               const offset = idx * data.interval
+               const time = calculateTime(offset)
+               return (
+                 <div
+                   key={idx}
+                   className="bg-white rounded border border-blue-200 p-2 text-center hover:shadow-md transition-shadow"
+                 >
+                   <div className="flex items-center justify-center gap-1 mb-2">
+                     <Clock className="w-3 h-3 text-blue-600" />
+                     <span className="text-xs font-bold text-blue-900">{time}</span>
+                   </div>
+                   <div className="text-xs text-blue-600 font-medium border-t border-blue-100 pt-2">
+                     Consume items
+                   </div>
+                 </div>
+               )
+             })}
+           </div>
+
+           {/* Products List */}
+           {data.items && data.items.length > 0 && (
+             <div className="bg-white rounded border border-blue-200 p-3 mt-3">
+               <p className="text-xs font-semibold text-blue-900 mb-2">🍷 Each Interval:</p>
+               <div className="space-y-2">
+                 {data.items.map((item: any, idx: number) => (
+                   <div key={idx} className="flex items-start justify-between gap-2 p-2 bg-blue-50 rounded border border-blue-100">
+                     <div className="flex-1 min-w-0">
+                       <p className="font-semibold text-xs text-slate-900">
+                         {item.product || item.producto}
+                       </p>
+                       <p className="text-xs text-slate-600 mt-0.5">
+                         <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
+                       </p>
+                       {(item.frecuencia || item.frequency) && (
+                         <p className="text-xs text-blue-600 font-medium mt-1">
+                           {item.frecuencia || item.frequency}
+                         </p>
+                       )}
+                     </div>
+                     {item.macronutrientes && (
+                       <div className="flex gap-1 flex-shrink-0">
+                         {item.macronutrientes.carbohidratos_g && (
+                           <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded font-semibold">
+                             {item.macronutrientes.carbohidratos_g}g
+                           </span>
+                         )}
+                         {item.macronutrientes.sodio_mg && (
+                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-semibold">
+                             {item.macronutrientes.sodio_mg}Na
+                           </span>
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
+         </div>
+       )}
+     </div>
+   )
+ }
 
 function PostWorkoutSection({
   data,
@@ -765,9 +892,11 @@ function PostWorkoutSection({
   const postTime = calculateTime(workoutDuration + 10)
   
   // Calculate totals from items if not provided
-  const totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
-  const totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
+  let totalCarbs = data.totalCarbs !== undefined ? data.totalCarbs : calculateTotalCarbs(data.items)
+  let totalProtein = data.totalProtein !== undefined ? data.totalProtein : calculateTotalProtein(data.items)
   
+  // If no macros from AI, use calculated guidelines
+  const hasAIData = totalCarbs > 0 || totalProtein > 0
 
   return (
     <div className="bg-white rounded-lg border border-pink-200 overflow-hidden">
@@ -781,65 +910,73 @@ function PostWorkoutSection({
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-pink-900 text-sm">Post-Workout</h3>
-            <p className="text-xs text-pink-700">{data.timing} (~{postTime})</p>
+            <p className="text-xs text-pink-700">{data.timing || "30-60 min after"} (~{postTime})</p>
           </div>
            <div className="hidden sm:flex gap-2 flex-shrink-0">
-             <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs}g`} color="orange" />
-             <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein}g`} color="purple" />
+             <NutrientBadge icon={Flame} label="Carbs" value={`${totalCarbs || "?"}g`} color="orange" />
+             <NutrientBadge icon={Zap} label="Protein" value={`${totalProtein || "?"}g`} color="purple" />
            </div>
-        </div>
-        <ChevronDown
-          className={cn("w-5 h-5 text-pink-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
-        />
-      </button>
+         </div>
+         <ChevronDown
+           className={cn("w-5 h-5 text-pink-600 transition-transform flex-shrink-0", isExpanded && "rotate-180")}
+         />
+       </button>
 
-      {isExpanded && (
-        <div className="border-t border-pink-200 bg-pink-50 p-3">
-          <div className="space-y-2">
-            {data.items && data.items.length > 0 ? (
-              data.items.map((item: any, idx: number) => (
-                <div key={idx} className="bg-white rounded p-2.5 border border-pink-200 hover:shadow-sm transition-shadow">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-slate-900">
-                        {item.product || item.producto}
-                      </p>
-                      <p className="text-xs text-slate-600 mt-1">
-                        <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
-                      </p>
-                      {(item.timing || item.timing_minutos) && (
-                        <p className="text-xs text-pink-600 font-medium mt-1">
-                          Timing: {item.timing || `${item.timing_minutos}m`}
-                        </p>
-                      )}
-                      {(item.notes || item.notas) && (
-                        <p className="text-xs text-slate-500 italic mt-1">{item.notes || item.notas}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {(item.carbs !== undefined || item.macronutrientes?.carbohidratos_g !== undefined) && (
-                        <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-1 rounded">
-                          {item.carbs || item.macronutrientes?.carbohidratos_g}g
-                        </span>
-                      )}
-                      {(item.protein !== undefined || item.macronutrientes?.proteina_g !== undefined) && (
-                        <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2 py-1 rounded">
-                          {item.protein || item.macronutrientes?.proteina_g}g
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-500 italic">No items specified</p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+       {isExpanded && (
+         <div className="border-t border-pink-200 bg-pink-50 p-3">
+           {!hasAIData && (
+             <div className="bg-amber-50 border border-amber-200 rounded p-2 mb-3">
+               <p className="text-xs text-amber-700">
+                 <strong>Recovery guideline:</strong> Consume {totalCarbs}g carbs + {totalProtein}g protein within 30-60 min for optimal recovery
+               </p>
+             </div>
+           )}
+           
+           <div className="space-y-2">
+             {data.items && data.items.length > 0 ? (
+               data.items.map((item: any, idx: number) => (
+                 <div key={idx} className="bg-white rounded p-2.5 border border-pink-200 hover:shadow-sm transition-shadow">
+                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                     <div className="flex-1 min-w-0">
+                       <p className="font-semibold text-sm text-slate-900">
+                         {item.product || item.producto}
+                       </p>
+                       <p className="text-xs text-slate-600 mt-1">
+                         <strong>{item.quantity || item.cantidad}</strong> {item.unit || item.unidad}
+                       </p>
+                       {(item.timing || item.tiempo_minutos) && (
+                         <p className="text-xs text-pink-600 font-medium mt-1">
+                           Within {item.timing || item.tiempo_minutos} minutes
+                         </p>
+                       )}
+                       {(item.notes || item.notas) && (
+                         <p className="text-xs text-slate-500 italic mt-1">{item.notes || item.notas}</p>
+                       )}
+                     </div>
+                     <div className="flex flex-wrap gap-1">
+                       {(item.carbs !== undefined || item.macronutrientes?.carbohidratos_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                           {item.carbs || item.macronutrientes?.carbohidratos_g}g carbs
+                         </span>
+                       )}
+                       {(item.protein !== undefined || item.macronutrientes?.proteina_g !== undefined) && (
+                         <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                           {item.protein || item.macronutrientes?.proteina_g}g protein
+                         </span>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               ))
+             ) : (
+               <p className="text-xs text-slate-500 italic">No specific items. Eat balanced meal with carbs (80-100g) and protein (30-40g).</p>
+             )}
+           </div>
+         </div>
+       )}
+     </div>
+   )
+ }
 
 function NutritionItem({ item }: { item: any }) {
   return (

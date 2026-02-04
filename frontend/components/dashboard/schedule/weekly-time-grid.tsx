@@ -134,7 +134,10 @@ export function WeeklyTimeGrid({
     const clientY = activator.clientY + event.delta.y
 
     const relativeX = clientX - gridRect.left - timeColumnWidth
-    const relativeY = clientY - gridRect.top - headerHeight
+    
+    // Account for scroll position in the grid container
+    const scrollTop = gridRef.current.scrollTop
+    const relativeY = clientY - gridRect.top - headerHeight + scrollTop
 
     const dayIndex = Math.floor(relativeX / dayColumnWidth)
     if (dayIndex < 0 || dayIndex >= 7) return null
@@ -154,28 +157,31 @@ export function WeeklyTimeGrid({
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const item = event.active.data.current as ScheduleItem
     if (item) {
+      console.log(`[DragStart] ${item.type}: ${item.title}`)
       setActiveItem(item)
     }
   }, [])
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const position = getDragPosition(event)
-    const item = activeItem
-    if (!position || !item) {
-      setHoveredSlot(null)
-      return
-    }
+   const handleDragMove = useCallback((event: DragMoveEvent) => {
+     const position = getDragPosition(event)
+     const item = activeItem
+     if (!position || !item) {
+       setHoveredSlot(null)
+       return
+     }
 
-    const durationMinutes = Math.max(timeToMinutes(item.endTime) - timeToMinutes(item.startTime), SNAP_MINUTES)
-    const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 24)
-    const top = ((position.clampedMinutes - startHour * 60) / 60) * HOUR_HEIGHT
+     const durationMinutes = Math.max(timeToMinutes(item.endTime) - timeToMinutes(item.startTime), SNAP_MINUTES)
+     const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 24)
+     const top = ((position.clampedMinutes - startHour * 60) / 60) * HOUR_HEIGHT
 
-    setHoveredSlot({
-      dayIndex: position.dayIndex,
-      top,
-      height,
-    })
-  }, [activeItem, getDragPosition, startHour])
+     console.log(`[DragMove] Slot: day=${position.dayIndex}, time=${position.newStartTime}, top=${top}px, scrollTop=${gridRef.current?.scrollTop}`)
+
+     setHoveredSlot({
+       dayIndex: position.dayIndex,
+       top,
+       height,
+     })
+   }, [activeItem, getDragPosition, startHour])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const position = getDragPosition(event)
@@ -184,6 +190,10 @@ export function WeeklyTimeGrid({
     // Always clear active item first for smooth UI
     setActiveItem(null)
     setHoveredSlot(null)
+    
+    if (position && item) {
+      console.log(`[DragEnd] ${item.type}: ${item.title} -> ${position.newDate} ${position.newStartTime}`)
+    }
     
     if (!position || !item) return
 
@@ -195,50 +205,50 @@ export function WeeklyTimeGrid({
     setHoveredSlot(null)
   }, [])
 
-  return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-        <div ref={headerRef} className="grid grid-cols-[50px_repeat(7,minmax(0,1fr))] border-b border-border/60 bg-muted/30">
-          <div />
-          {days.map((day) => (
-            <div key={day.toISOString()} className="px-1 py-2 text-center border-l border-border/30 first:border-l-0">
-              <div className="text-sm font-semibold text-foreground">{format(day, "EEE")}</div>
-              <div className="text-xs text-muted-foreground">{format(day, "MMM d")}</div>
-            </div>
-          ))}
-        </div>
-        <div ref={gridRef} className="grid grid-cols-[50px_repeat(7,minmax(0,1fr))]">
-          <div className="border-r border-border/50 relative">
-            {hours.map((hour) => (
-              <div
-                key={hour}
-                className="px-1.5 text-[11px] text-muted-foreground/80 flex items-start justify-end pt-0.5 border-b border-border/20 last:border-b-0"
-                style={{ height: HOUR_HEIGHT }}
-              >
-                {String(hour).padStart(2, "0")}:00
-              </div>
-            ))}
-          </div>
-          {days.map((day, index) => (
-            <DayColumn
-              key={day.toISOString()}
-              day={day}
-              items={items}
-              hours={hours}
-              startHour={startHour}
-              endHour={endHour}
-              onSelectItem={onSelectItem}
-              highlight={hoveredSlot && hoveredSlot.dayIndex === index ? hoveredSlot : null}
-            />
-          ))}
-        </div>
-      </div>
+   return (
+     <DndContext
+       sensors={sensors}
+       onDragStart={handleDragStart}
+       onDragMove={handleDragMove}
+       onDragEnd={handleDragEnd}
+       onDragCancel={handleDragCancel}
+     >
+       <div className="rounded-2xl border border-border/60 bg-card overflow-hidden flex flex-col max-h-[800px]">
+         <div ref={headerRef} className="grid grid-cols-[50px_repeat(7,minmax(0,1fr))] border-b border-border/60 bg-muted/30 sticky top-0 z-10">
+           <div />
+           {days.map((day) => (
+             <div key={day.toISOString()} className="px-1 py-2 text-center border-l border-border/30 first:border-l-0">
+               <div className="text-sm font-semibold text-foreground">{format(day, "EEE")}</div>
+               <div className="text-xs text-muted-foreground">{format(day, "MMM d")}</div>
+             </div>
+           ))}
+         </div>
+         <div ref={gridRef} className="grid grid-cols-[50px_repeat(7,minmax(0,1fr))] overflow-y-auto flex-1">
+           <div className="border-r border-border/50 relative sticky left-0 z-5">
+             {hours.map((hour) => (
+               <div
+                 key={hour}
+                 className="px-1.5 text-[11px] text-muted-foreground/80 flex items-start justify-end pt-0.5 border-b border-border/20 last:border-b-0"
+                 style={{ height: HOUR_HEIGHT }}
+               >
+                 {String(hour).padStart(2, "0")}:00
+               </div>
+             ))}
+           </div>
+           {days.map((day, index) => (
+             <DayColumn
+               key={day.toISOString()}
+               day={day}
+               items={items}
+               hours={hours}
+               startHour={startHour}
+               endHour={endHour}
+               onSelectItem={onSelectItem}
+               highlight={hoveredSlot && hoveredSlot.dayIndex === index ? hoveredSlot : null}
+             />
+           ))}
+         </div>
+       </div>
       
       <DragOverlay dropAnimation={null}>
         {activeItem ? (

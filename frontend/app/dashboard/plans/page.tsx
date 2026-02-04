@@ -252,10 +252,25 @@ export default function PlansPage() {
   }, [calendarItems, workoutsById])
 
   const handleDragEnd = useCallback(async (item: ScheduleItem, newDate: string, newStartTime: string) => {
-    if (!item.source || item.locked) return
-    if (item.date === newDate && item.startTime === newStartTime) {
+    if (!item.source || item.locked) {
+      console.warn(`[handleDragEnd] Drag rejected: no source or locked`, {
+        hasSource: !!item.source,
+        isLocked: item.locked,
+      })
       return
     }
+    if (item.date === newDate && item.startTime === newStartTime) {
+      console.log(`[handleDragEnd] No position change, skipping`)
+      return
+    }
+
+    console.log(`[handleDragEnd] Updating ${item.source.type}:`, {
+      title: item.title,
+      fromDate: item.date,
+      fromTime: item.startTime,
+      toDate: newDate,
+      toTime: newStartTime,
+    })
 
     const previousItems = calendarItems
     setCalendarItems((prev) =>
@@ -274,23 +289,47 @@ export default function PlansPage() {
 
     // Check if item actually moved
     try {
+      if (!item.source) {
+        console.warn(`[handleDragEnd] Item has no source:`, item)
+        throw new Error("Item source not defined")
+      }
+      
+      const payload = {
+        itemId: item.source.sourceId,
+        itemType: item.source.type,
+        sourceTable: item.source.sourceTable,
+        newDate,
+        newStartTime,
+      }
+      console.log(`[handleDragEnd] Sending request:`, payload)
+      
       const response = await fetch("/api/v1/plans/update-item", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          itemId: item.source.sourceId,
-          itemType: item.source.type,
-          sourceTable: item.source.sourceTable,
-          newDate,
-          newStartTime,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
-        throw new Error(errorData.error || `Failed to update item (${response.status})`)
+        let errorData
+        const text = await response.text()
+        console.log(`[handleDragEnd] Response text (${response.status}):`, text)
+        try {
+          errorData = JSON.parse(text)
+        } catch {
+          errorData = { error: text || `HTTP ${response.status}` }
+        }
+        console.error(
+          `[handleDragEnd] API error (${response.status}):`,
+          JSON.stringify(errorData),
+          "parsed object:",
+          errorData
+        )
+        const errorMessage = errorData?.error || errorData?.message || `Failed to update item (${response.status})`
+        console.error(`[handleDragEnd] Will throw error:`, errorMessage)
+        throw new Error(errorMessage)
       }
-      await response.json().catch(() => null)
+      const result = await response.json().catch(() => null)
+      console.log(`[handleDragEnd] API success:`, result)
 
       toast({
         title: "Item moved",
@@ -371,7 +410,7 @@ export default function PlansPage() {
         source: {
           type: "meal",
           sourceTable: "nutrition_meals",
-          sourceId: meal.id,
+          sourceId: meal.meal_plan_id ?? meal.id,
         },
         meta: { meal },
       })
