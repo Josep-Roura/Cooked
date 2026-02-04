@@ -91,35 +91,10 @@ export default function TrainingPage() {
     other: "🏋️",
   }
 
-  const formatIntensity = (intensity: TrainingIntensity) =>
-    intensity ? intensity.charAt(0).toUpperCase() + intensity.slice(1) : null
+   const formatIntensity = (intensity: TrainingIntensity) =>
+     intensity ? intensity.charAt(0).toUpperCase() + intensity.slice(1) : null
 
-  const getFuelingHints = (session: TrainingSessionSummary) => {
-    if (session.type === "rest") {
-      return { before: null, during: null, after: null }
-    }
-
-    const before =
-      session.durationMinutes >= 60 ? "Carbs 30–60 min before" : null
-
-    let during: string | null = null
-    if (session.durationMinutes >= 90) {
-      during = "Carbs + fluids + sodium during"
-    } else if (session.durationMinutes >= 75 && ["run", "bike", "swim"].includes(session.type)) {
-      during = "Fuel during with carbs + fluids"
-    }
-
-    let after: string | null = null
-    if (session.intensity === "high") {
-      after = "Recovery meal with carbs + protein"
-    } else if (session.type === "strength" && session.durationMinutes >= 45) {
-      after = "Protein-focused recovery"
-    }
-
-    return { before, during, after }
-  }
-
-  return (
+   return (
     <main className="flex-1 p-8 overflow-auto">
       <div className="max-w-6xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -145,49 +120,41 @@ export default function TrainingPage() {
             ) : sessionsForDay.length === 0 ? (
               <div className="text-sm text-muted-foreground">No training planned for this day.</div>
             ) : (
-              <div className="space-y-3">
-                {sessionsForDay.map((session) => {
-                  const hints = getFuelingHints(session)
-                  return (
-                    <div key={session.id} className="bg-muted rounded-xl p-4">
-                      <div className="flex gap-4">
-                        <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl flex-shrink-0">
-                          {typeIcons[session.type]}
+               <div className="space-y-3">
+                {sessionsForDay.map((session) => (
+                  <div key={session.id} className="bg-muted rounded-xl p-4">
+                    <div className="flex gap-4">
+                      <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl flex-shrink-0">
+                        {typeIcons[session.type]}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-foreground">{session.title}</h3>
+                          <span className="text-xs text-muted-foreground capitalize">
+                            {session.type}
+                            {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
+                          </span>
                         </div>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-foreground">{session.title}</h3>
-                            <span className="text-xs text-muted-foreground capitalize">
-                              {session.type}
-                              {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span>{session.durationMinutes} min</span>
+                          {session.time ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {session.time}
                             </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                            <span>{session.durationMinutes} min</span>
-                            {session.time ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {session.time}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="flex flex-wrap gap-2 pt-2">
-                            {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
-                            {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
-                            {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
-                          </div>
-
-                          {/* Nutrition Toggle */}
-                          <SessionNutritionToggle
-                            sessionId={session.id}
-                            date={selectedDateKey}
-                            workout={workoutMap.get(session.id)}
-                          />
+                          ) : null}
                         </div>
+
+                        {/* Nutrition Plan */}
+                        <SessionNutritionToggle
+                          sessionId={session.id}
+                          date={selectedDateKey}
+                          workout={workoutMap.get(session.id)}
+                        />
                       </div>
                     </div>
-                  )
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </div>
