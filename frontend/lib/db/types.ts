@@ -394,8 +394,20 @@ export interface PlanWeekMeal {
   created_at: string
   updated_at: string
   locked?: boolean
-  recipe: PlanRecipeSummary | null
+  recipe: PlanRecipeSummary | RecipeFromAI | null
   recipe_ingredients: PlanRecipeIngredient[]
+}
+
+export interface RecipeFromAI {
+  title: string
+  servings?: number
+  ingredients?: Array<{
+    name: string
+    quantity?: number
+    unit?: string
+  }>
+  steps?: string[]
+  notes?: string
 }
 
 export interface MealLog {

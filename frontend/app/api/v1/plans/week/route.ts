@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     const { data: meals, error } = await supabase
       .from("nutrition_meals")
-      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, created_at, updated_at, locked")
+      .select("id, date, slot, name, time, kcal, protein_g, carbs_g, fat_g, created_at, updated_at, locked, recipe, ingredients, emoji, meal_type, notes")
       .eq("user_id", user.id)
       .gte("date", start)
       .lte("date", end)
@@ -40,27 +40,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load plan meals", details: error.message }, { status: 400 })
     }
 
-    const hydratedMeals = (meals ?? []).map((meal) => ({
+    const hydratedMeals = (meals ?? []).map((meal: any) => ({
       id: `${meal.date}:${meal.slot}`,
       meal_plan_id: meal.id,
       date: meal.date,
       slot: meal.slot,
-      meal_type: null,
+      meal_type: meal.meal_type ?? null,
       sort_order: meal.slot,
       name: meal.name,
       time: meal.time,
-      emoji: null,
+      emoji: meal.emoji ?? null,
       kcal: meal.kcal ?? 0,
       protein_g: meal.protein_g ?? 0,
       carbs_g: meal.carbs_g ?? 0,
       fat_g: meal.fat_g ?? 0,
-      notes: null,
+      notes: meal.notes ?? null,
       recipe_id: null,
       created_at: meal.created_at,
       updated_at: meal.updated_at,
       locked: meal.locked ?? false,
-      recipe: null,
-      recipe_ingredients: [],
+      recipe: meal.recipe ?? null,
+      recipe_ingredients: (meal.ingredients as Array<any>) ?? [],
     }))
 
     return NextResponse.json({ meals: hydratedMeals }, { status: 200 })
