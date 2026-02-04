@@ -4,10 +4,11 @@ import { useMemo } from "react"
 import { endOfWeek, format, startOfWeek } from "date-fns"
 import { ChevronLeft, ChevronRight, Clock } from "lucide-react"
 import { WeeklyHistory } from "@/components/dashboard/training/weekly-history"
+import { SessionNutritionToggle } from "@/components/dashboard/training/session-nutrition-toggle"
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { useTrainingSessions } from "@/lib/db/hooks"
+import { useTrainingSessions, useMealPlanDay } from "@/lib/db/hooks"
 import type { TrainingIntensity, TrainingSessionSummary, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
@@ -21,6 +22,7 @@ export default function TrainingPage() {
   const weekEndKey = format(weekEnd, "yyyy-MM-dd")
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
 
   const sessionsForDay = useMemo(() => {
     const sessions = trainingQuery.data ?? []
@@ -138,31 +140,41 @@ export default function TrainingPage() {
                 {sessionsForDay.map((session) => {
                   const hints = getFuelingHints(session)
                   return (
-                    <div key={session.id} className="bg-muted rounded-xl p-4 flex gap-4">
-                      <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl">
-                        {typeIcons[session.type]}
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-foreground">{session.title}</h3>
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {session.type}
-                            {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
-                          </span>
+                    <div key={session.id} className="bg-muted rounded-xl p-4">
+                      <div className="flex gap-4">
+                        <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl flex-shrink-0">
+                          {typeIcons[session.type]}
                         </div>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <span>{session.durationMinutes} min</span>
-                          {session.time ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {session.time}
+                        <div className="flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-foreground">{session.title}</h3>
+                            <span className="text-xs text-muted-foreground capitalize">
+                              {session.type}
+                              {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
                             </span>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-2 pt-2">
-                          {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
-                          {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
-                          {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            <span>{session.durationMinutes} min</span>
+                            {session.time ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {session.time}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
+                            {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
+                            {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
+                          </div>
+
+                          {/* Nutrition Toggle */}
+                          <SessionNutritionToggle
+                            sessionId={session.id}
+                            date={selectedDateKey}
+                            meals={mealPlanQuery.data?.items ?? []}
+                            isLoading={mealPlanQuery.isLoading}
+                          />
                         </div>
                       </div>
                     </div>
