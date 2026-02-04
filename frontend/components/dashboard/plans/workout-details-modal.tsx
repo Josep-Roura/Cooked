@@ -46,38 +46,52 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
      }
    }, [open, workout])
 
-  const loadNutritionPlan = async () => {
-    if (!workout) return
-    
-    setIsLoadingNutrition(true)
-    try {
-      const response = await fetch(
-        `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=1`
-      )
-      
-      if (response.ok) {
-        const data = await response.json()
-        const records = data.records ?? []
-        
-        const matchingRecord = records.find((r: any) => r.workout_id === workout.id)
-        if (matchingRecord) {
-          setNutritionRecordId(matchingRecord.id)
-          setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
-          
-          try {
-            const plan = JSON.parse(matchingRecord.during_workout_recommendation)
-            setNutritionPlan(plan)
-          } catch {
-            // If not JSON, that's okay
-          }
-        }
-      }
-    } catch (error) {
-      console.warn("Could not load nutrition plan:", error)
-    } finally {
-      setIsLoadingNutrition(false)
-    }
-  }
+   const loadNutritionPlan = async () => {
+     if (!workout) return
+     
+     setIsLoadingNutrition(true)
+     try {
+       const response = await fetch(
+         `/api/v1/nutrition/during-workout?startDate=${workout.workout_day}&endDate=${workout.workout_day}&limit=1`
+       )
+       
+       if (response.ok) {
+         const data = await response.json()
+         const records = data.records ?? []
+         
+         const matchingRecord = records.find((r: any) => r.workout_id === workout.id)
+         if (matchingRecord) {
+           setNutritionRecordId(matchingRecord.id)
+           setCustomDuringNutrition(matchingRecord.during_workout_recommendation)
+           
+           // Try to load the complete plan from nutrition_plan_json first
+           if (matchingRecord.nutrition_plan_json) {
+             try {
+               const plan = JSON.parse(matchingRecord.nutrition_plan_json)
+               setNutritionPlan(plan)
+               return
+             } catch {
+               // If not JSON, try during_workout_recommendation
+             }
+           }
+           
+           // Fallback to during_workout_recommendation
+           if (matchingRecord.during_workout_recommendation) {
+             try {
+               const plan = JSON.parse(matchingRecord.during_workout_recommendation)
+               setNutritionPlan(plan)
+             } catch {
+               // If not JSON, that's okay
+             }
+           }
+         }
+       }
+     } catch (error) {
+       console.warn("Could not load nutrition plan:", error)
+     } finally {
+       setIsLoadingNutrition(false)
+     }
+   }
   
   if (!workout) {
     return (
