@@ -339,26 +339,26 @@ export function WorkoutNutritionTimeline({
 
    return (
       <div className="space-y-3">
-        {/* Fullscreen Modal */}
+        {/* Fixed Panel Modal */}
         {isFullscreen && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2">
-            <div className="bg-white rounded-lg w-full h-full max-h-screen flex flex-col shadow-2xl">
-              {/* Fullscreen Header */}
-              <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+          <div className="fixed inset-0 bg-black/30 z-50 flex items-end sm:items-center justify-end sm:justify-center p-2 sm:p-4">
+            <div className="bg-white rounded-lg w-full sm:w-[90%] md:w-[80%] lg:w-2/3 max-w-4xl h-[90vh] sm:h-[85vh] flex flex-col shadow-2xl">
+              {/* Fixed Panel Header */}
+              <div className="sticky top-0 bg-gradient-to-r from-slate-100 to-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Nutrition Plan</h2>
                   <p className="text-xs text-slate-600 mt-0.5">Complete fueling strategy for your workout</p>
                 </div>
                 <button
                   onClick={() => setIsFullscreen(false)}
-                  className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
-                  title="Close fullscreen"
+                  className="p-2 hover:bg-slate-200 rounded-lg transition-colors flex-shrink-0"
+                  title="Close panel"
                 >
                   <X className="w-5 h-5 text-slate-600" />
                 </button>
               </div>
 
-              {/* Fullscreen Content - Unlimited Height */}
+              {/* Fixed Panel Content - Scrollable */}
               <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
                 {/* Science Breakdown Section */}
                 {(parsedPlan?.rationale || (parsedPlan?.warnings && parsedPlan.warnings.length > 0)) && (
@@ -412,8 +412,8 @@ export function WorkoutNutritionTimeline({
                 )}
               </div>
 
-              {/* Fullscreen Footer */}
-              <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex gap-2 flex-wrap">
+              {/* Fixed Panel Footer */}
+              <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex gap-2 flex-wrap flex-shrink-0">
                 {recordId && onSave && (
                   <Button
                     onClick={handleSave}
@@ -421,7 +421,7 @@ export function WorkoutNutritionTimeline({
                     size="sm"
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    {isSaving ? "Saving..." : "Save Nutrition Plan"}
+                    {isSaving ? "Saving..." : "Save"}
                   </Button>
                 )}
                 <Button
@@ -432,16 +432,15 @@ export function WorkoutNutritionTimeline({
                   className="gap-2"
                 >
                   <Download className="w-4 h-4" />
-                  {isExporting ? "Exporting..." : "Export to PDF"}
+                  {isExporting ? "Exporting..." : "Export PDF"}
                 </Button>
                 <Button
                   onClick={() => setIsFullscreen(false)}
                   size="sm"
                   variant="outline"
-                  className="gap-2 ml-auto"
+                  className="ml-auto"
                 >
-                  <Minimize2 className="w-4 h-4" />
-                  Close
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
             </div>
