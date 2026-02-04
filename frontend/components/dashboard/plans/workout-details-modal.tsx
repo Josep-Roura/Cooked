@@ -405,42 +405,58 @@ export function WorkoutDetailsModal({ open, onOpenChange, workout, onUpdate, nea
                  if (!response.ok) throw new Error("Failed to save")
                }}
              />
-           ) : !isLoadingNutrition ? (
-             <>
-               {/* Pre-workout */}
-               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
-                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
-                   🥗 Pre-workout
-                 </h3>
-                 <p className="text-sm text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
-               </div>
+            ) : !isLoadingNutrition ? (
+              <>
+                {/* Pre-workout */}
+                <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                  <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                    🥗 Pre-workout
+                  </h3>
+                  <p className="text-sm text-emerald-900">Consume 30-60g carbs 30-60 min before</p>
+                </div>
 
-               {/* During */}
-               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
-                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
-                   ⚡ During
-                 </h3>
-                 <p className="text-sm text-emerald-900 mb-2.5">
-                   {duration && duration >= 90 
-                     ? "60-90g carbs/hour" 
-                     : duration && duration >= 60 
-                       ? "30-60g carbs"
-                       : "Hydrate with electrolytes"}
-                 </p>
-                 <p className="text-xs text-emerald-600">
-                   💡 El plan personalizado se genera automáticamente al hacer "Regenerate week"
-                 </p>
-               </div>
+                {/* During */}
+                <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                  <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                    ⚡ During
+                  </h3>
+                  <p className="text-sm text-emerald-900 mb-2.5">
+                    {duration && duration >= 90 
+                      ? "60-90g carbs/hour" 
+                      : duration && duration >= 60 
+                        ? "30-60g carbs"
+                        : "Hydrate with electrolytes"}
+                  </p>
+                </div>
 
-               {/* Post-workout */}
-               <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
-                 <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
-                   🍽️ Post-workout
-                 </h3>
-                 <p className="text-sm text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
-               </div>
-             </>
-           ) : null}
+                {/* Post-workout */}
+                <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200/60">
+                  <h3 className="text-xs font-semibold text-emerald-900 mb-1.5 flex items-center gap-1.5">
+                    🍽️ Post-workout
+                  </h3>
+                  <p className="text-sm text-emerald-900">20-40g protein + 40-80g carbs within 30-60 min</p>
+                </div>
+
+                {/* Generate Button */}
+                <Button
+                  onClick={handleGenerateDuringNutrition}
+                  disabled={isGeneratingNutrition}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
+                >
+                  {isGeneratingNutrition ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin mr-2" />
+                      Generating AI Nutrition Plan...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="h-4 w-4 mr-2" />
+                      Generate AI Nutrition Plan
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : null}
          </div>
       </div>
     </NotionModal>
