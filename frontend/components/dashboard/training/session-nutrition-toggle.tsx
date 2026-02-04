@@ -1,9 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { ChevronDown, Loader } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { useToast } from "@/components/ui/use-toast"
+import { Loader } from "lucide-react"
 import { WorkoutNutritionTimeline } from "@/components/nutrition/workout-nutrition-timeline"
 import type { TpWorkout } from "@/lib/db/types"
 
@@ -11,19 +9,15 @@ interface SessionNutritionToggleProps {
   sessionId: string
   date: string
   workout?: TpWorkout | null
-  isLoading?: boolean
 }
 
 export function SessionNutritionToggle({
   sessionId,
   date,
   workout,
-  isLoading = false,
 }: SessionNutritionToggleProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
   const [nutritionPlan, setNutritionPlan] = useState<any>(null)
   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
-  const { toast } = useToast()
 
   // Load nutrition plan from existing record in DB
   const loadNutritionPlan = useCallback(async () => {
@@ -81,57 +75,36 @@ export function SessionNutritionToggle({
     }
   }, [workout, date])
 
-  // Load nutrition when component mounts or when expanded
+  // Load nutrition when component mounts
   useEffect(() => {
-    if (isExpanded && !nutritionPlan && !isLoadingNutrition && workout) {
+    if (!nutritionPlan && !isLoadingNutrition && workout) {
       loadNutritionPlan()
     }
-  }, [isExpanded, nutritionPlan, isLoadingNutrition, loadNutritionPlan, workout])
+  }, [nutritionPlan, isLoadingNutrition, loadNutritionPlan, workout])
 
-  if (isLoading || !workout) {
+  if (!workout || isLoadingNutrition) {
+    return null
+  }
+
+  if (!nutritionPlan) {
     return null
   }
 
   return (
-    <div className="pt-3 border-t border-border/50">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between gap-2 px-0 py-2 text-sm font-medium text-foreground hover:bg-muted/50 rounded transition-colors"
-      >
-        <span>⚡ Nutrition</span>
-        <ChevronDown
-          className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-180")}
+    <div className="mt-3 pt-3 border-t border-border/50">
+      <div className="scale-90 origin-top-left -mx-8 -mb-4">
+        <WorkoutNutritionTimeline
+          plan={nutritionPlan}
+          workoutDuration={
+            workout.actual_hours
+              ? Math.round(workout.actual_hours * 60)
+              : workout.planned_hours
+                ? Math.round(workout.planned_hours * 60)
+                : 60
+          }
+          workoutStartTime={workout.start_time ?? "06:00"}
         />
-      </button>
-
-      {isExpanded && (
-        <div className="mt-3 pt-3 border-t border-border/50">
-          {isLoadingNutrition ? (
-            <div className="flex items-center justify-center gap-2 py-4">
-              <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Loading nutrition plan...</span>
-            </div>
-          ) : nutritionPlan ? (
-            <div className="scale-95 origin-top-left">
-              <WorkoutNutritionTimeline
-                plan={nutritionPlan}
-                workoutDuration={
-                  workout.actual_hours
-                    ? Math.round(workout.actual_hours * 60)
-                    : workout.planned_hours
-                      ? Math.round(workout.planned_hours * 60)
-                      : 60
-                }
-                workoutStartTime={workout.start_time ?? "06:00"}
-              />
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground py-4">
-              No nutrition plan available
-            </div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
