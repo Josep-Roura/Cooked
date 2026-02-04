@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { ChevronDown, Apple, Droplet, Heart } from "lucide-react"
+import { useState, useMemo, useEffect, useCallback } from "react"
+import { ChevronDown, Loader } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { MealPlanItem, NutritionMacros } from "@/lib/db/types"
+import { useToast } from "@/components/ui/use-toast"
+import { WorkoutNutritionTimeline } from "@/components/nutrition/workout-nutrition-timeline"
+import type { MealPlanItem, NutritionMacros, TpWorkout } from "@/lib/db/types"
 
 interface SessionNutritionToggleProps {
   sessionId: string
   date: string
+  workout?: TpWorkout | null
   meals?: MealPlanItem[]
   target?: NutritionMacros | null
   isLoading?: boolean
@@ -16,33 +19,114 @@ interface SessionNutritionToggleProps {
 export function SessionNutritionToggle({
   sessionId,
   date,
+  workout,
   meals = [],
   target,
   isLoading = false,
 }: SessionNutritionToggleProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [nutritionPlan, setNutritionPlan] = useState<any>(null)
+  const [isLoadingNutrition, setIsLoadingNutrition] = useState(false)
+  const { toast } = useToast()
 
-  // Filter only pre/during/post fuel meals
-  const fuelMeals = useMemo(() => {
-    return meals.filter((meal) => {
-      const name = meal.name.toLowerCase()
-      return (
-        name.includes("fuel:") &&
-        (name.includes("pre") || name.includes("during") || name.includes("post"))
+  // Load nutrition plan from DB or generate it
+  const loadOrGenerateNutrition = useCallback(async () => {
+    if (!workout) return
+
+    setIsLoadingNutrition(true)
+    try {
+      // First, try to load existing nutrition plan from DB
+      const response = await fetch(
+        `/api/v1/nutrition/during-workout?startDate=${date}&endDate=${date}&limit=50`,
+        { method: "GET" }
       )
-    })
-  }, [meals])
 
-  // Separate into sections
-  const mealsByTiming = useMemo(() => {
-    return {
-      pre: fuelMeals.filter((m) => m.name.toLowerCase().includes("fuel: pre")),
-      during: fuelMeals.filter((m) => m.name.toLowerCase().includes("fuel: during")),
-      post: fuelMeals.filter((m) => m.name.toLowerCase().includes("fuel: post")),
+      if (response.ok) {
+        const data = await response.json()
+        const records = data.records ?? []
+
+        // Find matching record by workout_id
+        const matchingRecord = records.find((r: any) =>
+          String(r.workout_id) === String(workout.id)
+        )
+
+        if (matchingRecord?.nutrition_plan_json) {
+          try {
+            const plan = typeof matchingRecord.nutrition_plan_json === "string"
+              ? JSON.parse(matchingRecord.nutrition_plan_json)
+              : matchingRecord.nutrition_plan_json
+            setNutritionPlan(plan)
+            return
+          } catch (e) {
+            console.warn("Failed to parse nutrition_plan_json:", e)
+          }
+        }
+
+        if (matchingRecord?.during_workout_recommendation) {
+          try {
+            const plan = typeof matchingRecord.during_workout_recommendation === "string"
+              ? JSON.parse(matchingRecord.during_workout_recommendation)
+              : matchingRecord.during_workout_recommendation
+            setNutritionPlan(plan)
+            return
+          } catch (e) {
+            console.warn("Failed to parse during_workout_recommendation:", e)
+          }
+        }
+      }
+
+      // If no existing plan, generate one with AI
+      console.log("No existing nutrition plan found, generating new one...")
+      const duration = workout.actual_hours 
+        ? Math.round(workout.actual_hours * 60)
+        : workout.planned_hours
+          ? Math.round(workout.planned_hours * 60)
+          : 60
+
+      const generateResponse = await fetch("/api/ai/nutrition/during-workout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workoutId: workout.id,
+          workoutDate: date,
+          workoutType: workout.workout_type,
+          durationMinutes: duration,
+          intensity: workout.if ?? "moderate",
+          tss: workout.tss ?? 0,
+          description: workout.description ?? "",
+          workoutStartTime: workout.start_time ?? "06:00",
+          workoutEndTime: workout.end_time ?? "07:00",
+          nearbyMealTimes: [],
+          save: true,
+        }),
+      })
+
+      if (generateResponse.ok) {
+        const data = await generateResponse.json()
+        if (data.plan) {
+          setNutritionPlan(data.plan)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading/generating nutrition plan:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load nutrition plan",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingNutrition(false)
     }
-  }, [fuelMeals])
+  }, [workout, date, toast])
 
-  if (isLoading || fuelMeals.length === 0) {
+  // Load nutrition when component mounts or when expanded
+  useEffect(() => {
+    if (isExpanded && !nutritionPlan && !isLoadingNutrition) {
+      loadOrGenerateNutrition()
+    }
+  }, [isExpanded, nutritionPlan, isLoadingNutrition, loadOrGenerateNutrition])
+
+  if (isLoading) {
     return null
   }
 
@@ -59,96 +143,31 @@ export function SessionNutritionToggle({
       </button>
 
       {isExpanded && (
-        <div className="mt-3 space-y-2 pt-3 border-t border-border/50">
-          {/* Pre-Workout Card */}
-          {mealsByTiming.pre.length > 0 && (
-            <NutritionCard
-              icon={Apple}
-              title="Pre-Workout"
-              color="emerald"
-              meals={mealsByTiming.pre}
+        <div className="mt-3 pt-3 border-t border-border/50">
+          {isLoadingNutrition ? (
+            <div className="flex items-center justify-center gap-2 py-4">
+              <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Loading nutrition plan...</span>
+            </div>
+          ) : nutritionPlan ? (
+            <WorkoutNutritionTimeline
+              plan={nutritionPlan}
+              workoutDuration={
+                workout?.actual_hours
+                  ? Math.round(workout.actual_hours * 60)
+                  : workout?.planned_hours
+                    ? Math.round(workout.planned_hours * 60)
+                    : 60
+              }
+              workoutStartTime={workout?.start_time ?? "06:00"}
             />
-          )}
-
-          {/* During Workout Card */}
-          {mealsByTiming.during.length > 0 && (
-            <NutritionCard
-              icon={Droplet}
-              title="During Workout"
-              color="blue"
-              meals={mealsByTiming.during}
-            />
-          )}
-
-          {/* Post-Workout Card */}
-          {mealsByTiming.post.length > 0 && (
-            <NutritionCard
-              icon={Heart}
-              title="Post-Workout"
-              color="pink"
-              meals={mealsByTiming.post}
-            />
+          ) : (
+            <div className="text-sm text-muted-foreground py-4">
+              No nutrition plan available
+            </div>
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-interface NutritionCardProps {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  color: "emerald" | "blue" | "pink"
-  meals: MealPlanItem[]
-}
-
-function NutritionCard({
-  icon: Icon,
-  title,
-  color,
-  meals,
-}: NutritionCardProps) {
-  const colorConfig = {
-    emerald: {
-      header: "bg-emerald-100",
-      headerText: "text-emerald-800",
-      body: "bg-emerald-50",
-      icon: "text-emerald-600",
-    },
-    blue: {
-      header: "bg-blue-100",
-      headerText: "text-blue-800",
-      body: "bg-blue-50",
-      icon: "text-blue-600",
-    },
-    pink: {
-      header: "bg-pink-100",
-      headerText: "text-pink-800",
-      body: "bg-pink-50",
-      icon: "text-pink-600",
-    },
-  }
-
-  const config = colorConfig[color]
-
-  return (
-    <div className="rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className={cn("p-2.5 flex items-center gap-2", config.header)}>
-        <div className={cn("w-5 h-5 flex items-center justify-center flex-shrink-0", config.icon)}>
-          <Icon className="w-4 h-4" />
-        </div>
-        <h4 className={cn("font-semibold text-sm", config.headerText)}>{title}</h4>
-      </div>
-
-      {/* Body - Meals list */}
-      <div className={cn("p-3 space-y-2", config.body)}>
-        {meals.map((meal) => (
-          <div key={meal.id} className="text-sm font-medium text-slate-800">
-            {meal.name.replace(/Fuel:\s*(Pre|During|Post)\s*·\s*/i, '')}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
