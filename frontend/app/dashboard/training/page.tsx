@@ -4,10 +4,11 @@ import { useMemo } from "react"
 import { endOfWeek, format, startOfWeek } from "date-fns"
 import { ChevronLeft, ChevronRight, Clock } from "lucide-react"
 import { WeeklyHistory } from "@/components/dashboard/training/weekly-history"
+import { TrainingNutrition } from "@/components/dashboard/training/training-nutrition"
 import { ErrorState } from "@/components/ui/error-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { useTrainingSessions } from "@/lib/db/hooks"
+import { useTrainingSessions, useMealPlanDay, useNutritionDayPlan } from "@/lib/db/hooks"
 import type { TrainingIntensity, TrainingSessionSummary, TrainingType } from "@/lib/db/types"
 import { useSession } from "@/hooks/use-session"
 import { useDashboardDate } from "@/components/dashboard/dashboard-date-provider"
@@ -21,6 +22,8 @@ export default function TrainingPage() {
   const weekEndKey = format(weekEnd, "yyyy-MM-dd")
 
   const trainingQuery = useTrainingSessions(user?.id, weekStartKey, weekEndKey)
+  const mealPlanQuery = useMealPlanDay(user?.id, selectedDateKey)
+  const nutritionDayQuery = useNutritionDayPlan(user?.id, selectedDateKey)
 
   const sessionsForDay = useMemo(() => {
     const sessions = trainingQuery.data ?? []
@@ -126,60 +129,75 @@ export default function TrainingPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Sessions</h2>
-            {trainingQuery.isLoading ? (
-              <div className="text-sm text-muted-foreground">Loading sessions...</div>
-            ) : sessionsForDay.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No training planned for this day.</div>
-            ) : (
-              <div className="space-y-3">
-                {sessionsForDay.map((session) => {
-                  const hints = getFuelingHints(session)
-                  return (
-                    <div key={session.id} className="bg-muted rounded-xl p-4 flex gap-4">
-                      <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl">
-                        {typeIcons[session.type]}
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-foreground">{session.title}</h3>
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {session.type}
-                            {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
-                          </span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Sessions Column */}
+          <div className="lg:col-span-2">
+            <div className="bg-card border border-border rounded-2xl p-6">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Sessions</h2>
+              {trainingQuery.isLoading ? (
+                <div className="text-sm text-muted-foreground">Loading sessions...</div>
+              ) : sessionsForDay.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No training planned for this day.</div>
+              ) : (
+                <div className="space-y-3">
+                  {sessionsForDay.map((session) => {
+                    const hints = getFuelingHints(session)
+                    return (
+                      <div key={session.id} className="bg-muted rounded-xl p-4 flex gap-4">
+                        <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl">
+                          {typeIcons[session.type]}
                         </div>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <span>{session.durationMinutes} min</span>
-                          {session.time ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {session.time}
+                        <div className="flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-foreground">{session.title}</h3>
+                            <span className="text-xs text-muted-foreground capitalize">
+                              {session.type}
+                              {formatIntensity(session.intensity) ? ` • ${formatIntensity(session.intensity)}` : ""}
                             </span>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-2 pt-2">
-                          {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
-                          {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
-                          {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            <span>{session.durationMinutes} min</span>
+                            {session.time ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {session.time}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            {hints.before ? <Badge variant="secondary">Before: {hints.before}</Badge> : null}
+                            {hints.during ? <Badge variant="secondary">During: {hints.during}</Badge> : null}
+                            {hints.after ? <Badge variant="secondary">After: {hints.after}</Badge> : null}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="max-w-xl">
-            <WeeklyHistory
-              weeklyData={weeklyTotals}
-              selectedDateKey={selectedDateKey}
-              onSelectDate={setFromWeekDayClick}
+
+          {/* Nutrition Column */}
+          <div>
+            <TrainingNutrition
+              mealPlan={mealPlanQuery.data}
+              target={nutritionDayQuery.data?.target}
+              selectedDate={selectedDateKey}
+              isLoading={mealPlanQuery.isLoading || nutritionDayQuery.isLoading}
+              sessions={sessionsForDay}
             />
           </div>
         </div>
 
+        {/* Weekly History - Full Width */}
+        <div className="max-w-xl">
+          <WeeklyHistory
+            weeklyData={weeklyTotals}
+            selectedDateKey={selectedDateKey}
+            onSelectDate={setFromWeekDayClick}
+          />
+        </div>
       </div>
     </main>
   )
