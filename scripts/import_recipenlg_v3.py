@@ -426,7 +426,7 @@ def import_batch(
                 "normalized_name": normalized_name,
 
                 "quantity_text": ing_text[:500],
-                "unit_standard": (unit_std or "other"),
+                "unit_standard": "other",  # Always "other" - parsed values go in parsed_unit
                 "grams_equivalent": None,
 
                 "sort_order": idx,
