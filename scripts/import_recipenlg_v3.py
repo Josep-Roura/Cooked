@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-RecipeNLG Full Dataset Import v3 - Reliable ingredients/steps + title de-dup
+RecipeNLG Full Dataset Import v3.1 - Ingredients parsing (qty/unit/name) + junk filtering
 
-Fixes:
-- Inserts ingredients/steps in CHUNKS to avoid PostgREST payload limits.
-- Handles RecipeNLG CSV with leading index column (header is "" then title,...)
-- Uses NER to fill normalized_name when available.
-- Avoids unique constraint (user_id, title) by making titles deterministic-unique.
+Cambios (v3.1):
+- Parseo guiado de ingredientes:
+  - parsed_quantity: número (soporta "1", "1.5", "1/2", "3 1/2")
+  - parsed_unit: unidad estándar (tsp, tbsp, cup, oz, lb, g, kg, ml, l, pkg, can, jar, clove, slice, pinch, dash...)
+  - name: nombre limpio (sin cantidad/unidad inicial)
+  - normalized_name: usa NER si existe; si no, usa name limpio
+- Filtra líneas basura ("1.", "2.", etc.) y tokens indeseados (ej: "pam")
+- Mantiene raw_line intacto para auditoría.
 
 Env:
   SUPABASE_URL
@@ -27,6 +30,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,6 +63,162 @@ def safe_json_loads(value: Any, default=None):
     except Exception:
         return default
 
+
+# ---------------------------
+# Ingredient parsing (v3.1)
+# ---------------------------
+
+UNIT_ALIASES = {
+    # teaspoons
+    "tsp": "tsp", "teaspoon": "tsp", "teaspoons": "tsp", "t.": "tsp", "tsps": "tsp", "tsp.": "tsp",
+    # tablespoons
+    "tbsp": "tbsp", "tablespoon": "tbsp", "tablespoons": "tbsp", "tbs": "tbsp", "tb": "tbsp", "tbs.": "tbsp",
+    "tbsp.": "tbsp",
+    # cups
+    "cup": "cup", "cups": "cup", "c": "cup", "c.": "cup",
+    # fluid ounces (as 2 tokens "fl oz")
+    "flozz": "floz",  # safety
+    # ounces / pounds
+    "oz": "oz", "ounce": "oz", "ounces": "oz", "oz.": "oz",
+    "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb", "lb.": "lb",
+    # grams / kg
+    "g": "g", "gram": "g", "grams": "g", "g.": "g",
+    "kg": "kg", "kilogram": "kg", "kilograms": "kg", "kg.": "kg",
+    # ml / l
+    "ml": "ml", "milliliter": "ml", "milliliters": "ml", "ml.": "ml",
+    "l": "l", "liter": "l", "liters": "l", "l.": "l",
+    # generic units
+    "pinch": "pinch", "dash": "dash",
+    "clove": "clove", "cloves": "clove",
+    "slice": "slice", "slices": "slice",
+    "can": "can", "cans": "can",
+    "package": "pkg", "packages": "pkg", "pkg": "pkg", "pkg.": "pkg", "pkgs": "pkg", "pkgs.": "pkg",
+    "jar": "jar", "jars": "jar",
+    "bunch": "bunch", "bunches": "bunch",
+    "piece": "piece", "pieces": "piece",
+}
+
+STOP_JUNK = {"pam"}
+
+
+def is_junk_ingredient(line: str) -> bool:
+    t = (line or "").strip()
+    if not t:
+        return True
+    if re.match(r"^\d+\.\s*$", t):  # "1." "2."
+        return True
+    if t.strip().lower() in STOP_JUNK:
+        return True
+    return False
+
+
+def parse_quantity(text: str) -> Optional[float]:
+    """
+    Soporta:
+    - '1'
+    - '1.5'
+    - '1/2'
+    - '3 1/2'
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+
+    # "3 1/2"
+    m = re.match(r"^(\d+)\s+(\d+)\s*/\s*(\d+)$", t)
+    if m:
+        whole = float(m.group(1))
+        num = float(m.group(2))
+        den = float(m.group(3))
+        return whole + (num / den if den else 0)
+
+    # "1/2"
+    m = re.match(r"^(\d+)\s*/\s*(\d+)$", t)
+    if m:
+        num = float(m.group(1))
+        den = float(m.group(2))
+        if den == 0:
+            return None
+        return num / den
+
+    # "1.5" o "1"
+    m = re.match(r"^\d+(\.\d+)?$", t)
+    if m:
+        return float(t)
+
+    return None
+
+
+def parse_ingredient_line(line: str) -> Tuple[Optional[float], Optional[str], str]:
+    """
+    Devuelve: (qty, unit_std, name_clean)
+
+    Ejemplos:
+      "1/2 tsp. salt" -> (0.5, "tsp", "salt")
+      "2 (16 oz.) pkg. frozen corn" -> (2, "pkg", "frozen corn")
+      "4 boned chicken breasts" -> (4, None, "boned chicken breasts")
+      "1 small jar chipped beef, cut up" -> (1, "jar", "small jar chipped beef, cut up")  # name limpio parcial
+    """
+    raw = (line or "").strip()
+    if not raw:
+        return None, None, ""
+
+    # Elimina paréntesis para simplificar parseo ("(16 oz.)")
+    simplified = re.sub(r"\([^)]*\)", " ", raw)
+    simplified = re.sub(r"\s+", " ", simplified).strip()
+
+    tokens = simplified.split(" ")
+    if not tokens:
+        return None, None, raw
+
+    # qty puede ser 2 tokens ("3 1/2") o 1 token ("1/2")
+    qty: Optional[float] = None
+    qty_tokens_used = 0
+
+    if len(tokens) >= 2:
+        q2 = parse_quantity(tokens[0] + " " + tokens[1])
+        if q2 is not None:
+            qty = q2
+            qty_tokens_used = 2
+
+    if qty is None:
+        q1 = parse_quantity(tokens[0])
+        if q1 is not None:
+            qty = q1
+            qty_tokens_used = 1
+
+    unit_std: Optional[str] = None
+    name_start_idx = qty_tokens_used
+
+    # unidad candidata justo después de la cantidad
+    if qty_tokens_used > 0 and len(tokens) > qty_tokens_used:
+        cand1 = tokens[qty_tokens_used].lower().strip().rstrip(".,;:")
+        cand1 = cand1.replace("tsp", "tsp").replace("tbsp", "tbsp")
+
+        # "fl oz" en dos tokens
+        if cand1 == "fl" and len(tokens) > qty_tokens_used + 1:
+            cand2 = tokens[qty_tokens_used + 1].lower().strip().rstrip(".,;:")
+            if cand2 == "oz":
+                unit_std = "floz"
+                name_start_idx = qty_tokens_used + 2
+        else:
+            unit_std = UNIT_ALIASES.get(cand1)
+            if unit_std:
+                name_start_idx = qty_tokens_used + 1
+
+    # nombre = resto
+    name = " ".join(tokens[name_start_idx:]).strip()
+
+    # quitar conectores frecuentes
+    name = re.sub(r"^(of|a|an)\s+", "", name, flags=re.I).strip()
+    name = re.sub(r"\s+", " ", name).strip()
+
+    return qty, unit_std, (name or raw)
+
+
+# ---------------------------
+# CSV parsing
+# ---------------------------
 
 def parse_recipenlg_row(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
@@ -179,13 +339,19 @@ def import_batch(
         uniq_by_fp[r["fingerprint"]] = r
     uniq_rows = list(uniq_by_fp.values())
 
-    # 1) Insert recipes (ignore duplicates by title by making title unique)
+    # 1) Insert recipes
     recipe_records: List[Dict[str, Any]] = []
     for r in uniq_rows:
         recipe_records.append({
             "user_id": user_id,
             "title": make_unique_title(r["title"], r["source"], r.get("source_id"), r["fingerprint"]),
-            "canonical_title": (f'{r["canonical_title"]} {r["fingerprint"][:8]}'[:500] if r.get("canonical_title") else r["fingerprint"][:8]),            "servings": 1,
+            # canonical_title debe ser único por (user_id, canonical_title)
+            "canonical_title": (
+                f'{r["canonical_title"]} {r["fingerprint"][:8]}'[:500]
+                if r.get("canonical_title")
+                else r["fingerprint"][:8]
+            ),
+            "servings": 1,
             "cook_time_min": None,
             "category": None,
             "tags": [],
@@ -206,15 +372,11 @@ def import_batch(
         })
 
     # Insert in manageable chunks
-    recipes_attempted = 0
     for rec_chunk in chunked(recipe_records, 500):
         try:
             client.table("recipes").insert(rec_chunk).execute()
         except Exception as e:
-            # Even with unique title, some other constraint could fail.
-            # We don't want to stop all import; print and continue.
             print(f"⚠️  Recipe insert chunk warning: {e}")
-        recipes_attempted += len(rec_chunk)
 
     # 2) Fetch IDs for all fingerprints in this batch
     fps = [r["fingerprint"] for r in uniq_rows]
@@ -238,30 +400,41 @@ def import_batch(
         # Ingredients
         for idx, ing_line in enumerate(r.get("ingredients") or [], start=1):
             ing_text = str(ing_line).strip()
-            if not ing_text:
+            if is_junk_ingredient(ing_text):
                 continue
 
+            qty, unit_std, name_clean = parse_ingredient_line(ing_text)
+
+            # NER: si existe, lo usamos como normalized_name; si no, name_clean
             normalized_name = None
             if idx - 1 < len(ner_list):
                 nn = str(ner_list[idx - 1]).strip()
                 normalized_name = nn[:200] if nn else None
+            if not normalized_name and name_clean:
+                normalized_name = name_clean[:200]
 
             ingredients_to_insert.append({
                 "recipe_id": recipe_id,
                 "user_id": user_id,
-                "name": ing_text[:300],
+
+                "name": (name_clean or ing_text)[:300],
                 "quantity": None,
                 "unit": None,
                 "category": "other",
                 "optional": False,
+
                 "normalized_name": normalized_name,
+
                 "quantity_text": ing_text[:500],
-                "unit_standard": "other",
+                "unit_standard": (unit_std or "other"),
                 "grams_equivalent": None,
+
                 "sort_order": idx,
                 "raw_line": ing_text[:2000],
-                "parsed_quantity": None,
-                "parsed_unit": None,
+
+                "parsed_quantity": qty,
+                "parsed_unit": unit_std,
+
                 "usda_fdc_id": None,
                 "match_confidence": None,
                 "match_method": None,
@@ -281,7 +454,7 @@ def import_batch(
                 "timer_seconds": None,
             })
 
-    # 4) Insert ingredients / steps in chunks (CRITICAL FIX)
+    # 4) Insert ingredients / steps in chunks
     ingredients_inserted = 0
     if ingredients_to_insert:
         for ing_chunk in chunked(ingredients_to_insert, ing_chunk_size):
@@ -320,7 +493,7 @@ def main():
         print(f"❌ CSV file not found: {csv_path}")
         sys.exit(1)
 
-    print("🚀 RecipeNLG Full Dataset Import v3")
+    print("🚀 RecipeNLG Full Dataset Import v3.1")
     print(f"   CSV: {csv_path}")
     print(f"   User ID: {user_id}")
     print(f"   Batch size: {batch_size}")
