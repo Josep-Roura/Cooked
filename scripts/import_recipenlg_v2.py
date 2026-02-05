@@ -164,7 +164,6 @@ def import_batch(
             "macros_fat_g": 0,
             "diet_tags": [],
             "meal_tags": [],
-            "canonical_title": r["canonical_title"],
             "fingerprint": r["fingerprint"],
             "source": r["source"],
             "source_id": None,
@@ -215,20 +214,9 @@ def import_batch(
                 return 0, 0, 0
 
     # 2) Get recipe IDs and insert ingredients/steps
-    recipe_ids = list(recipe_fp_to_id.values())
-
-    if not recipe_ids:
+    # Only insert ingredients/steps for newly inserted recipes
+    if not recipe_fp_to_id:
         return recipes_inserted, 0, 0
-
-    # Delete old ingredients/steps
-    try:
-        for recipe_id in recipe_ids:
-            client.table("recipe_ingredients").delete().eq(
-                "recipe_id", recipe_id
-            ).execute()
-            client.table("recipe_steps").delete().eq("recipe_id", recipe_id).execute()
-    except Exception:
-        pass  # Ignore cleanup errors
 
     # 3) Insert ingredients and steps
     ingredients_to_insert = []
