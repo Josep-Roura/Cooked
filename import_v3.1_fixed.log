@@ -1,0 +1,27 @@
+🚀 RecipeNLG Full Dataset Import v3.1
+   CSV: data/full_dataset.csv
+   User ID: 1b0f7431-5261-4414-b5de-6d9ee97b4e54
+   Batch size: 5000
+   ING chunk: 2000
+   STEPS chunk: 2000
+   Purge before: YES
+
+✅ Connected to Supabase
+
+🗑️  Purging existing recipes for user...
+   ✅ Deleted steps
+   ✅ Deleted ingredients
+   ✅ Deleted recipes
+
+✅ CSV columns: , title, ingredients, directions, link, source, NER
+
+📤 Batch 1... ✅ | recipes=5,000 ings=37,471 steps=25,142 | 168.5 rows/s
+📤 Batch 2... ✅ | recipes=10,000 ings=74,988 steps=50,982 | 189.0 rows/s
+📤 Batch 3... ✅ | recipes=15,000 ings=112,460 steps=75,971 | 186.0 rows/s
+📤 Batch 4... ✅ | recipes=20,000 ings=150,013 steps=101,675 | 188.9 rows/s
+📤 Batch 5... ✅ | recipes=25,000 ings=187,529 steps=126,688 | 188.2 rows/s
+📤 Batch 6... ✅ | recipes=30,000 ings=225,230 steps=151,546 | 184.2 rows/s
+📤 Batch 7... ✅ | recipes=35,000 ings=262,651 steps=177,129 | 176.5 rows/s
+📤 Batch 8... ✅ | recipes=40,000 ings=299,795 steps=202,447 | 172.8 rows/s
+📤 Batch 9... ✅ | recipes=45,000 ings=337,129 steps=228,020 | 163.8 rows/s
+📤 Batch 10... 
