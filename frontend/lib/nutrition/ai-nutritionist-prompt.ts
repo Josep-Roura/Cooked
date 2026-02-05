@@ -1,275 +1,355 @@
 /**
- * Professional Sports Nutritionist AI Prompt System
- * 
- * This system uses an AI prompt to simulate an experienced sports nutritionist
- * with deep knowledge of ACSM, ISSN, and IOC guidelines.
- * 
- * The prompt is designed to generate professional, science-based nutrition recommendations
- * that are personalized to the athlete's profile and workout characteristics.
+ * Elite Sports Nutritionist AI Prompt System (v2)
+ *
+ * Goal: Produce executable, quantified, science-based pre/during/post fueling plans
+ * for a specific workout + athlete profile, with zero ambiguity and strict JSON.
+ *
+ * Design choices:
+ * - Deterministic numbers (no ranges) based on weight + duration + intensity + sweat_rate + GI sensitivity
+ * - Practical product plan (items, amounts, frequency) that an athlete can execute
+ * - Safety limits enforced (CHO/h, sodium/h, caffeine dosing)
+ * - JSON only, strict schema, no extra keys
  */
 
 export interface NutritionistContext {
-  // Athlete profile
-  athleteName?: string
-  weight_kg: number
-  age: number
-  sex: 'male' | 'female'
-  experience_level: 'beginner' | 'intermediate' | 'advanced'
-  sweat_rate: 'low' | 'medium' | 'high'
-  gi_sensitivity: 'low' | 'medium' | 'high'
-  caffeine_use: 'none' | 'some' | 'high'
-  primary_goal: 'endurance' | 'strength' | 'weight_loss' | 'maintenance' | 'hypertrophy'
-  
-  // Workout details
-  workoutType: string
-  durationMinutes: number
-  intensity: 'low' | 'moderate' | 'high' | 'very_high'
-  description?: string
-  distance_km?: number
-  elevation_gain_m?: number
-  
-  // Location for country-specific products
-  country?: string
-  availableProducts?: string
+  athleteName?: string;
+  weight_kg: number;
+  age: number;
+  sex: "male" | "female";
+  experience_level: "beginner" | "intermediate" | "advanced";
+  sweat_rate: "low" | "medium" | "high";
+  gi_sensitivity: "low" | "medium" | "high";
+  caffeine_use: "none" | "some" | "high";
+  primary_goal:
+    | "endurance"
+    | "strength"
+    | "weight_loss"
+    | "maintenance"
+    | "hypertrophy";
+
+  workoutType: string;
+  durationMinutes: number;
+  intensity: "low" | "moderate" | "high" | "very_high";
+  description?: string;
+  distance_km?: number;
+  elevation_gain_m?: number;
+
+  country?: string;
+  availableProducts?: string;
 }
 
-/**
- * Generate professional sports nutritionist prompt
- * Simulates an experienced nutritionist with 20+ years in sports nutrition
- */
-export function generateSportsNutritionistPrompt(context: NutritionistContext): string {
+function roundTo(value: number, step: number) {
+  return Math.round(value / step) * step;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+export function generateSportsNutritionistPrompt(
+  context: NutritionistContext,
+): string {
   const intensityLabel = {
-    low: 'baja',
-    moderate: 'moderada',
-    high: 'alta',
-    very_high: 'muy alta'
+    low: "baja",
+    moderate: "moderada",
+    high: "alta",
+    very_high: "muy alta",
   }[context.intensity];
 
   const experienceLabel = {
-    beginner: 'principiante',
-    intermediate: 'intermedio',
-    advanced: 'avanzado'
+    beginner: "principiante",
+    intermediate: "intermedio",
+    advanced: "avanzado",
   }[context.experience_level];
 
   const goalLabel = {
-    endurance: 'resistencia',
-    strength: 'fuerza',
-    weight_loss: 'pérdida de peso',
-    maintenance: 'mantenimiento',
-    hypertrophy: 'hipertrofia'
+    endurance: "resistencia",
+    strength: "fuerza",
+    weight_loss: "pérdida de peso",
+    maintenance: "mantenimiento",
+    hypertrophy: "hipertrofia",
   }[context.primary_goal];
 
-  return `Eres un nutricionista deportivo experto con más de 20 años de experiencia en nutrición de alto rendimiento. 
-Trabajas con atletas de élite y conoces profundamente las guías de ACSM (American College of Sports Medicine), 
-ISSN (International Society of Sports Nutrition) e IOC (International Olympic Committee).
+  const sexLabel = context.sex === "male" ? "Masculino" : "Femenino";
 
-PERFIL DEL ATLETA:
-- Nombre: ${context.athleteName || 'Atleta'}
+  /**
+   * Helper notes for the model: we want EXACT numbers, not ranges.
+   * We'll compute "targets" deterministically inside the prompt rules,
+   * but the model still outputs the final plan in the specified JSON schema.
+   */
+  const hasProductList = Boolean(
+    context.availableProducts && context.availableProducts.trim().length > 0,
+  );
+
+  return `Eres un nutricionista deportivo de alto rendimiento con 15+ años de experiencia con atletas de resistencia y triatlón.
+Tu trabajo es entregar un plan de nutrición 100% ejecutable, con números precisos (no rangos), basado en consenso científico (ACSM/IOC/ISSN) y práctica real de campo.
+
+IMPORTANTE:
+- Tu salida debe ser ÚNICAMENTE JSON válido, sin texto extra.
+- Debes seguir EXACTAMENTE el esquema solicitado (mismas claves, sin añadir otras).
+- Proporciona cantidades REALISTAS y consumibles.
+- Evita recomendaciones genéricas: todo debe estar calculado para ESTE atleta y ESTE entreno.
+
+═══════════════════════════════════════════════════════════════════════════════
+PERFIL DEL ATLETA (INPUT)
+═══════════════════════════════════════════════════════════════════════════════
+- Nombre: ${context.athleteName || "Atleta"}
 - Peso: ${context.weight_kg} kg
 - Edad: ${context.age} años
-- Sexo: ${context.sex === 'male' ? 'Masculino' : 'Femenino'}
-- Nivel de experiencia: ${experienceLabel}
-- Objetivo principal: ${goalLabel}
-- Tasa de sudoración: ${context.sweat_rate === 'low' ? 'baja' : context.sweat_rate === 'medium' ? 'media' : 'alta'}
-- Sensibilidad GI: ${context.gi_sensitivity === 'low' ? 'baja' : context.gi_sensitivity === 'medium' ? 'media' : 'alta'}
-- Consumo de cafeína: ${context.caffeine_use === 'none' ? 'ninguno' : context.caffeine_use === 'some' ? 'moderado' : 'alto'}
+- Sexo: ${sexLabel}
+- Nivel: ${experienceLabel}
+- Objetivo: ${goalLabel}
+- Tasa sudoración: ${context.sweat_rate}
+- Sensibilidad GI: ${context.gi_sensitivity}
+- Uso de cafeína habitual: ${context.caffeine_use}
 
-DETALLES DEL ENTRENAMIENTO:
+ENTRENAMIENTO (INPUT)
 - Tipo: ${context.workoutType}
-- Duración: ${context.durationMinutes} minutos
+- Duración: ${context.durationMinutes} min
 - Intensidad: ${intensityLabel}
-${context.distance_km ? `- Distancia: ${context.distance_km} km` : ''}
-${context.elevation_gain_m ? `- Ganancia de elevación: ${context.elevation_gain_m} m` : ''}
-${context.description ? `- Descripción: ${context.description}` : ''}
-${context.country ? `- País: ${context.country}` : ''}
+${context.distance_km ? `- Distancia: ${context.distance_km} km` : ""}
+${context.elevation_gain_m ? `- Elevación: ${context.elevation_gain_m} m` : ""}
+${context.description ? `- Descripción: ${context.description}` : ""}
+${context.country ? `- País: ${context.country}` : ""}
 
-${context.availableProducts ? `PRODUCTOS DISPONIBLES EN EL PAÍS:
+${
+  hasProductList
+    ? `LISTA DE PRODUCTOS DISPONIBLES (REGLA ESTRICTA):
 ${context.availableProducts}
 
-IMPORTANTE: Usa SOLO productos de la lista anterior. Si no hay un producto adecuado en la lista, 
-elige el más cercano en términos de macronutrientes y características.
-` : ''}
+REGLA: Usa SOLO productos de esa lista. Si falta algo, elige el más cercano por función (CHO, sodio, cafeína) sin inventar marcas nuevas.
+`
+    : `PRODUCTOS:
+Si NO se proporciona lista de productos, puedes usar:
+- Opciones genéricas (bebida isotónica, gel, barrita, plátano, arroz, yogur, leche, etc.)
+- Y opcionalmente ejemplos de marcas conocidas (Gatorade, Maurten, SIS, Clif, etc.) SOLO si encajan.
+No inventes productos raros ni inaccesibles.
+`
+}
 
-INSTRUCCIONES:
-Genera un plan de nutrición ESPECÍFICO, PERSONALIZADO y BASADO EN CIENCIA para este entrenamiento.
+═══════════════════════════════════════════════════════════════════════════════
+REGLAS CLÍNICAS Y DE CÁLCULO (OBLIGATORIAS)
+═══════════════════════════════════════════════════════════════════════════════
 
-Tu respuesta DEBE ser un JSON válido con EXACTAMENTE esta estructura (sin explicaciones adicionales, solo JSON):
+OBJETIVO PRINCIPAL:
+Maximizar rendimiento y tolerancia GI con una estrategia simple y repetible.
+
+1) PRE-ENTRENAMIENTO (timing y macros)
+- Define UN timing principal en minutos (timing_minutos) y descríbelo.
+- Selecciona un plan basado en duración e intensidad:
+
+A) Si durationMinutes < 60:
+  - Carbs pre: 0.5 g/kg (redondea a 5 g)
+B) Si 60 ≤ durationMinutes ≤ 90:
+  - Carbs pre: 1.0 g/kg (redondea a 5 g)
+C) Si durationMinutes > 90:
+  - Carbs pre: 1.5 g/kg (moderate) o 2.0 g/kg (high/very_high) (redondea a 5 g)
+
+Proteína pre (siempre):
+- 0.3 g/kg (redondea a 5 g). Si GI sensitivity=high: reduce a 0.2 g/kg.
+
+Grasas + fibra pre:
+- Si GI sensitivity=high: grasas <= 10 g y fibra <= 3 g.
+- Si GI sensitivity=medium: grasas <= 15 g y fibra <= 5 g.
+- Si GI sensitivity=low: grasas <= 20 g y fibra <= 8 g.
+
+Hidratación pre:
+- low sweat: 400 ml
+- medium sweat: 500 ml
+- high sweat: 600 ml
+(ajusta +100 ml si very_high y duración > 90)
+
+Cafeína pre:
+- Si caffeine_use="none": 0 mg
+- Si caffeine_use="some": 2 mg/kg (máx 200 mg)
+- Si caffeine_use="high": 3 mg/kg (máx 300 mg)
+- Si experience_level="beginner": divide por 2 (tolerancia).
+
+2) DURANTE ENTRENAMIENTO (fuel/hidratación/sodio)
+Decide CHO/h según duración e intensidad:
+- durationMinutes < 60:
+  - carbs/h = 0 g (o 15 g/h si intensity=very_high)
+- 60–90:
+  - moderate: 30 g/h
+  - high: 45 g/h
+  - very_high: 60 g/h
+- >90:
+  - moderate: 60 g/h
+  - high: 75 g/h
+  - very_high: 90 g/h
+Límites:
+- CHO/h máximo 90 (si no especificas mezcla glucosa/fructosa).
+- Si GI sensitivity=high: reduce CHO/h un 15% y usa tomas más pequeñas.
+
+Hidratación/h:
+- low: 500 ml/h
+- medium: 750 ml/h
+- high: 950 ml/h
+Si intensidad very_high o elevación_gain_m alta: +100 ml/h (cap 1100 ml/h).
+
+Sodio/h:
+- low: 300 mg/h
+- medium: 500 mg/h
+- high: 700 mg/h
+Límite: 1000 mg/h.
+
+Intervalo_minutos:
+- 15 min si GI sensitivity=high
+- 20 min si GI sensitivity=medium/low
+
+Cafeína durante:
+- Si caffeine_use="none": 0 mg
+- Si durationMinutes > 120 y caffeine_use != none: 50–100 mg (elige un valor exacto)
+- Nunca excedas 400 mg/día total.
+
+3) POST-ENTRENAMIENTO (recuperación)
+Carbs post:
+- 1.0 g/kg si durationMinutes <= 90
+- 1.2 g/kg si durationMinutes > 90 o intensity high/very_high
+(redondea a 5 g)
+
+Proteína post:
+- 0.3 g/kg (redondea a 5 g)
+
+Grasas post:
+- Mantén grasas moderadas (10–20 g). Si GI sensitivity=high: 10 g.
+
+Hidratación post:
+- low: 600 ml
+- medium: 800 ml
+- high: 1000 ml
+
+Sodio post:
+- low: 300 mg
+- medium: 500 mg
+- high: 700 mg
+
+4) PRODUCTOS Y CONSUMO REAL
+- Cada bloque (pre/durante/post) debe listar productos específicos con cantidades.
+- Si un producto no está disponible, sustituye por la alternativa funcional más similar.
+- No propongas 8 productos diferentes si se puede hacer con 2–3.
+
+5) VALIDACIÓN FINAL (antes de responder)
+- Todos los números deben ser coherentes y “humanos”:
+  - CHO/h y sodio/h dentro de límites
+  - hidratación/h plausible
+- La estrategia “durante” debe cuadrar con intervalo_minutos:
+  - Si carbs/h = 60 y intervalo=20 min → ~20 g cada 20 min (3 tomas/h)
+- Evita contradicciones: si GI sensitivity=high, no uses opciones “muy pesadas”.
+
+═══════════════════════════════════════════════════════════════════════════════
+FORMATO DE SALIDA (OBLIGATORIO)
+═══════════════════════════════════════════════════════════════════════════════
+
+Devuelve SOLO JSON con EXACTAMENTE esta estructura (sin claves extra, sin texto adicional):
 
 {
-  "resumen_ejecutivo": "Resumen de 1-2 líneas del plan nutricional",
-  
+  "resumen_ejecutivo": "string",
+
   "pre_entrenamiento": {
-    "timing_minutos": NÚMERO,
-    "descripcion_timing": "Por ejemplo: '2 horas antes del entrenamiento'",
+    "timing_minutos": number,
+    "descripcion_timing": "string",
     "recomendaciones": {
-      "carbohidratos_g": NÚMERO,
-      "proteina_g": NÚMERO,
-      "grasas_g": NÚMERO,
-      "fibra_g": NÚMERO,
-      "hidratacion_ml": NÚMERO,
-      "cafeina_mg": NÚMERO
+      "carbohidratos_g": number,
+      "proteina_g": number,
+      "grasas_g": number,
+      "fibra_g": number,
+      "hidratacion_ml": number,
+      "cafeina_mg": number
     },
     "productos_especificos": [
       {
-        "producto": "Nombre específico del producto",
-        "cantidad": NÚMERO,
-        "unidad": "g/ml/porciones",
+        "producto": "string",
+        "cantidad": number,
+        "unidad": "string",
         "macronutrientes": {
-          "carbohidratos_g": NÚMERO,
-          "proteina_g": NÚMERO,
-          "grasas_g": NÚMERO
+          "carbohidratos_g": number,
+          "proteina_g": number,
+          "grasas_g": number
         },
-        "notas": "Por qué este producto específico"
+        "notas": "string"
       }
     ],
-    "rationale": "Explicación científica detallada basada en ACSM/ISSN guidelines",
-    "advertencias": ["Lista de advertencias si aplica"]
+    "rationale": "string",
+    "advertencias": ["string"]
   },
 
   "durante_entrenamiento": {
-    "estrategia": "Descripción general de la estrategia",
-    "carbohidratos_por_hora_g": NÚMERO,
-    "hidratacion_por_hora_ml": NÚMERO,
-    "sodio_por_hora_mg": NÚMERO,
-    "cafeina_mg": NÚMERO,
-    "intervalo_minutos": NÚMERO,
+    "estrategia": "string",
+    "carbohidratos_por_hora_g": number,
+    "hidratacion_por_hora_ml": number,
+    "sodio_por_hora_mg": number,
+    "cafeina_mg": number,
+    "intervalo_minutos": number,
     "productos_intervalo": [
       {
-        "producto": "Nombre específico",
-        "cantidad": NÚMERO,
-        "unidad": "ml/g/barras",
+        "producto": "string",
+        "cantidad": number,
+        "unidad": "string",
         "macronutrientes": {
-          "carbohidratos_g": NÚMERO,
-          "sodio_mg": NÚMERO
+          "carbohidratos_g": number,
+          "sodio_mg": number
         },
-        "frecuencia": "Cada X minutos"
+        "frecuencia": "string"
       }
     ],
-    "rationale": "Explicación de por qué esta estrategia de combustible",
-    "advertencias": ["Advertencias importantes durante el entrenamiento"]
+    "rationale": "string",
+    "advertencias": ["string"]
   },
 
   "post_entrenamiento": {
-    "timing_minutos": NÚMERO,
-    "descripcion_timing": "Por ejemplo: 'Dentro de 30 minutos después'",
+    "timing_minutos": number,
+    "descripcion_timing": "string",
     "recomendaciones": {
-      "carbohidratos_g": NÚMERO,
-      "proteina_g": NÚMERO,
-      "grasas_g": NÚMERO,
-      "hidratacion_ml": NÚMERO,
-      "sodio_mg": NÚMERO
+      "carbohidratos_g": number,
+      "proteina_g": number,
+      "grasas_g": number,
+      "hidratacion_ml": number,
+      "sodio_mg": number
     },
-    "ventana_recuperacion": "Descripción de la ventana óptima de recuperación",
+    "ventana_recuperacion": "string",
     "productos_especificos": [
       {
-        "producto": "Nombre específico del producto",
-        "cantidad": NÚMERO,
-        "unidad": "g/ml/porciones",
+        "producto": "string",
+        "cantidad": number,
+        "unidad": "string",
         "macronutrientes": {
-          "carbohidratos_g": NÚMERO,
-          "proteina_g": NÚMERO,
-          "grasas_g": NÚMERO
+          "carbohidratos_g": number,
+          "proteina_g": number,
+          "grasas_g": number
         },
-        "timing": "Inmediatamente o después de X minutos",
-        "notas": "Por qué este producto para recuperación"
+        "timing": "string",
+        "notas": "string"
       }
     ],
-    "rationale": "Explicación científica de la estrategia de recuperación",
-    "advertencias": ["Advertencias de recuperación si aplica"]
+    "rationale": "string",
+    "advertencias": ["string"]
   },
 
   "gasto_energetico": {
-    "kcal_totales": NÚMERO,
-    "calculo_metodo": "METs o método específico usado",
+    "kcal_totales": number,
+    "calculo_metodo": "string",
     "desglose": {
-      "descripcion": "Desglose detallado del cálculo"
+      "descripcion": "string"
     }
   },
 
   "notas_personalizadas": {
-    "consideraciones_perfil": ["Lista de consideraciones basadas en el perfil del atleta"],
-    "ajustes_segun_clima": "Si es relevante, ajustes por temperatura/humedad",
-    "seguimiento": "Qué monitorear durante y después del entrenamiento",
-    "tips_profesionales": ["Tips de 20+ años de experiencia"]
+    "consideraciones_perfil": ["string"],
+    "ajustes_segun_clima": "string",
+    "seguimiento": "string",
+    "tips_profesionales": ["string"]
   }
 }
 
-REQUISITOS CRÍTICOS:
-1. ESPECÍFICO: Usa nombres de productos REALES (Gatorade, Clif Bar, Hammer Nutrition, etc)
-2. PERSONALIZADO: Todos los números están CALCULADOS para este atleta (no rangos genéricos)
-3. CIENTÍFICO: Cada recomendación está basada en ACSM, ISSN o IOC
-4. PRÁCTICO: Los productos y cantidades son REALMENTE consumibles
-5. COMPLETO: Incluye carbohidratos, proteína, grasas, sodio y hidratación
-6. JSON VÁLIDO: La respuesta DEBE ser JSON válido y parseable
-
-DIRECTRICES DE CÁLCULO (BASADAS EN ACSM/ISSN/IOC 2023):
-
-PRE-ENTRENAMIENTO (30-180 min antes):
-- Duración < 60 min: 1-4g carbs/kg (ej: 70kg = 70-280g, usar bajo: 70-140g)
-- Duración 60-90 min: 1-4g carbs/kg (usar: 70-140g)
-- Duración > 90 min: 2-4g carbs/kg (usar: 140-280g)
-- Proteína: 0.25-0.4g/kg para saciedad y síntesis proteica (ej: 70kg = 17-28g)
-- Grasas: ≤1g/kg para minimizar molestias GI (ej: 70kg = máx 70g)
-- Fibra: <2g para minimizar molestias GI
-- Hidratación: 400-600ml agua
-- Cafeína (si tolera): 3-6mg/kg mejora rendimiento (ej: 70kg = 210-420mg) - SOLO si experience_level >= intermediate
-- Timing: 2-3 horas antes para comida grande, 30-60 min para snack
-
-DURANTE ENTRENAMIENTO:
-Según DURACIÓN:
-- < 60 min: Solo agua + electrolitos
-  * Hidratación: 150-250ml cada 15-20 min (total 600-1000ml/hora)
-  * Sodio: 20-30mmol/L (460-690mg en bebida deportiva estándar)
-  * Carbs: 0g (innecesarios)
-
-- 60-90 min: Carbs + electrolitos
-  * Carbs: 30-60g/hora (usar 30-45g para moderate, 45-60g para high)
-  * Hidratación: 500-750ml/hora según sweat_rate
-  * Sodio: 300-500mg/hora
-
-- > 90 min (ENDURANCE): Múltiples carbs + electrolitos + proteína
-  * Carbs: 60-90g/hora (high intensity) o 30-60g (moderate)
-    - Si > 2.5 horas: considerar multiple carb sources (glucose + fructose = hasta 120g/h)
-  * Proteína: 6-20g/hora para ejercicios con fuerza
-  * Hidratación: 600-1000ml/hora según sweat_rate y condiciones
-  * Sodio: 300-700mg/hora (máximo 1000mg/hora para clima caluroso)
-  * Cafeína: 3-6mg/kg si tolera (máximo 200mg por dosis)
-
-Cálculo de Hidratación según sweat_rate:
-- Low: 400-500ml/hora
-- Medium: 600-800ml/hora  
-- High: 800-1000ml/hora
-
-Intervalo de consumo: 15-20 min (permite absorción óptima)
-
-POST-ENTRENAMIENTO (Ventana 0-4 horas, óptimo 0-60 min):
-- Carbohidratos: 1.0-1.2g/kg (ej: 70kg = 70-84g)
-- Proteína: 0.25-0.4g/kg (ej: 70kg = 17-28g) - CRÍTICO para síntesis muscular
-- Grasas: 0-1g/kg (pueden ralentizar absorción)
-- Sodio: 75-125mg/100ml fluido (ayuda retención)
-- Hidratación: 150% del peso perdido en 4-6 horas
-
-FACTORES DE AJUSTE:
-- Altitud > 2000m: +10-15% carbs
-- Temperatura > 25°C: +10-20% hidratación
-- Humedad > 70%: +10% hidratación
-- Clima frío < 10°C: -20% hidratación, +calorías
-- GI sensitivity HIGH: -25% grasas, considerar opciones de bajo FODMAP
-- Sexo femenino: -5-10% total kcal durante, considerar ciclo menstrual
-
-VALIDACIÓN FINAL:
-- Total kcal = (carbs*4) + (proteína*4) + (grasas*9) - debe ser realista para duración
-- Sodio: máximo 1000mg/hora
-- Carbs: máximo 120g/hora (con múltiples sources)
-- Proteína: máximo 20g/dosis durante
-- Productos deben ser específicos, reales y disponibles
-
-Tu respuesta será ÚNICAMENTE JSON válido. No incluyas explicaciones fuera del JSON.`;
+Ahora genera el JSON.`;
 }
 
 /**
  * Alternative prompt for simpler recommendations
  */
-export function generateSimpleSportsNutritionistPrompt(context: NutritionistContext): string {
+export function generateSimpleSportsNutritionistPrompt(
+  context: NutritionistContext,
+): string {
   return generateSportsNutritionistPrompt(context);
 }
