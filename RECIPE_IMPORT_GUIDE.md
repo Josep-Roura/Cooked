@@ -2,17 +2,14 @@
 
 ## Overview
 
-This guide explains how to set up and run the recipe CSV import process for the Cooked application. The system consists of:
+This guide explains how to run the recipe CSV import process for the Cooked application. Your Supabase database already has the required `recipe_ingredients` and `recipe_steps` tables configured, so you can proceed directly to uploading recipes.
 
-1. **Supabase Migration**: Creates `recipe_ingredients` and `recipe_steps` tables
-2. **Upload Script**: Parses the CSV file and imports recipes to Supabase
-3. **Test Script**: Validates CSV parsing without requiring Supabase connection
+The system consists of:
+
+1. **Upload Script**: Parses the CSV file and imports recipes to Supabase
+2. **Test Script**: Validates CSV parsing without requiring Supabase connection
 
 ## Files Created
-
-### Migration File
-- **Location**: `supabase/migrations/20260205210000_create_recipe_ingredients_and_steps.sql`
-- **Purpose**: Creates the `recipe_ingredients` and `recipe_steps` tables with proper indexes and RLS policies
 
 ### Upload Script
 - **Location**: `frontend/scripts/uploadRecipes.ts`
@@ -24,28 +21,7 @@ This guide explains how to set up and run the recipe CSV import process for the 
 - **Purpose**: Tests CSV parsing without Supabase connection (good for validation)
 - **Language**: TypeScript (runs with `tsx`)
 
-## Step 1: Apply Supabase Migration
-
-The migration creates two new tables needed by the recipe system:
-
-### Option A: Using Supabase Dashboard (Recommended)
-
-1. Go to your Supabase project dashboard
-2. Click **SQL Editor** in the sidebar
-3. Click **New query**
-4. Copy the entire contents of `supabase/migrations/20260205210000_create_recipe_ingredients_and_steps.sql`
-5. Paste it into the SQL editor
-6. Click **Run**
-7. Wait for success confirmation
-
-### Option B: Using Supabase CLI (if configured)
-
-```bash
-cd /Users/joseproura/Cooked
-supabase db push
-```
-
-## Step 2: Set Environment Variables
+## Step 1: Set Environment Variables
 
 You need to provide Supabase credentials for the upload script:
 
@@ -59,7 +35,7 @@ Get these from:
 - **SUPABASE_URL**: Supabase Dashboard → Settings → API → URL
 - **SUPABASE_SERVICE_ROLE_KEY**: Supabase Dashboard → Settings → API → Service Role key (click "Reveal")
 
-## Step 3: Test CSV Parsing (Optional but Recommended)
+## Step 2: Test CSV Parsing (Optional but Recommended)
 
 Before uploading 1200 recipes, test the parsing logic:
 
@@ -83,7 +59,7 @@ Expected output:
 ✅ CSV parsing is working correctly!
 ```
 
-## Step 4: Run the Recipe Upload
+## Step 3: Run the Recipe Upload
 
 Once migration is applied and environment variables are set:
 

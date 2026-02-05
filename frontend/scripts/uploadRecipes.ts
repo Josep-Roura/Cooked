@@ -19,7 +19,7 @@ import * as readline from "readline"
 
 const SUPABASE_URL = process.env.SUPABASE_URL || ""
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-const OWNER_USER_ID = process.env.RECIPES_OWNER_USER_ID || "system"
+const OWNER_USER_ID = process.env.RECIPES_OWNER_USER_ID || "1b0f7431-5261-4414-b5de-6d9ee97b4e54"
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("❌ Missing environment variables:")
@@ -249,10 +249,19 @@ async function uploadRecipes() {
         recipeData = updated
       } else {
         // Recipe doesn't exist, insert it
+        const canonicalTitle = recipe.title
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // Remove accents
+          .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+          .trim()
+          .replace(/\s+/g, "_") // Replace spaces with underscores
+
         const { data: inserted, error: insertError } = await supabase
           .from("recipes")
           .insert({
             title: recipe.title,
+            canonical_title: canonicalTitle,
             description: recipe.description,
             category: recipe.category,
             emoji: recipe.emoji,
