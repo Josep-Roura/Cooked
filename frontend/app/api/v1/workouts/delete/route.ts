@@ -58,8 +58,27 @@ export async function POST(req: NextRequest) {
     }
 
     // Also delete any associated nutrition records for this workout
+    const { data: workoutNutrition } = await supabase
+      .from("workout_nutrition")
+      .select("id")
+      .eq("workout_id", workoutId)
+      .eq("user_id", user.id)
+
+    const workoutNutritionIds = (workoutNutrition ?? []).map((record) => record.id)
+    if (workoutNutritionIds.length > 0) {
+      const { error: deleteItemsError } = await supabase
+        .from("workout_nutrition_items")
+        .delete()
+        .in("workout_nutrition_id", workoutNutritionIds)
+        .eq("user_id", user.id)
+
+      if (deleteItemsError) {
+        console.warn("Failed to delete associated nutrition items:", deleteItemsError)
+      }
+    }
+
     const { error: deleteNutritionError } = await supabase
-      .from("nutrition_during_workouts")
+      .from("workout_nutrition")
       .delete()
       .eq("workout_id", workoutId)
       .eq("user_id", user.id)

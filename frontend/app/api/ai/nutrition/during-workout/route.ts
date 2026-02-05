@@ -284,7 +284,7 @@ export async function POST(request: NextRequest) {
           during_electrolytes_mg: targets.sodium_mg_per_h,
 
           // Full plan
-          nutrition_plan_json: JSON.stringify(finalPlan),
+          nutrition_plan_json: finalPlan,
 
           // Metadata
           used_ai_enhancement: !usedFallback,

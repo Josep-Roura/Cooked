@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServerClient } from "@/lib/supabase/server"
 import type { Meal, NutritionDayPlan, NutritionMacros, NutritionDayType } from "@/lib/db/types"
+import { mergeMealUpdate } from "@/lib/nutrition/mealUpdate"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
@@ -64,6 +65,8 @@ const updateSchema = z
           carbs_g: z.number().nonnegative().optional(),
           fat_g: z.number().nonnegative().optional(),
           locked: z.boolean().optional(),
+          recipe: z.unknown().optional(),
+          ingredients: z.array(z.unknown()).optional(),
         }),
       )
       .optional(),
@@ -251,18 +254,42 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (Array.isArray(meals) && meals.length > 0) {
-      const payload = meals.map((meal) => ({
-        user_id: user.id,
-        date,
-        slot: meal.slot,
-        name: meal.name,
-        time: meal.time ?? null,
-        kcal: meal.kcal ?? 0,
-        protein_g: meal.protein_g ?? 0,
-        carbs_g: meal.carbs_g ?? 0,
-        fat_g: meal.fat_g ?? 0,
-        locked: meal.locked ?? false,
-      }))
+      const { data: existingMeals, error: existingMealsError } = await supabase
+        .from("nutrition_meals")
+        .select("slot, recipe, ingredients")
+        .eq("user_id", user.id)
+        .eq("date", date)
+
+      if (existingMealsError) {
+        return jsonError(400, "db_error", "Failed to load existing meals", existingMealsError.message)
+      }
+
+      const existingMealsBySlot = new Map(
+        (existingMeals ?? []).map((meal) => [meal.slot, { recipe: meal.recipe, ingredients: meal.ingredients }]),
+      )
+
+      const payload = meals.map((meal) => {
+        const existing = existingMealsBySlot.get(meal.slot)
+        const merged = mergeMealUpdate(existing, {
+          recipe: meal.recipe,
+          ingredients: meal.ingredients,
+        })
+
+        return {
+          user_id: user.id,
+          date,
+          slot: meal.slot,
+          name: meal.name,
+          time: meal.time ?? null,
+          kcal: meal.kcal ?? 0,
+          protein_g: meal.protein_g ?? 0,
+          carbs_g: meal.carbs_g ?? 0,
+          fat_g: meal.fat_g ?? 0,
+          locked: meal.locked ?? false,
+          recipe: merged.recipe,
+          ingredients: merged.ingredients,
+        }
+      })
 
       const { error: mealError } = await supabase
         .from("nutrition_meals")
