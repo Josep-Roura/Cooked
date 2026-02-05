@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import crypto from "node:crypto"
-import { systemPrompt } from "@/lib/ai/prompt"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateDynamicRecipe, resetDailyRecipeTracking, setWeekSeed } from "@/lib/nutrition/recipe-generator"
+import { buildWeeklyPlan } from "@/lib/nutrition/weeklyPlanner"
+import { loadRecipePool, selectRecipe } from "@/lib/nutrition/recipeSelector"
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-const OPENAI_TIMEOUT_MS = 180000 // 3 minutes - OpenAI takes time for large requests
-const OPENAI_MAX_RETRIES = 2
-const OPENAI_RETRY_BASE_MS = 800
 const MAX_RANGE_DAYS = 90
-const CHUNK_SIZE_DAYS = 3 // Split requests into 3-day chunks to avoid OpenAI timeouts
 const RECENT_REQUEST_WINDOW_MS = 10 * 60 * 1000
 const RATE_LIMIT_FORCE_PER_MIN = 5
 const RATE_LIMIT_ENSURE_PER_MIN = 20
@@ -179,253 +174,6 @@ function pickDayType(workouts: Array<{ workout_type: string | null; tss: number 
   return highIntensity ? "high" : "training"
 }
 
-function computeMacros(weightKg: number, dayType: string) {
-  const kcalBase = Math.round(weightKg * (dayType === "rest" ? 27 : dayType === "high" ? 34 : 30))
-  const protein = Math.round(weightKg * 1.8)
-  const fat = clamp(Math.round(weightKg * 0.9), 40, 120)
-  const remaining = kcalBase - protein * 4 - fat * 9
-  const carbs = Math.max(0, Math.round(remaining / 4))
-
-  return {
-    kcal: kcalBase,
-    protein_g: protein,
-    carbs_g: carbs,
-    fat_g: fat,
-    intra_cho_g_per_h: 0,
-  }
-}
-
-function defaultMealTemplates(mealsPerDay: number) {
-  const clampedMeals = clamp(mealsPerDay, 3, 6)
-  if (clampedMeals === 3) {
-    return [
-      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
-      { name: "Lunch", time: "13:00", meal_type: "lunch", emoji: "🥗" },
-      { name: "Dinner", time: "19:30", meal_type: "dinner", emoji: "🍝" },
-    ]
-  }
-  if (clampedMeals === 4) {
-    return [
-      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
-      { name: "Snack", time: "11:00", meal_type: "snack", emoji: "🍌" },
-      { name: "Lunch", time: "14:00", meal_type: "lunch", emoji: "🥗" },
-      { name: "Dinner", time: "20:30", meal_type: "dinner", emoji: "🍝" },
-    ]
-  }
-  if (clampedMeals === 5) {
-    return [
-      { name: "Breakfast", time: "08:00", meal_type: "breakfast", emoji: "🍳" },
-      { name: "Snack", time: "11:00", meal_type: "snack", emoji: "🍌" },
-      { name: "Lunch", time: "14:00", meal_type: "lunch", emoji: "🥗" },
-      { name: "Snack", time: "17:00", meal_type: "snack", emoji: "🍏" },
-      { name: "Dinner", time: "20:30", meal_type: "dinner", emoji: "🍝" },
-    ]
-  }
-  return [
-    { name: "Breakfast", time: "07:30", meal_type: "breakfast", emoji: "🍳" },
-    { name: "Snack", time: "10:00", meal_type: "snack", emoji: "🥜" },
-    { name: "Lunch", time: "13:00", meal_type: "lunch", emoji: "🥗" },
-    { name: "Snack", time: "16:00", meal_type: "snack", emoji: "🍞" },
-    { name: "Dinner", time: "19:00", meal_type: "dinner", emoji: "🍝" },
-    { name: "Snack", time: "21:30", meal_type: "snack", emoji: "🥛" },
-  ]
-}
-
-function fallbackRecipeForMeal(mealType: string, name: string, dayIndex: number = 0) {
-  // Crear variaciones para cada día de la semana
-  const breakfastVariations = [
-    {
-      title: "Oats with yogurt and fruit",
-      ingredients: [
-        { name: "rolled oats", quantity: 60, unit: "g" },
-        { name: "milk", quantity: 200, unit: "ml" },
-        { name: "Greek yogurt", quantity: 100, unit: "g" },
-        { name: "banana", quantity: 1, unit: "unit" },
-      ],
-      steps: ["Cook oats in milk until creamy.", "Top with yogurt and sliced banana."],
-      notes: "Easy to digest and carb-forward for morning fuel.",
-    },
-    {
-      title: "Scrambled eggs with toast",
-      ingredients: [
-        { name: "large eggs", quantity: 3, unit: "unit" },
-        { name: "whole grain bread", quantity: 2, unit: "slices" },
-        { name: "butter", quantity: 10, unit: "g" },
-        { name: "tomato", quantity: 100, unit: "g" },
-      ],
-      steps: ["Toast bread until golden.", "Scramble eggs in butter over medium heat.", "Plate with tomato."],
-      notes: "Protein-rich breakfast with complex carbs.",
-    },
-    {
-      title: "Pancakes with berries",
-      ingredients: [
-        { name: "whole wheat flour", quantity: 100, unit: "g" },
-        { name: "eggs", quantity: 2, unit: "unit" },
-        { name: "milk", quantity: 150, unit: "ml" },
-        { name: "fresh berries", quantity: 100, unit: "g" },
-        { name: "honey", quantity: 15, unit: "g" },
-      ],
-      steps: ["Mix flour, eggs and milk into batter.", "Cook pancakes on griddle.", "Top with berries and honey."],
-      notes: "Carb-forward fuel with antioxidants from berries.",
-    },
-  ]
-
-  const lunchVariations = [
-    {
-      title: "Chicken rice bowl",
-      ingredients: [
-        { name: "cooked rice", quantity: 250, unit: "g" },
-        { name: "chicken breast", quantity: 150, unit: "g" },
-        { name: "mixed vegetables", quantity: 150, unit: "g" },
-        { name: "olive oil", quantity: 10, unit: "g" },
-      ],
-      steps: ["Cook chicken and vegetables in olive oil.", "Serve over rice."],
-      notes: "Balanced carbs and protein for recovery.",
-    },
-    {
-      title: "Tuna pasta salad",
-      ingredients: [
-        { name: "whole wheat pasta", quantity: 100, unit: "g" },
-        { name: "canned tuna", quantity: 120, unit: "g" },
-        { name: "mixed greens", quantity: 100, unit: "g" },
-        { name: "olive oil", quantity: 10, unit: "g" },
-        { name: "lemon juice", quantity: 10, unit: "ml" },
-      ],
-      steps: ["Cook pasta per package.", "Mix with tuna, greens, oil and lemon.", "Serve chilled."],
-      notes: "Omega-3 rich with complete protein.",
-    },
-    {
-      title: "Turkey sandwich",
-      ingredients: [
-        { name: "whole grain bread", quantity: 80, unit: "g" },
-        { name: "turkey slices", quantity: 100, unit: "g" },
-        { name: "lettuce", quantity: 50, unit: "g" },
-        { name: "tomato", quantity: 100, unit: "g" },
-        { name: "hummus", quantity: 20, unit: "g" },
-      ],
-      steps: ["Toast bread lightly.", "Spread hummus.", "Layer turkey, lettuce and tomato."],
-      notes: "Portable lunch option with lean protein.",
-    },
-  ]
-
-  const dinnerVariations = [
-    {
-      title: "Salmon pasta with greens",
-      ingredients: [
-        { name: "pasta", quantity: 90, unit: "g" },
-        { name: "salmon", quantity: 140, unit: "g" },
-        { name: "spinach", quantity: 80, unit: "g" },
-        { name: "olive oil", quantity: 10, unit: "g" },
-      ],
-      steps: ["Cook pasta.", "Pan-sear salmon and wilt spinach.", "Combine with olive oil."],
-      notes: "Carbs for glycogen, omega-3s for recovery.",
-    },
-    {
-      title: "Beef stir-fry with vegetables",
-      ingredients: [
-        { name: "lean beef", quantity: 150, unit: "g" },
-        { name: "brown rice", quantity: 200, unit: "g" },
-        { name: "broccoli", quantity: 150, unit: "g" },
-        { name: "olive oil", quantity: 10, unit: "g" },
-      ],
-      steps: ["Cook rice.", "Stir-fry beef and broccoli in oil.", "Mix with rice."],
-      notes: "High protein dinner for muscle recovery.",
-    },
-    {
-      title: "Chicken and sweet potato",
-      ingredients: [
-        { name: "chicken breast", quantity: 150, unit: "g" },
-        { name: "sweet potato", quantity: 200, unit: "g" },
-        { name: "green beans", quantity: 100, unit: "g" },
-        { name: "olive oil", quantity: 10, unit: "g" },
-      ],
-      steps: ["Roast sweet potato and chicken.", "Steam green beans.", "Plate together."],
-      notes: "Complex carbs and complete protein for recovery.",
-    },
-  ]
-
-  const snackVariations = [
-    {
-      title: "Greek yogurt with honey",
-      ingredients: [
-        { name: "Greek yogurt", quantity: 150, unit: "g" },
-        { name: "honey", quantity: 15, unit: "g" },
-        { name: "granola", quantity: 30, unit: "g" },
-      ],
-      steps: ["Pour yogurt into bowl.", "Drizzle honey.", "Top with granola."],
-      notes: "Quick protein snack with carbs.",
-    },
-    {
-      title: "Banana with almond butter",
-      ingredients: [
-        { name: "banana", quantity: 1, unit: "unit" },
-        { name: "almond butter", quantity: 20, unit: "g" },
-      ],
-      steps: ["Peel banana.", "Serve with almond butter on the side."],
-      notes: "Portable pre-workout snack.",
-    },
-  ]
-
-
-  if (mealType === "breakfast") {
-    return { ...breakfastVariations[dayIndex % breakfastVariations.length], servings: 1 }
-  }
-  if (mealType === "lunch") {
-    return { ...lunchVariations[dayIndex % lunchVariations.length], servings: 1 }
-  }
-  if (mealType === "dinner") {
-    return { ...dinnerVariations[dayIndex % dinnerVariations.length], servings: 1 }
-  }
-  return { ...snackVariations[dayIndex % snackVariations.length], servings: 1 }
-}
-
-function splitMacrosAcrossMeals(
-  macros: { kcal: number; protein_g: number; carbs_g: number; fat_g: number },
-  meals: Array<{ name: string; time: string; meal_type: string; emoji: string }>,
-  dayIndex: number = 0,
-) {
-  const snackCount = meals.filter((meal) => meal.name.toLowerCase().includes("snack")).length
-  const mealShares = meals.map((meal) => {
-    if (snackCount === 0) {
-      if (meal.name === "Breakfast") return 0.3
-      if (meal.name === "Lunch") return 0.35
-      if (meal.name === "Dinner") return 0.35
-      return 0.0
-    }
-    if (meal.name === "Breakfast") return 0.25
-    if (meal.name === "Lunch") return 0.3
-    if (meal.name === "Dinner") return 0.3
-    return 0.15 / snackCount
-  })
-
-  return meals.map((meal, index) => {
-    const kcal = Math.round(macros.kcal * mealShares[index])
-    const protein = Math.round(macros.protein_g * mealShares[index])
-    const fat = Math.round(macros.fat_g * mealShares[index])
-    const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4))
-
-    const targetMacros = { kcal, protein_g: protein, carbs_g: carbs, fat_g: fat }
-    
-    return {
-      slot: index + 1,
-      meal_type: meal.meal_type,
-      time: meal.time,
-      emoji: meal.emoji,
-      name: meal.name,
-      kcal,
-      protein_g: protein,
-      carbs_g: carbs,
-      fat_g: fat,
-      recipe: generateDynamicRecipe(
-        meal.meal_type as "breakfast" | "snack" | "lunch" | "dinner",
-        targetMacros,
-        dayIndex,
-        index,
-      ),
-    }
-  })
-}
-
 function normalizeSportType(value: string | null) {
   const normalized = value?.toLowerCase() ?? ""
   if (normalized.includes("swim")) return "swim"
@@ -561,387 +309,45 @@ function summarizeWorkoutsByDay(
   })
 }
 
-function buildFallbackPlan({
-   start,
-   end,
-   workouts,
-   weightKg,
-   mealsPerDay,
- }: {
-   start: string
-   end: string
-   workouts: Array<{ workout_day: string; workout_type: string | null; tss: number | null; rpe: number | null; if: number | null }>
-   weightKg: number
-   mealsPerDay: number
- }): AiResponse {
-   const range = buildDateRange(start, end)
-   if (!range) {
-     return { days: [], rationale: "Fallback plan unavailable for the requested range." }
-   }
-   
-   // Calculate week seed from start date for consistency
-   const startDate = new Date(`${start}T00:00:00Z`)
-   // Use a better hash that incorporates year, month, and week
-   const year = startDate.getUTCFullYear()
-   const month = startDate.getUTCMonth() + 1
-   const dayOfMonth = startDate.getUTCDate()
-   const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
-   const weekNumber = Math.floor(dayOfYear / 7)
-   
-   const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
-   setWeekSeed(weekSeed)
-   
-   const workoutsByDay = workouts.reduce((map, workout) => {
-     if (!map.has(workout.workout_day)) {
-       map.set(workout.workout_day, [])
-     }
-     map.get(workout.workout_day)?.push(workout)
-     return map
-   }, new Map<string, Array<typeof workouts[number]>>())
-
-  const templates = defaultMealTemplates(mealsPerDay)
-  const days = Array.from({ length: range.days }, (_value, index) => {
-    const cursor = new Date(`${start}T00:00:00Z`)
-    cursor.setUTCDate(cursor.getUTCDate() + index)
-    const date = cursor.toISOString().split("T")[0]
-    
-    // Reset daily recipe tracking for each new day to prevent same meal appearing multiple times
-    resetDailyRecipeTracking(date)
-    
-    const dayWorkouts = workoutsByDay.get(date) ?? []
-    const dayType = pickDayType(dayWorkouts)
-    const dailyTargets = computeMacros(weightKg, dayType)
-    const meals = splitMacrosAcrossMeals(dailyTargets, templates, index)
-    return {
-      date,
-      day_type: dayType,
-      daily_targets: dailyTargets,
-      meals,
-      rationale: "Balanced fuel distribution based on training load and recovery needs.",
-    }
-  })
-
-  return {
-    days,
-    rationale: "Fallback plan generated deterministically from profile and workouts.",
-  }
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 /**
- * Validates AI response for business rule violations:
- * 1. No overlapping meal times on the same day
- * 2. No dish appears more than 2 times per week
- * 
- * Attempts to auto-correct overlapping times by adjusting meal times.
+ * Validates response for overlapping meal times and fixes conflicts by nudging times forward.
  */
 function validateAndFixAiResponseRules(response: AiResponse): { valid: boolean; errors: string[]; fixed: boolean; fixedResponse?: AiResponse } {
   const errors: string[] = []
   let needsFixing = false
 
-  // First pass: detect violations
-  const dishCountPerWeek = new Map<string, number>()
+  const fixedResponse: AiResponse = JSON.parse(JSON.stringify(response))
+  fixedResponse.days.forEach((day) => {
+    const usedTimes = new Set<string>()
+    const standardTimes = ["07:00", "08:30", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"]
+    let timeIndex = 0
 
-  response.days.forEach((day) => {
-    const timeSlots = new Map<string, number>()
-    
     day.meals.forEach((meal) => {
       const time = meal.time ?? "12:00"
-      const count = (timeSlots.get(time) ?? 0) + 1
-      timeSlots.set(time, count)
-      
-      if (count > 1) {
+      if (usedTimes.has(time)) {
         errors.push(`Day ${day.date}: Multiple meals at ${time}`)
         needsFixing = true
-      }
-    })
-
-    day.meals.forEach((meal) => {
-      const dishName = meal.recipe?.title?.toLowerCase() ?? meal.name.toLowerCase()
-      dishCountPerWeek.set(dishName, (dishCountPerWeek.get(dishName) ?? 0) + 1)
-    })
-  })
-
-  dishCountPerWeek.forEach((count, dishName) => {
-    if (count > 2) {
-      errors.push(`Dish "${dishName}" appears ${count} times (max: 2)`)
-      needsFixing = true
-    }
-  })
-
-  // If no violations, return early
-  if (!needsFixing) {
-    return { valid: true, errors: [], fixed: false }
-  }
-
-  // Second pass: attempt to fix violations
-  let fixedResponse: AiResponse | undefined
-  let fixed = false
-
-  if (needsFixing) {
-    fixedResponse = JSON.parse(JSON.stringify(response)) // Deep clone
-    
-    // Fix overlapping times within days
-    fixedResponse.days.forEach((day) => {
-      const usedTimes = new Set<string>()
-      const standardTimes = ["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"]
-      let timeIndex = 0
-
-      day.meals.forEach((meal) => {
-        const currentTime = meal.time ?? "12:00"
-        
-        if (usedTimes.has(currentTime)) {
-          // Find next available time
-          while (timeIndex < standardTimes.length && usedTimes.has(standardTimes[timeIndex])) {
-            timeIndex++
-          }
-          
-          if (timeIndex < standardTimes.length) {
-            const newTime = standardTimes[timeIndex]
-            console.log(`Auto-correcting meal time from ${currentTime} to ${newTime} for "${meal.name}"`)
-            meal.time = newTime
-            usedTimes.add(newTime)
-            timeIndex++
-            fixed = true
-          }
-        } else {
-          usedTimes.add(currentTime)
+        while (timeIndex < standardTimes.length && usedTimes.has(standardTimes[timeIndex])) {
+          timeIndex += 1
         }
-      })
-    })
-
-    // Fix dish repetition violations (>2x per week)
-    const dishCountMap = new Map<string, number>()
-    const mealsToRemove: Array<{ dayIndex: number; mealIndex: number; dishName: string }> = []
-
-    // First pass: count occurrences and mark excess meals for removal
-    fixedResponse.days.forEach((day, dayIndex) => {
-      day.meals.forEach((meal, mealIndex) => {
-        const dishName = meal.recipe?.title?.toLowerCase() ?? meal.name.toLowerCase()
-        const currentCount = dishCountMap.get(dishName) ?? 0
-
-        if (currentCount >= 2) {
-          // This is the 3rd+ occurrence - mark for removal
-          mealsToRemove.push({ dayIndex, mealIndex, dishName })
-          console.log(
-            `Marking excess meal for removal: "${meal.name}" (${dishName}) - occurrence ${currentCount + 1}`,
-          )
-        } else {
-          dishCountMap.set(dishName, currentCount + 1)
+        if (timeIndex < standardTimes.length) {
+          meal.time = standardTimes[timeIndex]
+          usedTimes.add(standardTimes[timeIndex])
+          timeIndex += 1
         }
-      })
-    })
-
-    // Remove marked meals in reverse order to avoid index shifting
-    mealsToRemove.sort((a, b) => (b.dayIndex !== a.dayIndex ? b.dayIndex - a.dayIndex : b.mealIndex - a.mealIndex))
-
-    mealsToRemove.forEach(({ dayIndex, mealIndex, dishName }) => {
-      const meal = fixedResponse!.days[dayIndex].meals[mealIndex]
-      console.log(`Removing excess meal: "${meal.name}" (${dishName})`)
-      fixedResponse!.days[dayIndex].meals.splice(mealIndex, 1)
-      fixed = true
-    })
-
-    // If meals were removed, recalculate daily macro totals (for logging purposes)
-    fixedResponse.days.forEach((day) => {
-      const mealCount = day.meals.length
-      if (mealCount === 0) {
-        console.warn(`Day ${day.date} has no meals after violation fixes!`)
       } else {
-        const totalKcal = day.meals.reduce((sum, m) => sum + (m.kcal ?? 0), 0)
-        const totalProtein = day.meals.reduce((sum, m) => sum + (m.protein_g ?? 0), 0)
-        const totalCarbs = day.meals.reduce((sum, m) => sum + (m.carbs_g ?? 0), 0)
-        const totalFat = day.meals.reduce((sum, m) => sum + (m.fat_g ?? 0), 0)
-        console.log(
-          `After fixes - Day ${day.date}: ${mealCount} meals, macros: ${totalKcal}kcal, ${totalProtein}g P, ${totalCarbs}g C, ${totalFat}g F`,
-        )
+        usedTimes.add(time)
       }
     })
-  }
+  })
 
   return {
-    valid: errors.length === 0,
+    valid: !needsFixing,
     errors,
-    fixed,
-    fixedResponse,
+    fixed: needsFixing,
+    fixedResponse: needsFixing ? fixedResponse : undefined,
   }
-}
-
-function normalizeUnit(unit: string): "g" | "ml" | "unit" {
-  const normalized = unit.toLowerCase().trim()
-  if (normalized === "ml" || normalized === "milliliters" || normalized === "millilitre") return "ml"
-  if (normalized === "g" || normalized === "grams" || normalized === "gram") return "g"
-  // Default to "unit" for slices, pieces, units, etc.
-  return "unit"
-}
-
-function normalizeTime(time: unknown): string {
-  if (typeof time !== "string") return "12:00"
-  
-  const normalized = time.trim()
-  
-  // Already in HH:MM format
-  if (/^\d{2}:\d{2}$/.test(normalized)) {
-    return normalized
-  }
-  
-  // Try to extract HH:MM from various formats
-  const match = normalized.match(/(\d{1,2}):(\d{2})/)
-  if (match) {
-    const hour = parseInt(match[1], 10)
-    const minute = parseInt(match[2], 10)
-    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-    }
-  }
-  
-  // Fallback to a default time
-  return "12:00"
-}
-
-function normalizeAiResponse(response: unknown, requestId?: string): AiResponse | null {
-  if (!response || typeof response !== "object" || !("days" in response)) {
-    if (requestId) console.log(`[${requestId}] Response missing 'days' field:`, response)
-    return null
-  }
-  
-  const raw = response as Record<string, unknown>
-  if (!Array.isArray(raw.days)) {
-    if (requestId) console.log(`[${requestId}] Days is not an array:`, typeof raw.days)
-    return null
-  }
-  
-  const days = raw.days.map((day: unknown) => {
-    if (typeof day !== "object" || !day) return null
-    const d = day as Record<string, unknown>
-    
-    const meals = Array.isArray(d.meals)
-      ? d.meals.map((meal: unknown) => {
-          if (typeof meal !== "object" || !meal) return null
-          const m = meal as Record<string, unknown>
-          
-          // Normalize time format
-          if (typeof m.time === "string") {
-            m.time = normalizeTime(m.time)
-          }
-          
-          if (m.recipe && typeof m.recipe === "object" && !Array.isArray(m.recipe)) {
-            const recipe = m.recipe as Record<string, unknown>
-            if (Array.isArray(recipe.ingredients)) {
-              recipe.ingredients = recipe.ingredients.map((ing: unknown) => {
-                if (typeof ing !== "object" || !ing) return ing
-                const i = ing as Record<string, unknown>
-                if (typeof i.unit === "string") {
-                  i.unit = normalizeUnit(i.unit)
-                }
-                return i
-              })
-            }
-          }
-          
-          return m
-        })
-      : []
-    
-    return {
-      date: d.date,
-      day_type: d.day_type,
-      daily_targets: d.daily_targets,
-      meals: meals.filter(Boolean),
-      rationale: d.rationale,
-    }
-  }).filter(Boolean)
-  
-  return { days, rationale: raw.rationale }
-}
-
-async function callOpenAI({
-  apiKey,
-  model,
-  requestId,
-  payload,
-}: {
-  apiKey: string
-  model: string
-  requestId: string
-  payload: Record<string, unknown>
-}) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
-  const startedAt = Date.now()
-
-    try {
-      console.log(`[${requestId}] Starting OpenAI request to ${OPENAI_URL}`)
-      console.log(`[${requestId}] Model: ${model}, API Key length: ${apiKey.length}`)
-      
-      const response = await fetch(OPENAI_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "X-Request-Id": requestId,
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: JSON.stringify(payload) },
-          ],
-        }),
-        signal: controller.signal,
-      })
-
-      console.log(`[${requestId}] OpenAI response status: ${response.status}`)
-      const data = await response.json().catch((err) => {
-        console.error(`[${requestId}] Error parsing OpenAI response:`, err)
-        return null
-      })
-      const latencyMs = Date.now() - startedAt
-      console.log(`[${requestId}] OpenAI response received in ${latencyMs}ms`)
-      return { response, data, latencyMs }
-    } finally {
-      clearTimeout(timeout)
-    }
-}
-
-async function callOpenAIWithRetry(args: {
-  apiKey: string
-  model: string
-  requestId: string
-  payload: Record<string, unknown>
-}) {
-  let lastError: Error | null = null
-  for (let attempt = 0; attempt <= OPENAI_MAX_RETRIES; attempt += 1) {
-    try {
-      console.log(`[${args.requestId}] OpenAI attempt ${attempt + 1}/${OPENAI_MAX_RETRIES + 1}`)
-      const { response, data, latencyMs } = await callOpenAI(args)
-      if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status)) {
-        console.log(`[${args.requestId}] OpenAI attempt ${attempt + 1} succeeded (status ${response.status})`)
-        return { response, data, latencyMs }
-      }
-      lastError = new Error(`OpenAI retryable error: ${response.status}`)
-      console.warn(`[${args.requestId}] OpenAI attempt ${attempt + 1} failed with retryable status ${response.status}`)
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error))
-      console.error(`[${args.requestId}] OpenAI attempt ${attempt + 1} error:`, lastError.message)
-    }
-
-    if (attempt < OPENAI_MAX_RETRIES) {
-      const waitMs = OPENAI_RETRY_BASE_MS * (attempt + 1)
-      console.log(`[${args.requestId}] Waiting ${waitMs}ms before retry...`)
-      await sleep(waitMs)
-    }
-  }
-
-  if (lastError) {
-    throw lastError
-  }
-
-  throw new Error("OpenAI request failed")
 }
 
 async function enforceRateLimit({
@@ -1046,7 +452,7 @@ export async function POST(req: NextRequest) {
         .lte("date", end),
       supabase
         .from("nutrition_meals")
-        .select("date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, eaten_at, locked")
+        .select("date, slot, name, time, kcal, protein_g, carbs_g, fat_g, eaten, eaten_at, locked, recipe")
         .eq("user_id", user.id)
         .gte("date", start)
         .lte("date", end),
@@ -1109,19 +515,9 @@ export async function POST(req: NextRequest) {
       .gte("workout_day", start)
       .lte("workout_day", end)
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      console.error(`[${requestId}] OPENAI_API_KEY is not configured`)
-      return jsonError(500, "config_missing", "OPENAI_API_KEY is not configured")
-    }
-
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini"
-    console.log(`[${requestId}] Using model: ${model}`)
-    console.log(`[${requestId}] API key configured: ${apiKey.slice(0, 20)}...`)
-    
+    const model = process.env.OPENAI_MODEL ?? "deterministic-planner"
     const workoutsSummary = summarizeWorkoutsByDay(workouts ?? [], start, end)
-    
-    // Create payload for logging (using full date range)
+
     const payloadForLogging = {
       start,
       end,
@@ -1136,152 +532,108 @@ export async function POST(req: NextRequest) {
       schema:
         'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
     }
-    
-    // Split request into chunks to avoid OpenAI timeouts
-    const dateKeysForChunking = buildDateKeys(start, end)
-    const chunks: Array<{ start: string; end: string; dates: string[] }> = []
-    for (let i = 0; i < dateKeysForChunking.length; i += CHUNK_SIZE_DAYS) {
-      const chunkDates = dateKeysForChunking.slice(i, i + CHUNK_SIZE_DAYS)
-      chunks.push({
-        start: chunkDates[0],
-        end: chunkDates[chunkDates.length - 1],
-        dates: chunkDates,
-      })
+
+    const recipePool = await loadRecipePool({ supabase, userId: user.id })
+    const usedTitles = new Map<string, number>()
+    normalizedMeals.forEach((meal) => {
+      const recipeTitle = (meal as { recipe?: { title?: string } | null }).recipe?.title
+      const title = recipeTitle ?? meal.name
+      const normalized = title.trim().toLowerCase()
+      usedTitles.set(normalized, (usedTitles.get(normalized) ?? 0) + 1)
+    })
+
+    const plannerDays = buildWeeklyPlan({
+      start,
+      end,
+      profile: {
+        weight_kg: profile?.weight_kg ?? 70,
+        meals_per_day: profile?.meals_per_day ?? 3,
+        diet: profile?.diet ?? null,
+        allergies: (profile as { allergies?: string[] | null } | null)?.allergies ?? null,
+      },
+      workouts: (workouts ?? []).map((workout) => ({
+        workout_day: workout.workout_day,
+        workout_type: workout.workout_type ?? null,
+        planned_hours: workout.planned_hours ?? null,
+        actual_hours: workout.actual_hours ?? null,
+        tss: workout.tss ?? null,
+        if: workout.if ?? null,
+        rpe: workout.rpe ?? null,
+        title: workout.title ?? null,
+        start_time: workout.start_time ?? null,
+      })),
+    })
+
+    const ensureNumber = (value: unknown, fallback: number) => {
+      if (typeof value === "number" && Number.isFinite(value)) return value
+      if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+        return Number(value)
+      }
+      return fallback
     }
 
-    console.log(`[${requestId}] Request split into ${chunks.length} chunks of ${CHUNK_SIZE_DAYS} days`)
-
-    // Calculate week seed from start date to ensure consistent recipes within the same week
-    const startDate = new Date(`${start}T00:00:00Z`)
-    // Use a better hash that incorporates year, month, and week
-    // This ensures different weeks get very different seeds
-    const year = startDate.getUTCFullYear()
-    const month = startDate.getUTCMonth() + 1
-    const dayOfMonth = startDate.getUTCDate()
-    // Calculate week number for better distribution
-    const dayOfYear = Math.floor((startDate.getTime() - new Date(`${year}-01-01`).getTime()) / (1000 * 60 * 60 * 24))
-    const weekNumber = Math.floor(dayOfYear / 7)
-    
-    // Create a seed that combines year, month, day for maximum variation
-    const weekSeed = Math.abs((year * 73856093 ^ month * 19349663 ^ weekNumber * 83492791) | 0) % 1000000
-    setWeekSeed(weekSeed)
-    console.log(`[${requestId}] Set week seed to ${weekSeed} for start date ${start} (year: ${year}, month: ${month}, week: ${weekNumber})`)
-
-    let aiResponse: AiResponse | null = null
-    let aiRaw: unknown = null
-    let latencyMs = 0
-    let tokens: number | null = null
-    let aiErrorCode: string | null = null
-    let totalTokens = 0
-
-    try {
-      const allDays: typeof aiResponseSchema._output['days'] = []
-      
-      for (const chunk of chunks) {
-        console.log(`[${requestId}] Processing chunk: ${chunk.start} to ${chunk.end}`)
-        
-        const payload = {
-          start: chunk.start,
-          end: chunk.end,
-          profile: {
-            weight_kg: profile?.weight_kg ?? null,
-            meals_per_day: profile?.meals_per_day ?? null,
-            diet: profile?.diet ?? null,
-            primary_goal: profile?.primary_goal ?? null,
-            units: profile?.units ?? null,
-          },
-          workouts_summary: workoutsSummary.filter(w => w.date >= chunk.start && w.date <= chunk.end),
-          schema:
-            'days[{date,day_type,daily_targets{kcal,protein_g,carbs_g,fat_g,intra_cho_g_per_h},meals[{slot,meal_type,time,emoji,name,kcal,protein_g,carbs_g,fat_g,recipe{title,servings,ingredients[{name,quantity,unit}],steps,notes}}],rationale}]',
-        }
-
-        console.log(`[${requestId}] Chunk payload size: ${JSON.stringify(payload).length} bytes`)
-
-        const startTime = Date.now()
-        const { response, data, latencyMs: callLatency } = await callOpenAIWithRetry({
-          apiKey,
-          model,
-          requestId: `${requestId}-chunk-${chunks.indexOf(chunk) + 1}`,
-          payload,
+    const days = plannerDays.map((day) => {
+      const meals = day.meals.map((meal) => {
+        const recipe = selectRecipe({
+          mealType: meal.meal_type,
+          targetMacros: meal.target_macros,
+          usedTitles,
+          profile: { diet: profile?.diet ?? null, allergies: (profile as { allergies?: string[] | null })?.allergies ?? null },
+          pool: recipePool,
         })
-        latencyMs = callLatency
-        aiRaw = data
+        const normalizedTitle = recipe.title.trim().toLowerCase()
+        usedTitles.set(normalizedTitle, (usedTitles.get(normalizedTitle) ?? 0) + 1)
 
-        console.log(`[${requestId}] Chunk OpenAI call completed in ${latencyMs}ms. Response OK: ${response.ok}`)
+        const normalizedIngredients = recipe.ingredients.map((ingredient) => ({
+          name: ingredient.name,
+          quantity: ensureNumber(ingredient.quantity, 1),
+          unit: ingredient.unit ?? "unit",
+        }))
 
-        if (!response.ok || !data) {
-          const message = data?.error?.message ?? "OpenAI request failed"
-          console.error(`[${requestId}] Chunk OpenAI error: ${message} (status: ${response.status})`)
-          aiErrorCode = response.status === 408 ? "TIMEOUT" : "VALIDATION_ERROR"
-          throw new Error(message)
-        }
+        const steps = recipe.steps.length > 0 ? recipe.steps : ["Prepare the ingredients.", "Combine and serve."]
 
-        const content = data.choices?.[0]?.message?.content ?? ""
-        console.log(`[${requestId}] Chunk content length: ${content.length} bytes`)
-        
-        let parsedJson: unknown
-        try {
-          parsedJson = JSON.parse(content)
-          console.log(`[${requestId}] Chunk JSON parsed successfully`)
-        } catch {
-          console.error(`[${requestId}] Failed to parse chunk JSON response`)
-          aiErrorCode = "INVALID_JSON"
-          throw new Error("Invalid JSON response")
+        return {
+          slot: meal.slot,
+          meal_type: meal.meal_type,
+          time: meal.time,
+          emoji: meal.emoji,
+          name: recipe.title,
+          kcal: meal.target_macros.kcal,
+          protein_g: meal.target_macros.protein_g,
+          carbs_g: meal.target_macros.carbs_g,
+          fat_g: meal.target_macros.fat_g,
+          recipe: {
+            title: recipe.title,
+            servings: recipe.servings ?? 1,
+            ingredients: normalizedIngredients,
+            steps,
+            notes: recipe.notes ?? null,
+          },
         }
-        
-        // Normalize the response to fix any unit inconsistencies
-        const normalized = normalizeAiResponse(parsedJson, `${requestId}-chunk-${chunks.indexOf(chunk) + 1}`)
-        if (!normalized) {
-          console.error(`[${requestId}] Failed to normalize chunk response. Raw keys:`, Object.keys(parsedJson as any))
-          aiErrorCode = "INVALID_JSON"
-          throw new Error("Failed to normalize AI response")
-        }
-        
-        const parsed = aiResponseSchema.safeParse(normalized)
-        if (!parsed.success) {
-          console.error(`[${requestId}] Chunk schema validation failed:`, parsed.error.issues)
-          aiErrorCode = "VALIDATION_ERROR"
-          throw new Error("Invalid AI response")
-        }
-
-        console.log(`[${requestId}] Chunk validated. Days: ${parsed.data.days.length}`)
-        allDays.push(...parsed.data.days)
-        
-        if (data?.usage?.total_tokens) {
-          totalTokens += data.usage.total_tokens
-        }
-      }
-
-      console.log(`[${requestId}] All chunks processed. Total days: ${allDays.length}`)
-      tokens = totalTokens
-      aiResponse = { days: allDays, rationale: "Multi-chunk nutrition plan" }
-    } catch (error) {
-      console.error(`[${requestId}] AI error caught:`, error instanceof Error ? error.message : String(error))
-      if (!aiErrorCode) {
-        const message = error instanceof Error ? error.message : String(error)
-        aiErrorCode = message.toLowerCase().includes("timeout") ? "TIMEOUT" : "VALIDATION_ERROR"
-      }
-      const fallback = buildFallbackPlan({
-        start,
-        end,
-        workouts: (workouts ?? []).map((workout) => ({
-          workout_day: workout.workout_day,
-          workout_type: workout.workout_type ?? null,
-          tss: workout.tss ?? null,
-          rpe: workout.rpe ?? null,
-          if: workout.if ?? null,
-        })),
-        weightKg: profile?.weight_kg ?? 70,
-        mealsPerDay: profile?.meals_per_day ?? 3,
       })
-      console.log(`[${requestId}] Using fallback plan. Days: ${fallback.days.length}`)
-      aiResponse = fallback
-      aiRaw = { fallback: true, error: error instanceof Error ? error.message : String(error) }
+
+      return {
+        date: day.date,
+        day_type: day.day_type,
+        daily_targets: day.daily_targets,
+        meals,
+        rationale: "Deterministic targets with recipe selection for consistent macro adherence.",
+      }
+    })
+
+    let aiResponse: AiResponse = {
+      days,
+      rationale: "Deterministic targets with recipe selection for consistent macro adherence.",
     }
+
+    let aiRaw: unknown = { days, deterministic: true }
+    const tokens = null
+    const latencyMs = 0
+    const aiErrorCode = null
 
     const promptHash = crypto
       .createHash("sha256")
-      .update(`${systemPrompt}:${JSON.stringify(payloadForLogging)}`)
+      .update(`deterministic:${JSON.stringify(payloadForLogging)}`)
       .digest("hex")
     const promptPreview = buildPromptPreview(payloadForLogging)
     const responsePreview = aiResponse ? buildResponsePreview(aiResponse) : null
@@ -1290,7 +642,7 @@ export async function POST(req: NextRequest) {
       .from("ai_requests")
       .insert({
         user_id: user.id,
-        provider: "openai",
+        provider: "other",
         model,
         prompt_hash: promptHash,
         response_json: aiRaw,

@@ -7,6 +7,9 @@ const mockSupabase = () => {
     nutrition_plan_rows: { data: [], error: null },
     nutrition_meals: { data: [], error: null },
     tp_workouts: { data: [], error: null },
+    recipes: { data: [], error: null },
+    recipe_ingredients: { data: [], error: null },
+    recipe_steps: { data: [], error: null },
   }
 
   const builder = (table) => {
@@ -19,6 +22,8 @@ const mockSupabase = () => {
       lte: () => chain,
       order: () => chain,
       limit: () => chain,
+      or: () => chain,
+      in: () => chain,
       maybeSingle: async () => ({ data: table === "profiles" ? { weight_kg: 70, meals_per_day: 3 } : null, error: null }),
       single: async () => ({ data: { weight_kg: 70, meals_per_day: 3 }, error: null }),
       update: () => chain,
@@ -43,61 +48,9 @@ const mockSupabase = () => {
 }
 
 test("POST /api/ai/plan/generate returns ok with valid payload", async () => {
-  process.env.OPENAI_API_KEY = "test-key"
-  const fetchMock = mock.method(globalThis, "fetch", async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              days: [
-                {
-                  date: "2024-04-01",
-                  day_type: "rest",
-                  daily_targets: {
-                    kcal: 2000,
-                    protein_g: 150,
-                    carbs_g: 200,
-                    fat_g: 60,
-                    intra_cho_g_per_h: 0,
-                  },
-                  meals: [
-                    {
-                      slot: 1,
-                      meal_type: "breakfast",
-                      time: "08:00",
-                      emoji: "🍳",
-                      name: "Breakfast",
-                      kcal: 500,
-                      protein_g: 30,
-                      carbs_g: 60,
-                      fat_g: 15,
-                      recipe: {
-                        title: "Oats",
-                        servings: 1,
-                        ingredients: [{ name: "oats", quantity: 60, unit: "g" }],
-                        steps: ["Mix and cook."],
-                        notes: "Simple prep.",
-                      },
-                    },
-                  ],
-                  rationale: "Recovery-focused day.",
-                },
-              ],
-              rationale: "ok",
-            }),
-          },
-        },
-      ],
-      usage: { total_tokens: 100 },
-    }),
-  }))
-
-  mock.module("../../lib/supabase/server", {
-    createServerClient: async () => mockSupabase(),
-  })
+  const supabaseServer = await import("../../lib/supabase/server")
+  const mockClient = mockSupabase()
+  mock.method(supabaseServer, "createServerClient", async () => mockClient)
 
   const { POST } = await import("../../app/api/ai/plan/generate/route.ts")
   const req = new NextRequest("http://localhost/api/ai/plan/generate", {
@@ -110,5 +63,4 @@ test("POST /api/ai/plan/generate returns ok with valid payload", async () => {
   assert.equal(res.status, 200)
   assert.equal(json.ok, true)
   assert.equal(json.start, "2024-04-01")
-  fetchMock.mock.restore()
 })
