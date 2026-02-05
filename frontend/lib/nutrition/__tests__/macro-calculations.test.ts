@@ -1,3 +1,4 @@
+import { describe, test } from "node:test"
 import { generateSportsNutritionistPrompt, type NutritionistContext } from "../ai-nutritionist-prompt"
 
 /**

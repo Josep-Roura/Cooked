@@ -113,7 +113,7 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
 
   // Extract recipe data from JSONB field (prioritize JSONB over summary)
   const recipeJsonb = meal.recipe as RecipeFromJsonb | null
-  const title = meal.name // Now contains specific dish title (e.g., "Scrambled Eggs with Toast")
+  const title = recipeJsonb?.title ?? meal.name
   const description = meal.time ? `Planned for ${meal.time}` : "Meal time flexible"
   
   // Get ingredients from JSONB recipe
@@ -159,15 +159,15 @@ export function PlanDetailsModal({ open, onOpenChange, meal, onDelete }: PlanDet
             {ingredients.length > 0 ? (
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {ingredients.map((ingredient, idx) => {
-                  // Support both JSONB format (with quantity/unit) and DB format (with id)
                   const name = ingredient.name || ""
                   const quantity = "quantity" in ingredient ? ingredient.quantity : null
                   const unit = "unit" in ingredient ? ingredient.unit : null
-                  
+                  const hasQuantity = quantity !== null && quantity !== undefined && quantity !== ""
+
                   return (
                     <li key={idx}>
                       {name}
-                      {quantity ? ` · ${quantity}` : ""}
+                      {hasQuantity ? ` · ${quantity}` : ""}
                       {unit ? ` ${unit}` : ""}
                     </li>
                   )

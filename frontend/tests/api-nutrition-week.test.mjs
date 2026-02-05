@@ -78,9 +78,9 @@ const mockSupabase = () => {
 }
 
 test("GET /api/v1/nutrition/week returns consistent shape", async () => {
-  mock.module("../../lib/supabase/server", {
-    createServerClient: async () => mockSupabase(),
-  })
+  const supabaseServer = await import("../../lib/supabase/server")
+  const mockClient = mockSupabase()
+  mock.method(supabaseServer, "createServerClient", async () => mockClient)
 
   const { GET } = await import("../../app/api/v1/nutrition/week/route.ts")
   const req = new NextRequest("http://localhost/api/v1/nutrition/week?start=2024-04-01&end=2024-04-07")

@@ -4,7 +4,11 @@ export function parseIsoDate(value: string) {
   if (!ISO_DATE_REGEX.test(value)) return null
   const [year, month, day] = value.split("-").map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
-  return Number.isNaN(date.getTime()) ? null : date
+  if (Number.isNaN(date.getTime())) return null
+  if (date.getUTCFullYear() !== year) return null
+  if (date.getUTCMonth() !== month - 1) return null
+  if (date.getUTCDate() !== day) return null
+  return date
 }
 
 export function buildDateRange(start: string, end: string, maxDays: number) {

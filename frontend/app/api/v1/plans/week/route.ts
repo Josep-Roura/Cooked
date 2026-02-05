@@ -40,28 +40,37 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load plan meals", details: error.message }, { status: 400 })
     }
 
-    const hydratedMeals = (meals ?? []).map((meal: any) => ({
-      id: `${meal.date}:${meal.slot}`,
-      meal_plan_id: meal.id,
-      date: meal.date,
-      slot: meal.slot,
-      meal_type: meal.meal_type ?? null,
-      sort_order: meal.slot,
-      name: meal.name,
-      time: meal.time,
-      emoji: meal.emoji ?? null,
-      kcal: meal.kcal ?? 0,
-      protein_g: meal.protein_g ?? 0,
-      carbs_g: meal.carbs_g ?? 0,
-      fat_g: meal.fat_g ?? 0,
-      notes: meal.notes ?? null,
-      recipe_id: null,
-      created_at: meal.created_at,
-      updated_at: meal.updated_at,
-      locked: meal.locked ?? false,
-      recipe: meal.recipe ?? null,
-      recipe_ingredients: (meal.ingredients as Array<any>) ?? [],
-    }))
+    const hydratedMeals = (meals ?? []).map((meal: any) => {
+      const ingredients = (meal.ingredients as Array<any>) ?? []
+      const recipe = meal.recipe ?? null
+      const normalizedRecipe =
+        recipe && (!Array.isArray(recipe.ingredients) || recipe.ingredients.length === 0)
+          ? { ...recipe, ingredients }
+          : recipe
+
+      return {
+        id: `${meal.date}:${meal.slot}`,
+        meal_plan_id: meal.id,
+        date: meal.date,
+        slot: meal.slot,
+        meal_type: meal.meal_type ?? null,
+        sort_order: meal.slot,
+        name: meal.name,
+        time: meal.time,
+        emoji: meal.emoji ?? null,
+        kcal: meal.kcal ?? 0,
+        protein_g: meal.protein_g ?? 0,
+        carbs_g: meal.carbs_g ?? 0,
+        fat_g: meal.fat_g ?? 0,
+        notes: meal.notes ?? null,
+        recipe_id: null,
+        created_at: meal.created_at,
+        updated_at: meal.updated_at,
+        locked: meal.locked ?? false,
+        recipe: normalizedRecipe,
+        recipe_ingredients: ingredients,
+      }
+    })
 
     return NextResponse.json({ meals: hydratedMeals }, { status: 200 })
   } catch (error) {
