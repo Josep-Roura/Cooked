@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServerClient } from "@/lib/supabase/server"
-import { generateSportsNutritionistPrompt, type NutritionistContext } from "@/lib/nutrition/ai-nutritionist-prompt"
 import { getCountryCode, getCountryProducts, formatProductsForPrompt, getCountryName } from "@/lib/nutrition/country-products"
+import { computeFuelingTargets, buildScheduleSkeleton, deterministicFallbackItems } from "@/lib/nutrition/workoutFuelingEngine"
+import { validateFuelingPlan } from "@/lib/nutrition/workoutFuelingValidate"
+import { createWorkoutFuelingPrompt, parseFuelingPlanResponse, looksLikeValidJson } from "@/lib/nutrition/workoutFuelingPrompt"
+import type { AthleteProfile, WorkoutInput, FuelingPlan } from "@/lib/nutrition/workoutFuelingTypes"
 
 const duringWorkoutSchema = z.object({
   workoutId: z.union([z.string(), z.number()]).optional().transform(val => val ? String(val) : undefined),
@@ -14,6 +17,9 @@ const duringWorkoutSchema = z.object({
   description: z.string().optional(),
   workoutStartTime: z.string().optional(), // HH:MM format
   workoutEndTime: z.string().optional(),   // HH:MM format
+  sport: z.string().optional(), // e.g., "cycling", "running"
+  temperature_c: z.number().optional(),
+  humidity_pct: z.number().optional(),
   nearbyMealTimes: z.array(z.object({
     mealType: z.string(),
     time: z.string(), // HH:MM format
@@ -21,47 +27,38 @@ const duringWorkoutSchema = z.object({
   save: z.boolean().optional().default(true), // Whether to save to DB
 })
 
-// Schema for validating AI nutrition response (Spanish keys)
-const nutritionPlanSchema = z.object({
-  pre_entrenamiento: z.object({
-    productos_especificos: z.array(z.object({
-      producto: z.string(),
-      cantidad: z.number(),
-      unidad: z.string(),
-      carbohidratos_g: z.number().optional(),
-      proteina_g: z.number().optional(),
-      sodio_mg: z.number().optional(),
-    })).optional(),
-  }).optional(),
-  durante_entrenamiento: z.object({
-    carbohidratos_por_hora_g: z.number().optional(),
-    hidratacion_por_hora_ml: z.number().optional(),
-    sodio_por_hora_mg: z.number().optional(),
-    intervalo_minutos: z.number().optional(),
-    productos_intervalo: z.array(z.object({
-      producto: z.string(),
-      cantidad: z.number().optional(),
-      unidad: z.string().optional(),
-      frecuencia: z.string().optional(),
-    })).optional(),
-  }).optional(),
-  post_entrenamiento: z.object({
-    productos_especificos: z.array(z.object({
-      producto: z.string(),
-      cantidad: z.number(),
-      unidad: z.string(),
-      carbohidratos_g: z.number().optional(),
-      proteina_g: z.number().optional(),
-      tiempo_minutos: z.number().optional(),
-    })).optional(),
-  }).optional(),
-  rationale: z.string().optional(),
-  warnings: z.array(z.string()).optional(),
-}).passthrough() // Allow additional fields
+/**
+ * Convert athlete profile from DB to our type
+ */
+function mapDbProfileToAthleteProfile(profile: any): AthleteProfile {
+  return {
+    weight_kg: profile.weight_kg || 70,
+    age: profile.age || 30,
+    sex: profile.sex || "male",
+    experience_level: profile.experience_level || "intermediate",
+    sweat_rate: profile.sweat_rate || "medium",
+    gi_sensitivity: profile.gi_sensitivity || "low",
+    caffeine_use: profile.caffeine_use || "some",
+    primary_goal: profile.primary_goal || "maintenance",
+  }
+}
+
+/**
+ * Normalize intensity string to standard format
+ */
+function normalizeIntensity(intensity?: string): "low" | "moderate" | "high" | "very_high" {
+  if (!intensity) return "moderate"
+  const normalized = intensity.toLowerCase().replace("-", "_")
+  if (["low", "moderate", "high", "very_high"].includes(normalized)) {
+    return normalized as any
+  }
+  return "moderate"
+}
 
 export async function POST(request: NextRequest) {
   let requestId = crypto.randomUUID()
   const requestStartTime = Date.now()
+  
   try {
     const supabase = await createServerClient()
 
@@ -76,16 +73,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { 
-      workoutId, 
-      workoutDate, 
-      workoutType, 
-      durationMinutes, 
-      intensity, 
-      tss, 
-      description, 
-      workoutStartTime, 
-      workoutEndTime, 
+    const {
+      workoutId,
+      workoutDate,
+      workoutType,
+      durationMinutes,
+      intensity,
+      tss,
+      description,
+      workoutStartTime,
+      workoutEndTime,
+      sport,
+      temperature_c,
+      humidity_pct,
       nearbyMealTimes,
       save,
     } = duringWorkoutSchema.parse(body)
@@ -107,206 +107,236 @@ export async function POST(request: NextRequest) {
 
     console.log(`[${requestId}] User profile loaded: ${profile.weight_kg}kg, ${profile.experience_level}`)
 
-    // Map intensity to standard format
-    const normalizedIntensity = intensity?.toLowerCase() === "high intensity" 
-      ? "high" 
-      : intensity?.toLowerCase() === "very high" || intensity?.toLowerCase() === "very-high"
-      ? "very_high"
-      : intensity?.toLowerCase() === "low"
-      ? "low"
-      : "moderate" as const
+    // Convert profile to athlete profile
+    const athlete = mapDbProfileToAthleteProfile(profile)
 
-    // Get country-specific products
-    const userCountry = profile.country || "OTHER"
-    const countryCode = getCountryCode(userCountry)
-    const countryProducts = getCountryProducts(countryCode)
-    const formattedProducts = formatProductsForPrompt(countryProducts)
-    const countryName = getCountryName(countryCode)
+    // Normalize intensity
+    const normalizedIntensity = normalizeIntensity(intensity)
 
-    console.log(`[${requestId}] User country: ${userCountry} (${countryCode}) - ${countryName}`)
-    console.log(`[${requestId}] Available products for country: ${countryProducts.length} products`)
-
-    // Build nutritionist context
-    const nutritionistContext: NutritionistContext = {
-      athleteName: profile.full_name,
-      weight_kg: profile.weight_kg || 70,
-      age: profile.age || 30,
-      sex: profile.sex || "male",
-      experience_level: (profile.experience_level || "intermediate") as any,
-      sweat_rate: (profile.sweat_rate || "medium") as any,
-      gi_sensitivity: (profile.gi_sensitivity || "low") as any,
-      caffeine_use: (profile.caffeine_use || "some") as any,
-      primary_goal: (profile.primary_goal || "maintenance") as any,
-      workoutType: workoutType || "mixed",
-      durationMinutes,
+    // Build workout input
+    const workout: WorkoutInput = {
+      sport: sport || workoutType || "mixed",
+      duration_min: durationMinutes,
       intensity: normalizedIntensity,
-      description,
-      country: countryName,
-      availableProducts: formattedProducts,
+      start_time: workoutStartTime,
+      temperature_c,
+      humidity_pct,
     }
 
-    console.log(`[${requestId}] Generating sports nutritionist prompt...`)
+    console.log(`[${requestId}] Workout: ${workout.sport} ${workout.duration_min}min ${workout.intensity} intensity`)
 
-    // Generate professional sports nutritionist prompt
-    const prompt = generateSportsNutritionistPrompt(nutritionistContext)
+    // ============================================
+    // STEP 1: DETERMINISTIC ENGINE
+    // ============================================
+    console.log(`[${requestId}] Running deterministic fueling engine...`)
 
-    console.log(`[${requestId}] Calling OpenAI GPT-4o-mini...`)
+    const targets = computeFuelingTargets(athlete, workout)
+    console.log(`[${requestId}] Targets: ${targets.carbs_g_per_h}g carbs/h, ${targets.fluids_ml_per_h}ml fluids/h, ${targets.sodium_mg_per_h}mg sodium/h`)
 
-    // Call OpenAI with professional prompt
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "Eres un nutricionista deportivo experto. Responde ÚNICAMENTE con JSON válido. Sin explicaciones adicionales.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 3000,
-      }),
-    })
+    const skeleton = buildScheduleSkeleton(athlete, workout, targets)
+    console.log(`[${requestId}] Schedule: pre=${skeleton.pre.time}, during=${skeleton.during.length} intervals, post=${skeleton.post.time}`)
 
-    if (!openaiResponse.ok) {
-      const errorData = await openaiResponse.json().catch(() => ({}))
-      console.error(`[${requestId}] OpenAI error:`, errorData)
+    let basePlan = deterministicFallbackItems(athlete, workout, targets, skeleton)
+    console.log(`[${requestId}] Generated fallback plan with ${basePlan.pre_workout.items.length} pre, ${basePlan.during_workout.items.length} during, ${basePlan.post_workout.items.length} post items`)
+
+    // Validate fallback plan
+    const fallbackValidation = validateFuelingPlan(basePlan, athlete, workout, targets)
+    if (!fallbackValidation.ok) {
+      console.error(`[${requestId}] ⚠️ Fallback plan validation failed:`, fallbackValidation.errors)
+      // This should not happen if engine is correct, but return error if it does
       return NextResponse.json(
-        { error: "Failed to generate nutrition recommendation" },
+        { error: "Internal validation error in deterministic engine", details: fallbackValidation.errors },
         { status: 500 }
       )
     }
+    console.log(`[${requestId}] ✅ Fallback plan validated`)
 
-    const openaiData = await openaiResponse.json()
-    const aiContent = openaiData.choices?.[0]?.message?.content || ""
+    // ============================================
+    // STEP 2: AI ENHANCEMENT (OPTIONAL)
+    // ============================================
+    let finalPlan = basePlan
+    let usedFallback = true
 
-    console.log(`[${requestId}] OpenAI response received, parsing JSON...`)
+    if (process.env.OPENAI_API_KEY) {
+      console.log(`[${requestId}] OpenAI API available, attempting AI enhancement...`)
 
-    // Parse AI response as JSON
-    let nutritionPlan = null
-    try {
-      let jsonStr = aiContent.trim()
-      // Remove markdown code blocks if present
-      if (jsonStr.startsWith("```json")) {
-        jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "")
-      } else if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "")
-      }
-      
-      nutritionPlan = JSON.parse(jsonStr)
-      console.log(`[${requestId}] JSON parsed successfully`)
+      // Get country-specific products
+      const userCountry = profile.country || "OTHER"
+      const countryCode = getCountryCode(userCountry)
+      const countryProducts = getCountryProducts(countryCode)
+      const formattedProducts = formatProductsForPrompt(countryProducts)
 
-      // Validate the AI response structure
+      // Create prompt
+      const { system: systemPrompt, user: userMessage } = createWorkoutFuelingPrompt(
+        athlete,
+        workout,
+        targets,
+        skeleton,
+        formattedProducts,
+        profile.language || "en"
+      )
+
       try {
-        const validatedPlan = nutritionPlanSchema.parse(nutritionPlan)
-        nutritionPlan = validatedPlan
-        console.log(`[${requestId}] ✅ AI response validated successfully`)
-      } catch (validationError) {
-        console.warn(`[${requestId}] ⚠️ AI response validation warning:`, validationError)
-        // Log but don't fail - the plan may still be usable
-        // In production, you might want to be stricter about this
+        console.log(`[${requestId}] Calling OpenAI GPT-4o-mini...`)
+
+        const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userMessage,
+              },
+            ],
+            temperature: 0.7,
+            max_tokens: 3000,
+          }),
+        })
+
+        if (!openaiResponse.ok) {
+          const errorData = await openaiResponse.json().catch(() => ({}))
+          console.error(`[${requestId}] OpenAI error:`, errorData)
+          console.log(`[${requestId}] Falling back to deterministic plan`)
+        } else {
+          const openaiData = await openaiResponse.json()
+          const aiContent = openaiData.choices?.[0]?.message?.content || ""
+
+          console.log(`[${requestId}] OpenAI response received (${aiContent.length} chars)`)
+
+          // Parse AI response
+          if (looksLikeValidJson(aiContent)) {
+            const candidatePlan = parseFuelingPlanResponse(aiContent)
+
+            if (candidatePlan) {
+              console.log(`[${requestId}] AI response parsed as JSON`)
+
+              // Validate AI plan
+              const aiValidation = validateFuelingPlan(candidatePlan, athlete, workout, targets)
+              if (aiValidation.ok) {
+                finalPlan = candidatePlan
+                usedFallback = false
+                console.log(`[${requestId}] ✅ AI plan validated, using enhanced plan`)
+
+                // Log AI request to database
+                try {
+                  const latency = Date.now() - requestStartTime
+                  await supabase.from("ai_requests").insert({
+                    user_id: user.id,
+                    provider: "openai",
+                    model: "gpt-4o-mini",
+                    response_json: candidatePlan,
+                    status: "success",
+                    latency_ms: latency,
+                    tokens: openaiData.usage?.total_tokens || null,
+                  })
+                } catch (logError) {
+                  console.warn(`[${requestId}] Failed to log AI request:`, logError)
+                }
+              } else {
+                console.warn(`[${requestId}] ⚠️ AI plan validation failed:`, aiValidation.errors)
+                console.log(`[${requestId}] Falling back to deterministic plan`)
+              }
+            } else {
+              console.warn(`[${requestId}] Failed to parse AI response as FuelingPlan`)
+              console.log(`[${requestId}] Falling back to deterministic plan`)
+            }
+          } else {
+            console.warn(`[${requestId}] AI response does not look like valid JSON`)
+            console.log(`[${requestId}] Falling back to deterministic plan`)
+          }
+        }
+      } catch (aiError) {
+        console.error(`[${requestId}] AI enhancement failed:`, aiError)
+        console.log(`[${requestId}] Falling back to deterministic plan`)
       }
-    } catch (parseError) {
-      console.error(`[${requestId}] Failed to parse AI response as JSON:`, parseError)
+    } else {
+      console.log(`[${requestId}] No OpenAI API key, using deterministic plan only`)
+    }
+
+    // ============================================
+    // STEP 3: SAVE TO DATABASE (OPTIONAL)
+    // ============================================
+    let savedId = null
+    let saveError = null
+
+    if (save) {
+      try {
+        const nutritionData = {
+          user_id: user.id,
+          workout_id: workoutId || null,
+          workout_date: workoutDate || new Date().toISOString().split("T")[0],
+          workout_start_time: workoutStartTime || null,
+          workout_duration_min: durationMinutes,
+          workout_type: workoutType || sport || "mixed",
+
+          // Store deterministic targets
+          during_carbs_g_per_hour: targets.carbs_g_per_h,
+          during_hydration_ml_per_hour: targets.fluids_ml_per_h,
+          during_electrolytes_mg: targets.sodium_mg_per_h,
+
+          // Full plan
+          nutrition_plan_json: JSON.stringify(finalPlan),
+
+          // Metadata
+          used_ai_enhancement: !usedFallback,
+        }
+
+        const { data: savedRecord, error: dbError } = await supabase
+          .from("workout_nutrition")
+          .insert(nutritionData)
+          .select("id")
+          .single()
+
+        if (dbError) {
+          console.error(`[${requestId}] Failed to save nutrition plan:`, dbError)
+          saveError = dbError.message
+        } else if (savedRecord) {
+          savedId = savedRecord.id
+          console.log(`[${requestId}] Nutrition plan saved: ${savedId}`)
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        console.error(`[${requestId}] Error saving nutrition plan:`, error)
+        saveError = errorMessage
+      }
+    }
+
+    if (save && saveError) {
+      console.error(`[${requestId}] Aborting response due to save failure: ${saveError}`)
       return NextResponse.json(
-        { error: "Failed to parse AI response" },
+        { error: `Failed to save nutrition plan: ${saveError}` },
         { status: 500 }
       )
     }
 
-    // Log AI request to database if table exists
-    try {
-      const latency = Date.now() - requestStartTime
-      await supabase.from("ai_requests").insert({
-        user_id: user.id,
-        provider: "openai",
-        model: "gpt-4o-mini",
-        response_json: nutritionPlan,
-        status: "success",
-        latency_ms: latency,
-        tokens: openaiData.usage?.total_tokens || null,
-      })
-      console.log(`[${requestId}] AI request logged to database (${latency}ms)`)
-    } catch (logError) {
-      console.warn(`[${requestId}] Failed to log AI request:`, logError)
-      // Don't fail the request if logging fails
-    }
+    // ============================================
+    // STEP 4: RETURN RESPONSE
+    // ============================================
+    const latency = Date.now() - requestStartTime
 
-     // Save nutrition plan to database if requested
-     let savedId = null
-     let saveError = null
-     if (save) {
-       try {
-         const nutritionData = {
-           user_id: user.id,
-           workout_id: workoutId || null,
-           workout_date: workoutDate || new Date().toISOString().split('T')[0],
-           workout_start_time: workoutStartTime || null,
-           workout_duration_min: durationMinutes,
-           workout_type: workoutType || null,
-           
-           // Store AI response
-           during_carbs_g_per_hour: nutritionPlan?.durante_entrenamiento?.carbohidratos_por_hora_g,
-           during_hydration_ml_per_hour: nutritionPlan?.durante_entrenamiento?.hidratacion_por_hora_ml,
-           during_electrolytes_mg: nutritionPlan?.durante_entrenamiento?.sodio_por_hora_mg,
-           
-           // Full AI recommendations
-           during_workout_recommendation: JSON.stringify(nutritionPlan?.durante_entrenamiento),
-           pre_workout_recommendation: JSON.stringify(nutritionPlan?.pre_entrenamiento),
-           post_workout_recommendation: JSON.stringify(nutritionPlan?.post_entrenamiento),
-           
-           // Complete plan
-           nutrition_plan_json: JSON.stringify(nutritionPlan),
-         }
-
-         const { data: savedRecord, error: dbError } = await supabase
-           .from("workout_nutrition")
-           .insert(nutritionData)
-           .select("id")
-           .single()
-
-         if (dbError) {
-           console.error(`[${requestId}] Failed to save nutrition plan:`, dbError)
-           saveError = dbError.message
-         } else if (savedRecord) {
-           savedId = savedRecord.id
-           console.log(`[${requestId}] Nutrition plan saved: ${savedId}`)
-         }
-       } catch (error) {
-         const errorMessage = error instanceof Error ? error.message : String(error)
-         console.error(`[${requestId}] Error saving nutrition plan:`, error)
-         saveError = errorMessage
-       }
-     }
-
-     // If save was requested but failed, return error
-     if (save && saveError) {
-       console.error(`[${requestId}] Aborting response due to save failure: ${saveError}`)
-       return NextResponse.json(
-         { error: `Failed to save nutrition plan: ${saveError}` },
-         { status: 500 }
-       )
-     }
-
-    console.log(`[${requestId}] Request complete, returning response`)
+    console.log(`[${requestId}] Request complete in ${latency}ms, returning response`)
 
     return NextResponse.json({
       ok: true,
-      nutrition: nutritionPlan,
-      plan: nutritionPlan,
+      plan: finalPlan,
+      targets,
+      used_fallback: usedFallback,
       saved: !!savedId,
       recordId: savedId,
-      source: "sports_nutritionist_ai",
-      model: "gpt-4o-mini",
+      generated_at: new Date().toISOString(),
+      duration_min: durationMinutes,
+      intensity: normalizedIntensity,
       requestId,
+      latency_ms: latency,
     })
   } catch (error) {
     console.error(`[${requestId}] Error in nutrition endpoint:`, error)
