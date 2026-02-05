@@ -183,7 +183,9 @@ function parseRecipeRow(headers: string[], values: string[]): ParsedRecipe | nul
  * Upload recipes to Supabase
  */
 async function uploadRecipes() {
+  const startTime = Date.now()
   console.log(`📖 Reading recipes from: ${csvPath}`)
+  console.log(`🕐 Started at: ${new Date().toISOString()}\n`)
 
   const fileStream = fs.createReadStream(csvPath)
   const rl = readline.createInterface({
@@ -307,6 +309,7 @@ async function uploadRecipes() {
 
         if (ingredientError) {
           console.error(`⚠️  Error inserting ingredients for "${recipe.title}":`, ingredientError.message)
+          // Don't skip the whole recipe, continue
         }
       }
 
@@ -323,6 +326,7 @@ async function uploadRecipes() {
 
         if (stepError) {
           console.error(`⚠️  Error inserting steps for "${recipe.title}":`, stepError.message)
+          // Don't skip the whole recipe, continue
         }
       }
 
@@ -331,6 +335,13 @@ async function uploadRecipes() {
       if (successCount % 50 === 0) {
         console.log(`  📝 ${successCount} recipes uploaded...`)
       }
+
+      // Also log every 100 for visibility
+      if (successCount % 100 === 0) {
+        const elapsed = Date.now() - startTime
+        const perSecond = successCount / (elapsed / 1000)
+        console.log(`  ⏱️  ${successCount} done - ${perSecond.toFixed(1)} recipes/sec`)
+      }
     } catch (error) {
       console.error(`❌ Unexpected error processing recipe "${recipe.title}":`, error)
       skipCount++
@@ -338,6 +349,8 @@ async function uploadRecipes() {
   }
 
   console.log("\n✅ Upload complete!")
+  const elapsed = Date.now() - startTime
+  console.log(`⏱️  Total time: ${(elapsed / 1000 / 60).toFixed(1)} minutes`)
   console.log(`  📊 Total rows: ${rowCount - 1}`)
   console.log(`  ✅ Successful: ${successCount}`)
   console.log(`  ⏭️  Skipped: ${skipCount}`)
